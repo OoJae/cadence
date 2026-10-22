@@ -1,0 +1,2048 @@
+{
+  "tool": "cadence-decode 0.0.1 scan",
+  "network": "test",
+  "server": "https://testnet.zec.rocks:443",
+  "from": 4529200,
+  "to": 4529270,
+  "chain_tip": 4529319,
+  "anchor_search": 40,
+  "generated_at_unix": 1792680822,
+  "notes": [],
+  "stats": {
+    "blocks": 71,
+    "compact_txs": 90,
+    "orchard_family_txs": 29,
+    "decoded": 29,
+    "decoded_from_cache": 0,
+    "failed": 0,
+    "transparent_data_in_compact_blocks": true,
+    "tree_root_dedupe": true,
+    "tree_state_window": [
+      4529160,
+      4529270
+    ],
+    "tree_states_fetched": 31,
+    "tree_states_from_cache": 0,
+    "tree_states_derived": 80,
+    "transactions_fetched": 29,
+    "retries": 0,
+    "elapsed_secs": {
+      "blocks": 0.4,
+      "tree_states": 2.45,
+      "transactions": 1.65,
+      "total": 4.67
+    },
+    "ms_per_block": 66.0
+  },
+  "population": {
+    "compact_by_pools": [
+      {
+        "label": "coinbase transparent",
+        "count": 60,
+        "share": 0.6667
+      },
+      {
+        "label": "ironwood",
+        "count": 17,
+        "share": 0.1889
+      },
+      {
+        "label": "coinbase ironwood",
+        "count": 11,
+        "share": 0.1222
+      },
+      {
+        "label": "transparent",
+        "count": 1,
+        "share": 0.0111
+      },
+      {
+        "label": "transparent+ironwood",
+        "count": 1,
+        "share": 0.0111
+      }
+    ],
+    "compact_by_class": [
+      {
+        "label": "coinbase t:0in/1out",
+        "count": 60,
+        "share": 0.6667
+      },
+      {
+        "label": "coinbase ironwood:1",
+        "count": 11,
+        "share": 0.1222
+      },
+      {
+        "label": "ironwood:2",
+        "count": 11,
+        "share": 0.1222
+      },
+      {
+        "label": "ironwood:3",
+        "count": 6,
+        "share": 0.0667
+      },
+      {
+        "label": "t:0in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0111
+      },
+      {
+        "label": "t:1in/2out",
+        "count": 1,
+        "share": 0.0111
+      }
+    ],
+    "decoded_by_class": [
+      {
+        "label": "V6 ironwood:2",
+        "count": 11,
+        "share": 0.3793
+      },
+      {
+        "label": "V6 t:1in/0out + ironwood:1",
+        "count": 11,
+        "share": 0.3793
+      },
+      {
+        "label": "V6 ironwood:3",
+        "count": 6,
+        "share": 0.2069
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0345
+      }
+    ]
+  },
+  "classes": [
+    {
+      "id": "cadence_class",
+      "description": "V6, Ironwood-only (0 transparent, 0 Sapling, 0 Orchard-pool), 2 Ironwood actions: the shape Cadence installments use",
+      "count": 11,
+      "members": [
+        "8cd766eefcb046ad09b51bb30b38c09c184c2166cb874ed49ee3cf4f24e18c2f",
+        "1d54479f582de54479e1ba033ed06141c823f0b2ececd488aaf5c338adb5d951",
+        "f7bacff467ab8caa8b139c2402870fd0ae64fe333db4701573b93ed69f41aca1",
+        "6609fe6c3e59b891cc565385bdb6e65411c0598c3470a8140a35a2bf9044f8dd",
+        "5abbca735d2c427ee0cddde30b3d07b74acdadb0f614b334cd695a2144a88592",
+        "01dc7117f4af680c2817c186063d842a4c1357cccf2a6eb94aefc5f7ee7a4f69",
+        "4405a28ebfa5a5e25bc82eeaa4d097ff4b3702510a094df8bbe308724b698eed",
+        "ff680c9f12695e7175f6601433b1846c400780cf2958d1cb4a9bea212ccc587e",
+        "7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790",
+        "c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2",
+        "edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900"
+      ],
+      "members_truncated": false,
+      "histograms": [
+        {
+          "field": "fee",
+          "buckets": [
+            {
+              "value": "10000",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "expiry_minus_mined",
+          "buckets": [
+            {
+              "value": "115",
+              "count": 2,
+              "share": 0.1818
+            },
+            {
+              "value": "117",
+              "count": 2,
+              "share": 0.1818
+            },
+            {
+              "value": "119",
+              "count": 2,
+              "share": 0.1818
+            },
+            {
+              "value": "36",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "118",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "3435",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "8067",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "8193",
+              "count": 1,
+              "share": 0.0909
+            }
+          ]
+        },
+        {
+          "field": "min_anchor_depth",
+          "buckets": [
+            {
+              "value": "1",
+              "count": 5,
+              "share": 0.4545
+            },
+            {
+              "value": "2",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "4",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "7",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "9",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "32",
+              "count": 1,
+              "share": 0.0909
+            }
+          ]
+        },
+        {
+          "field": "flags",
+          "buckets": [
+            {
+              "value": "7",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "lock_time",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "proof_bytes",
+          "buckets": [
+            {
+              "value": "7264",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "zero_ovk_recoverable",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "branch_id",
+          "buckets": [
+            {
+              "value": "77190ad9",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "version",
+          "buckets": [
+            {
+              "value": "V6",
+              "count": 11,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "joint",
+          "buckets": [
+            {
+              "value": "fee=10000 expiry_minus_mined=115 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 2,
+              "share": 0.1818
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=117 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=117 min_anchor_depth=6 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=118 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=119 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=119 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=3435 min_anchor_depth=32 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=36 min_anchor_depth=7 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=8067 min_anchor_depth=9 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=8193 min_anchor_depth=4 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+              "count": 1,
+              "share": 0.0909
+            }
+          ]
+        },
+        {
+          "field": "anchor_offset_from_target",
+          "buckets": [
+            {
+              "value": "unknown",
+              "count": 4,
+              "share": 0.3636
+            },
+            {
+              "value": "1..3",
+              "count": 2,
+              "share": 0.1818
+            },
+            {
+              "value": "1..2",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "1..4",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "1..6",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "3..10",
+              "count": 1,
+              "share": 0.0909
+            },
+            {
+              "value": "3..9",
+              "count": 1,
+              "share": 0.0909
+            }
+          ]
+        }
+      ],
+      "anchor_offset_known": 7,
+      "anchor_offset_consistency": [
+        {
+          "offset": 1,
+          "consistent": 5,
+          "share": 0.7143
+        },
+        {
+          "offset": 2,
+          "consistent": 5,
+          "share": 0.7143
+        },
+        {
+          "offset": 3,
+          "consistent": 6,
+          "share": 0.8571
+        },
+        {
+          "offset": 4,
+          "consistent": 4,
+          "share": 0.5714
+        },
+        {
+          "offset": 5,
+          "consistent": 3,
+          "share": 0.4286
+        },
+        {
+          "offset": 6,
+          "consistent": 3,
+          "share": 0.4286
+        },
+        {
+          "offset": 7,
+          "consistent": 2,
+          "share": 0.2857
+        },
+        {
+          "offset": 8,
+          "consistent": 2,
+          "share": 0.2857
+        },
+        {
+          "offset": 9,
+          "consistent": 2,
+          "share": 0.2857
+        },
+        {
+          "offset": 10,
+          "consistent": 1,
+          "share": 0.1429
+        }
+      ]
+    },
+    {
+      "id": "orchard_analog",
+      "description": "Orchard-pool only (0 transparent, 0 Sapling, 0 Ironwood), 2 Orchard actions, any version: the pre-Ironwood equivalent of the Cadence class",
+      "count": 0,
+      "members": [],
+      "members_truncated": false,
+      "histograms": [],
+      "anchor_offset_known": 0
+    },
+    {
+      "id": "all_orchard_family",
+      "description": "Every transaction with Orchard-pool or Ironwood actions, any shape",
+      "count": 29,
+      "members": [
+        "1a7d5a5c977b22a6e675a515e40952452c5f253f4af3eaef23d04d13f4bf336c",
+        "8cd766eefcb046ad09b51bb30b38c09c184c2166cb874ed49ee3cf4f24e18c2f",
+        "1d54479f582de54479e1ba033ed06141c823f0b2ececd488aaf5c338adb5d951",
+        "874c221380e3322eab79ef9e229fa0cedb326a0a8df9555b39fb1bf7896ccadb",
+        "f7bacff467ab8caa8b139c2402870fd0ae64fe333db4701573b93ed69f41aca1",
+        "9ad25ac1988cb63f9e2f6cbc9b700971d6ce8a5af32f3f69e0ec278e1435d0ad",
+        "b5bef5ff10af2fade026f8565fb6447804d57420acf718a8700fbecbb8a69487",
+        "76c06677347751d53e13f49df070d7b09d59261f551f4378cd7459ba4aed119c",
+        "14e0a53f43caa21cfaf6fa95d20c12fa1ddf2d6d3b29550e9d03ea3e87e48a3e",
+        "6609fe6c3e59b891cc565385bdb6e65411c0598c3470a8140a35a2bf9044f8dd",
+        "5abbca735d2c427ee0cddde30b3d07b74acdadb0f614b334cd695a2144a88592",
+        "469310c1e7b95a8e6cd45ce41837aa78445ad46e8ed4982a0e218993453938f4",
+        "01dc7117f4af680c2817c186063d842a4c1357cccf2a6eb94aefc5f7ee7a4f69",
+        "5064f22168d7cd9cd738ff11db8d0775de6bb3b0b4ec20d54fe6d96bbc5f43b0",
+        "5d731589a014db4ac7afb68d90fb9f1ac781b8b7b1554bf2bdf18f0994c974f5",
+        "f95697079ee6f54cd4ed13d759fbf9ceb3ecc1807629d16401672019b470bfde",
+        "4405a28ebfa5a5e25bc82eeaa4d097ff4b3702510a094df8bbe308724b698eed",
+        "5d1211fda95368c1d9cb3ee4c35840dc995df9928ccf5b9465820e037b854a7d",
+        "c8c74a4c98234635921a1be05bc9315c1c0ca4ca1d8d317b1ccd9129e27d7e95",
+        "d35cc3102e9622516fad497cc9cdff6bd78e902db0a865091a00601282f50056",
+        "8cdfe1a457569c1f6c5b7e154d7acc78255c9a39f98ff46bb7fb039be6a245d9",
+        "ff680c9f12695e7175f6601433b1846c400780cf2958d1cb4a9bea212ccc587e",
+        "7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790",
+        "c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2",
+        "b6b9bc75330863ed7dea3c216316f6781fe7129e406c46ced5efdd7fcd867165",
+        "35d04c5c72b8f45e844a43666614d449bcaaebd681403f74e5526a2a410ae3a7",
+        "edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900",
+        "d1a84c35b3e692687efe9466a1a479c9f8c7f6377abb14abf4299ab0a510886d",
+        "16d155cb8c44d83efce1ff4500245346a1409c6a61fd493f944ef82240296753"
+      ],
+      "members_truncated": false,
+      "histograms": [
+        {
+          "field": "pools",
+          "buckets": [
+            {
+              "value": "ironwood",
+              "count": 17,
+              "share": 0.5862
+            },
+            {
+              "value": "transparent+ironwood",
+              "count": 12,
+              "share": 0.4138
+            }
+          ]
+        },
+        {
+          "field": "version",
+          "buckets": [
+            {
+              "value": "V6",
+              "count": 29,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "branch_id",
+          "buckets": [
+            {
+              "value": "77190ad9",
+              "count": 29,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "fee",
+          "buckets": [
+            {
+              "value": "10000",
+              "count": 11,
+              "share": 0.3793
+            },
+            {
+              "value": "unknown(transparent inputs)",
+              "count": 11,
+              "share": 0.3793
+            },
+            {
+              "value": "15000",
+              "count": 7,
+              "share": 0.2414
+            }
+          ]
+        },
+        {
+          "field": "expiry_minus_mined",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 11,
+              "share": 0.3793
+            },
+            {
+              "value": "115",
+              "count": 4,
+              "share": 0.1379
+            },
+            {
+              "value": "38",
+              "count": 2,
+              "share": 0.069
+            },
+            {
+              "value": "117",
+              "count": 2,
+              "share": 0.069
+            },
+            {
+              "value": "119",
+              "count": 2,
+              "share": 0.069
+            },
+            {
+              "value": "34",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "36",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "39",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "40",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "118",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "3435",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "8067",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "8193",
+              "count": 1,
+              "share": 0.0345
+            }
+          ]
+        },
+        {
+          "field": "lock_time",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 29,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "ironwood_min_anchor_depth",
+          "buckets": [
+            {
+              "value": "empty-tree-root",
+              "count": 11,
+              "share": 0.3793
+            },
+            {
+              "value": "1",
+              "count": 7,
+              "share": 0.2414
+            },
+            {
+              "value": "7",
+              "count": 3,
+              "share": 0.1034
+            },
+            {
+              "value": "9",
+              "count": 2,
+              "share": 0.069
+            },
+            {
+              "value": "2",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "4",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "6",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "8",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "16",
+              "count": 1,
+              "share": 0.0345
+            },
+            {
+              "value": "32",
+              "count": 1,
+              "share": 0.0345
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "compare": [
+    {
+      "txid": "7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790",
+      "class": "cadence_class",
+      "class_description": "V6, Ironwood-only (0 transparent, 0 Sapling, 0 Orchard-pool), 2 Ironwood actions: the shape Cadence installments use",
+      "in_scanned_range": true,
+      "class_size": 11,
+      "class_size_excluding_compared": 8,
+      "fields": [
+        {
+          "field": "fee",
+          "value": "10000",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "expiry_minus_mined",
+          "value": "119",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 1,
+          "share_excluding_compared": 0.125
+        },
+        {
+          "field": "min_anchor_depth",
+          "value": "2",
+          "count": 1,
+          "share": 0.0909,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        },
+        {
+          "field": "flags",
+          "value": "7",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "lock_time",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "proof_bytes",
+          "value": "7264",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "zero_ovk_recoverable",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "branch_id",
+          "value": "77190ad9",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "version",
+          "value": "V6",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "joint",
+          "value": "fee=10000 expiry_minus_mined=119 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+          "count": 1,
+          "share": 0.0909,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        },
+        {
+          "field": "anchor_offset_from_target",
+          "value": "1..3",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        }
+      ],
+      "shape": {
+        "txid": "7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529367,
+        "mined_height": 4529248,
+        "expiry_minus_mined": 119,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "cc9e8c6f91a4d6e725a5d64d85a89ff591d18f7aa78515a8c0e80fd57b7cfd3d",
+        "anchor_heights": [
+          4529244,
+          4529246
+        ],
+        "anchor_depths": [
+          2,
+          4
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "txid": "c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2",
+      "class": "cadence_class",
+      "class_description": "V6, Ironwood-only (0 transparent, 0 Sapling, 0 Orchard-pool), 2 Ironwood actions: the shape Cadence installments use",
+      "in_scanned_range": true,
+      "class_size": 11,
+      "class_size_excluding_compared": 8,
+      "fields": [
+        {
+          "field": "fee",
+          "value": "10000",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "expiry_minus_mined",
+          "value": "117",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 1,
+          "share_excluding_compared": 0.125
+        },
+        {
+          "field": "min_anchor_depth",
+          "value": "1",
+          "count": 5,
+          "share": 0.4545,
+          "count_excluding_compared": 3,
+          "share_excluding_compared": 0.375
+        },
+        {
+          "field": "flags",
+          "value": "7",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "lock_time",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "proof_bytes",
+          "value": "7264",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "zero_ovk_recoverable",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "branch_id",
+          "value": "77190ad9",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "version",
+          "value": "V6",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "joint",
+          "value": "fee=10000 expiry_minus_mined=117 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+          "count": 1,
+          "share": 0.0909,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        },
+        {
+          "field": "anchor_offset_from_target",
+          "value": "1..4",
+          "count": 1,
+          "share": 0.0909,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        }
+      ],
+      "shape": {
+        "txid": "c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529372,
+        "mined_height": 4529255,
+        "expiry_minus_mined": 117,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "0017d6b1a81ea98c323491640192c7289d0e961796d5765db1ef9ee208dc6312",
+        "anchor_heights": [
+          4529248,
+          4529254
+        ],
+        "anchor_depths": [
+          1,
+          7
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "txid": "edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900",
+      "class": "cadence_class",
+      "class_description": "V6, Ironwood-only (0 transparent, 0 Sapling, 0 Orchard-pool), 2 Ironwood actions: the shape Cadence installments use",
+      "in_scanned_range": true,
+      "class_size": 11,
+      "class_size_excluding_compared": 8,
+      "fields": [
+        {
+          "field": "fee",
+          "value": "10000",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "expiry_minus_mined",
+          "value": "115",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 1,
+          "share_excluding_compared": 0.125
+        },
+        {
+          "field": "min_anchor_depth",
+          "value": "1",
+          "count": 5,
+          "share": 0.4545,
+          "count_excluding_compared": 3,
+          "share_excluding_compared": 0.375
+        },
+        {
+          "field": "flags",
+          "value": "7",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "lock_time",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "proof_bytes",
+          "value": "7264",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "zero_ovk_recoverable",
+          "value": "0",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "branch_id",
+          "value": "77190ad9",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "version",
+          "value": "V6",
+          "count": 11,
+          "share": 1.0,
+          "count_excluding_compared": 8,
+          "share_excluding_compared": 1.0
+        },
+        {
+          "field": "joint",
+          "value": "fee=10000 expiry_minus_mined=115 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=77190ad9 version=V6",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 1,
+          "share_excluding_compared": 0.125
+        },
+        {
+          "field": "anchor_offset_from_target",
+          "value": "1..3",
+          "count": 2,
+          "share": 0.1818,
+          "count_excluding_compared": 0,
+          "share_excluding_compared": 0.0
+        }
+      ],
+      "shape": {
+        "txid": "edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529378,
+        "mined_height": 4529263,
+        "expiry_minus_mined": 115,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "899b5d20258f0af07b82601f34f7f246f0fa1cbe3159b984bf8dab03e0019332",
+        "anchor_heights": [
+          4529255,
+          4529262
+        ],
+        "anchor_depths": [
+          1,
+          8
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    }
+  ],
+  "failures": [],
+  "records": [
+    {
+      "height": 4529203,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "1a7d5a5c977b22a6e675a515e40952452c5f253f4af3eaef23d04d13f4bf336c",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529203,
+        "mined_height": 4529203,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26045666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529203,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "8cd766eefcb046ad09b51bb30b38c09c184c2166cb874ed49ee3cf4f24e18c2f",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529321,
+        "mined_height": 4529203,
+        "expiry_minus_mined": 118,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "a77c8025fb548bb225657a97bdf2f0b3110dc9301bb776ca487e2098bce0f12d",
+        "anchor_heights": [
+          4529195,
+          4529202
+        ],
+        "anchor_depths": [
+          1,
+          8
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529204,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "1d54479f582de54479e1ba033ed06141c823f0b2ececd488aaf5c338adb5d951",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529323,
+        "mined_height": 4529204,
+        "expiry_minus_mined": 119,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "dd78362b703a9be517711183242b836432d2309a4f934b93771a9c8cd1c13101",
+        "anchor_heights": [
+          4529203,
+          4529203
+        ],
+        "anchor_depths": [
+          1,
+          1
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529209,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "874c221380e3322eab79ef9e229fa0cedb326a0a8df9555b39fb1bf7896ccadb",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529209,
+        "mined_height": 4529209,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26063666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529209,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "f7bacff467ab8caa8b139c2402870fd0ae64fe333db4701573b93ed69f41aca1",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529245,
+        "mined_height": 4529209,
+        "expiry_minus_mined": 36,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "a77c8025fb548bb225657a97bdf2f0b3110dc9301bb776ca487e2098bce0f12d",
+        "anchor_heights": [
+          4529195,
+          4529202
+        ],
+        "anchor_depths": [
+          7,
+          14
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529209,
+      "index": 2,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "9ad25ac1988cb63f9e2f6cbc9b700971d6ce8a5af32f3f69e0ec278e1435d0ad",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529324,
+        "mined_height": 4529209,
+        "expiry_minus_mined": 115,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "a77c8025fb548bb225657a97bdf2f0b3110dc9301bb776ca487e2098bce0f12d",
+        "anchor_heights": [
+          4529195,
+          4529202
+        ],
+        "anchor_depths": [
+          7,
+          14
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529209,
+      "index": 3,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "b5bef5ff10af2fade026f8565fb6447804d57420acf718a8700fbecbb8a69487",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529324,
+        "mined_height": 4529209,
+        "expiry_minus_mined": 115,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "1f29b5fa39f0c43f3d515aebd5ce905e14b4ad2c2056c5c6051e3a71b2a3101b",
+        "anchor_heights": [
+          4529204,
+          4529208
+        ],
+        "anchor_depths": [
+          1,
+          5
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529209,
+      "index": 4,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "76c06677347751d53e13f49df070d7b09d59261f551f4378cd7459ba4aed119c",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529247,
+        "mined_height": 4529209,
+        "expiry_minus_mined": 38,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "a77c8025fb548bb225657a97bdf2f0b3110dc9301bb776ca487e2098bce0f12d",
+        "anchor_heights": [
+          4529195,
+          4529202
+        ],
+        "anchor_depths": [
+          7,
+          14
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529216,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "14e0a53f43caa21cfaf6fa95d20c12fa1ddf2d6d3b29550e9d03ea3e87e48a3e",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529216,
+        "mined_height": 4529216,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26045666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529216,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "6609fe6c3e59b891cc565385bdb6e65411c0598c3470a8140a35a2bf9044f8dd",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529331,
+        "mined_height": 4529216,
+        "expiry_minus_mined": 115,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "844ac1ac1cfb531292fabbf7b43a3417af340962fe8e1a2ded15b6e6f8271321",
+        "anchor_heights": [
+          4529209,
+          4529215
+        ],
+        "anchor_depths": [
+          1,
+          7
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529218,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "5abbca735d2c427ee0cddde30b3d07b74acdadb0f614b334cd695a2144a88592",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4532653,
+        "mined_height": 4529218,
+        "expiry_minus_mined": 3435,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "6a06a645e356166cad1fb9799e97162c6e51ff8b5ebc773893c15c4cac393911",
+        "anchor_heights": [
+          4529182,
+          4529186
+        ],
+        "anchor_depths": [
+          32,
+          36
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529221,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "469310c1e7b95a8e6cd45ce41837aa78445ad46e8ed4982a0e218993453938f4",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529221,
+        "mined_height": 4529221,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26045666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529221,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "01dc7117f4af680c2817c186063d842a4c1357cccf2a6eb94aefc5f7ee7a4f69",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529338,
+        "mined_height": 4529221,
+        "expiry_minus_mined": 117,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "844ac1ac1cfb531292fabbf7b43a3417af340962fe8e1a2ded15b6e6f8271321",
+        "anchor_heights": [
+          4529209,
+          4529215
+        ],
+        "anchor_depths": [
+          6,
+          12
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529223,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "5064f22168d7cd9cd738ff11db8d0775de6bb3b0b4ec20d54fe6d96bbc5f43b0",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529223,
+        "mined_height": 4529223,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26047666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529223,
+      "index": 1,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "5d731589a014db4ac7afb68d90fb9f1ac781b8b7b1554bf2bdf18f0994c974f5",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529261,
+        "mined_height": 4529223,
+        "expiry_minus_mined": 38,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "844ac1ac1cfb531292fabbf7b43a3417af340962fe8e1a2ded15b6e6f8271321",
+        "anchor_heights": [
+          4529209,
+          4529215
+        ],
+        "anchor_depths": [
+          8,
+          14
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529229,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "f95697079ee6f54cd4ed13d759fbf9ceb3ecc1807629d16401672019b470bfde",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529229,
+        "mined_height": 4529229,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26045666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529229,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "4405a28ebfa5a5e25bc82eeaa4d097ff4b3702510a094df8bbe308724b698eed",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4537296,
+        "mined_height": 4529229,
+        "expiry_minus_mined": 8067,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "f6671722d7fff60a7144da507db3a7db65cf7dc3f2f73355cb413dbceb04c126",
+        "anchor_heights": [
+          4529218,
+          4529220
+        ],
+        "anchor_depths": [
+          9,
+          11
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529235,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "5d1211fda95368c1d9cb3ee4c35840dc995df9928ccf5b9465820e037b854a7d",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529235,
+        "mined_height": 4529235,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26041666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529236,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "c8c74a4c98234635921a1be05bc9315c1c0ca4ca1d8d317b1ccd9129e27d7e95",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529236,
+        "mined_height": 4529236,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26041666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529244,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "d35cc3102e9622516fad497cc9cdff6bd78e902db0a865091a00601282f50056",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529244,
+        "mined_height": 4529244,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26047666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529244,
+      "index": 1,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "8cdfe1a457569c1f6c5b7e154d7acc78255c9a39f98ff46bb7fb039be6a245d9",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529278,
+        "mined_height": 4529244,
+        "expiry_minus_mined": 34,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "775793d7c996e574e5f6e36532a569d1e5c7c0724236e6e354a003ba42c56826",
+        "anchor_heights": [
+          4529223,
+          4529228
+        ],
+        "anchor_depths": [
+          16,
+          21
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529247,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "ff680c9f12695e7175f6601433b1846c400780cf2958d1cb4a9bea212ccc587e",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4537440,
+        "mined_height": 4529247,
+        "expiry_minus_mined": 8193,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "d3e3e60e9817fbd1321cf1c9c3f9d550997a6083d5253c3591c744ae14848217",
+        "anchor_heights": [
+          4529236,
+          4529243
+        ],
+        "anchor_depths": [
+          4,
+          11
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529248,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529367,
+        "mined_height": 4529248,
+        "expiry_minus_mined": 119,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "cc9e8c6f91a4d6e725a5d64d85a89ff591d18f7aa78515a8c0e80fd57b7cfd3d",
+        "anchor_heights": [
+          4529244,
+          4529246
+        ],
+        "anchor_depths": [
+          2,
+          4
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529255,
+      "index": 1,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529372,
+        "mined_height": 4529255,
+        "expiry_minus_mined": 117,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "0017d6b1a81ea98c323491640192c7289d0e961796d5765db1ef9ee208dc6312",
+        "anchor_heights": [
+          4529248,
+          4529254
+        ],
+        "anchor_depths": [
+          1,
+          7
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529263,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "b6b9bc75330863ed7dea3c216316f6781fe7129e406c46ced5efdd7fcd867165",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529263,
+        "mined_height": 4529263,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26051666,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529263,
+      "index": 1,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "35d04c5c72b8f45e844a43666614d449bcaaebd681403f74e5526a2a410ae3a7",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529302,
+        "mined_height": 4529263,
+        "expiry_minus_mined": 39,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 3,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 15000,
+        "ironwood_anchor": "0017d6b1a81ea98c323491640192c7289d0e961796d5765db1ef9ee208dc6312",
+        "anchor_heights": [
+          4529248,
+          4529254
+        ],
+        "anchor_depths": [
+          9,
+          15
+        ],
+        "ironwood_proof_bytes": 9536,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529263,
+      "index": 2,
+      "coinbase": false,
+      "fee": 10000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529378,
+        "mined_height": 4529263,
+        "expiry_minus_mined": 115,
+        "transparent_inputs": 0,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 10000,
+        "ironwood_anchor": "899b5d20258f0af07b82601f34f7f246f0fa1cbe3159b984bf8dab03e0019332",
+        "anchor_heights": [
+          4529255,
+          4529262
+        ],
+        "anchor_depths": [
+          1,
+          8
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529266,
+      "index": 1,
+      "coinbase": false,
+      "fee": 15000,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "d1a84c35b3e692687efe9466a1a479c9f8c7f6377abb14abf4299ab0a510886d",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529306,
+        "mined_height": 4529266,
+        "expiry_minus_mined": 40,
+        "transparent_inputs": 0,
+        "transparent_outputs": 1,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 2,
+        "ironwood_flags": 7,
+        "ironwood_value_balance": 12515000,
+        "ironwood_anchor": "8b795ca2293ce3108da07f4d828fb280db817bb17dc07caa631138b354d9d901",
+        "anchor_heights": [
+          4529263,
+          4529265
+        ],
+        "anchor_depths": [
+          1,
+          3
+        ],
+        "ironwood_proof_bytes": 7264,
+        "zero_ovk_recoverable": 0,
+        "supplied_ovk_recoverable": 0
+      }
+    },
+    {
+      "height": 4529267,
+      "index": 0,
+      "coinbase": true,
+      "fee": null,
+      "anchor_search": 40,
+      "shape": {
+        "txid": "16d155cb8c44d83efce1ff4500245346a1409c6a61fd493f944ef82240296753",
+        "version": "V6",
+        "branch_id": "77190ad9",
+        "lock_time": 0,
+        "expiry_height": 4529267,
+        "mined_height": 4529267,
+        "expiry_minus_mined": 0,
+        "transparent_inputs": 1,
+        "transparent_outputs": 0,
+        "sapling_spends": 0,
+        "sapling_outputs": 0,
+        "orchard_actions": 0,
+        "ironwood_actions": 1,
+        "ironwood_flags": 6,
+        "ironwood_value_balance": -26064046,
+        "ironwood_anchor": "ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f",
+        "anchor_heights": null,
+        "anchor_depths": null,
+        "ironwood_proof_bytes": 4992,
+        "zero_ovk_recoverable": 1,
+        "supplied_ovk_recoverable": 0
+      }
+    }
+  ]
+}
