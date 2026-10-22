@@ -7,3 +7,4 @@ ladders/
 .cadence/
 .claude/
 .playwright-mcp/
+deploy/.env

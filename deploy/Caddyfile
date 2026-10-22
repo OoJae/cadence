@@ -1,0 +1,46 @@
+# The web app and both runners behind one TLS front. PUBLIC_HOST and SANDBOX_HOST
+# can be <ip>.sslip.io names, so no domain purchase is needed.
+{$PUBLIC_HOST} {
+	encode zstd gzip
+	header {
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Embedder-Policy require-corp
+		-Server
+	}
+	handle /api/* {
+		reverse_proxy runner-main:8737
+	}
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+	log {
+		output discard
+	}
+}
+
+{$SANDBOX_HOST} {
+	encode zstd gzip
+	header {
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Embedder-Policy require-corp
+		-Server
+	}
+	handle /api/* {
+		reverse_proxy runner-sandbox:8738
+	}
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+	log {
+		output discard
+	}
+}

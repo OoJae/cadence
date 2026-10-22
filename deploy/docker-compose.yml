@@ -1,0 +1,80 @@
+# Cadence production stack: our own Zcash mainnet node, the mainnet runner, the
+# testnet judge sandbox, the web app, and an onion service.
+#
+#   docker compose up -d zebra lightwalletd          # start syncing first (takes a while)
+#   docker compose up -d                             # everything
+#
+# Secrets come from deploy/.env (see .env.example). Only Caddy (80/443) and Zebra's
+# P2P port are published.
+services:
+  zebra:
+    image: zfnd/zebra:7.0.0
+    restart: unless-stopped
+    volumes:
+      - /mnt/cadence/zebra:/home/zebra/.cache/zebra
+    environment:
+      - ZEBRA_RPC__LISTEN_ADDR=0.0.0.0:8232
+      - ZEBRA_RPC__ENABLE_COOKIE_AUTH=false
+    ports:
+      - "8233:8233"
+
+  lightwalletd:
+    image: electriccoinco/lightwalletd:v0.6.0
+    restart: unless-stopped
+    depends_on: [zebra]
+    volumes:
+      - /mnt/cadence/lwd:/var/lib/lightwalletd/db
+      - ./zcash.conf:/etc/lightwalletd/zcash.conf:ro
+    # Plaintext is acceptable here: lightwalletd is reachable only on the private
+    # compose network, by the runner.
+    command: >
+      --no-tls-very-insecure
+      --grpc-bind-addr=0.0.0.0:9067
+      --zcash-conf-path=/etc/lightwalletd/zcash.conf
+      --data-dir=/var/lib/lightwalletd/db
+      --log-file=/dev/stdout
+
+  runner-main:
+    build: { context: .., dockerfile: deploy/Dockerfile.runner }
+    restart: unless-stopped
+    depends_on: [lightwalletd]
+    volumes:
+      - /mnt/cadence/runner-main:/cadence/.cadence
+    env_file: .env
+    command: >
+      serve --network main
+      --server http://lightwalletd:9067 --direct
+      --listen 0.0.0.0:8737 --public-url ${PUBLIC_URL}
+      --tor-dir /cadence/.cadence/tor
+    # --direct applies to lightwalletd only (our own node on this host). Remove it to
+    # route everything over Tor instead.
+
+  runner-sandbox:
+    build: { context: .., dockerfile: deploy/Dockerfile.runner }
+    restart: unless-stopped
+    volumes:
+      - /mnt/cadence/runner-sandbox:/cadence/.cadence
+    env_file: .env
+    command: >
+      serve --network test
+      --server https://testnet.zec.rocks:443
+      --listen 0.0.0.0:8738 --public-url ${SANDBOX_URL}
+      --tor-dir /cadence/.cadence/tor
+      --sandbox-funder /cadence/.cadence/sandbox-funder.json
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web/dist:/srv/web:ro
+      - /mnt/cadence/caddy:/data
+    env_file: .env
+
+  tor:
+    image: dperson/torproxy
+    restart: unless-stopped
+    volumes:
+      - ./torrc:/etc/tor/torrc:ro
+      - /mnt/cadence/tor:/var/lib/tor

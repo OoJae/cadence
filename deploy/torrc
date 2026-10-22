@@ -1,0 +1,2 @@
+HiddenServiceDir /var/lib/tor/cadence/
+HiddenServicePort 80 caddy:80

@@ -22,8 +22,11 @@ pub enum Transport<'a> {
 pub async fn connect(server: &str, transport: Transport<'_>) -> Result<Client> {
     match transport {
         Transport::Direct => {
-            let endpoint = Endpoint::from_shared(server.to_string())?
-                .tls_config(ClientTlsConfig::new().with_webpki_roots())?;
+            let mut endpoint = Endpoint::from_shared(server.to_string())?;
+            // Plain http:// is only for a node on the same private network.
+            if server.starts_with("https://") {
+                endpoint = endpoint.tls_config(ClientTlsConfig::new().with_webpki_roots())?;
+            }
             Ok(CompactTxStreamerClient::new(endpoint.connect().await?))
         }
         Transport::Tor { dir } => {
