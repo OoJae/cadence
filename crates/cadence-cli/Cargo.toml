@@ -26,3 +26,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
+cadence-seal = { path = "../cadence-seal" }
+base64 = { workspace = true }
+ureq = { workspace = true, features = ["rustls"] }

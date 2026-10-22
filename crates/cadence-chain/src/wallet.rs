@@ -96,6 +96,8 @@ pub struct PocketNote {
     pub note: Note,
     pub position: Position,
     pub mined: BlockHeight,
+    /// The transaction that created the note.
+    pub txid: TxId,
 }
 
 pub fn unspent_notes(db: &Db, account: AccountUuid, target: BlockHeight) -> Result<Vec<PocketNote>> {
@@ -114,6 +116,7 @@ pub fn unspent_notes(db: &Db, account: AccountUuid, target: BlockHeight) -> Resu
                 note: *rn.note(),
                 position: rn.note_commitment_tree_position(),
                 mined: rn.mined_height().context("unspent note without a mined height")?,
+                txid: *rn.txid(),
             })
         })
         .collect()
@@ -132,15 +135,24 @@ pub fn find_unspent(
         .find(|n| n.note.nullifier(fvk) == *nf))
 }
 
+/// The tree as of the end of block `at`, and the note's witness against it.
+///
+/// The wallet only checkpoints blocks where its view of the tree changes, so, like
+/// stock wallets (`get_max_checkpointed_height`), this uses the highest checkpoint at
+/// or below `at`. Blocks without Ironwood commitments leave the root unchanged, so the
+/// anchor is the root at `at` exactly; [`check_anchor`] confirms that independently.
 pub fn anchor_and_witness(db: &mut Db, position: Position, at: BlockHeight) -> Result<(Anchor, MerklePath)> {
     db.with_ironwood_tree_mut::<_, _, anyhow::Error>(|tree| {
-        let root = tree
-            .root_at_checkpoint_id(&at)?
-            .ok_or_else(|| anyhow!("no Ironwood checkpoint at {at}"))?;
-        let path = tree
-            .witness_at_checkpoint_id_caching(position, &at)?
-            .ok_or_else(|| anyhow!("no witness for position {position:?} at {at}"))?;
-        Ok((Anchor::from(root), MerklePath::from(path)))
+        for depth in 0..=100u32 {
+            let h = at - depth;
+            if let Some(root) = tree.root_at_checkpoint_id(&h)? {
+                let path = tree
+                    .witness_at_checkpoint_id_caching(position, &h)?
+                    .ok_or_else(|| anyhow!("no witness for position {position:?} at {h}"))?;
+                return Ok((Anchor::from(root), MerklePath::from(path)));
+            }
+        }
+        Err(anyhow!("no Ironwood checkpoint within 100 blocks below {at}"))
     })?
     .ok_or_else(|| anyhow!("the wallet has no Ironwood tree"))
 }

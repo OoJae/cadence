@@ -51,6 +51,21 @@ pub async fn tree_state(client: &mut Client, height: BlockHeight) -> Result<Tree
     Ok(client.get_tree_state(id).await?.into_inner())
 }
 
+/// Fetches a transaction's raw bytes and mined height (`None` while in the mempool).
+pub async fn raw_transaction(client: &mut Client, txid: &TxId) -> Result<(Vec<u8>, Option<BlockHeight>)> {
+    let filter = TxFilter {
+        block: None,
+        index: 0,
+        hash: txid.as_ref().to_vec(),
+    };
+    let raw = client.get_transaction(filter).await?.into_inner();
+    let mined = u32::try_from(raw.height)
+        .ok()
+        .filter(|h| *h != 0)
+        .map(BlockHeight::from_u32);
+    Ok((raw.data, mined))
+}
+
 /// Fetches and parses a transaction, returning it with its mined height
 /// (`None` while it is in the mempool).
 pub async fn transaction<P: Parameters>(

@@ -1,3 +1,5 @@
+mod subscribe;
+
 use std::{collections::HashMap, fs, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -55,6 +57,49 @@ enum Command {
     },
     /// Pre-sign a mandate's installments as rung ladders for the merchant's runner.
     Presign(PresignArgs),
+    /// Subscribe to a runner's offer: fund one pocket, pre-sign, seal, upload.
+    Subscribe {
+        /// The runner's base URL.
+        #[arg(long)]
+        runner: String,
+        #[arg(long)]
+        offer: String,
+        /// Where to keep the subscription (needed to cancel).
+        #[arg(long)]
+        out: PathBuf,
+        /// Seconds from signing until installment 1 becomes releasable.
+        #[arg(long, default_value_t = 60)]
+        first_in: u64,
+    },
+    /// Continue an interrupted subscribe from its file.
+    Resume {
+        #[arg(long)]
+        subscription: PathBuf,
+    },
+    /// Dev: send from a pocket whose notes a local wallet DB tracks.
+    Send {
+        #[arg(long)]
+        pocket: PathBuf,
+        #[arg(long)]
+        wallet_db: PathBuf,
+        #[arg(long)]
+        to: String,
+        /// Zatoshis to send.
+        #[arg(long)]
+        amount: u64,
+        #[command(flatten)]
+        chain: ChainArgs,
+    },
+    /// Cancel a subscription by spending the pocket's live note to your own address.
+    Cancel {
+        #[arg(long)]
+        subscription: PathBuf,
+        /// Your unified address (Orchard receiver) to refund to.
+        #[arg(long)]
+        to: String,
+        #[command(flatten)]
+        chain: ChainArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -294,6 +339,20 @@ async fn main() -> Result<()> {
             }
         },
         Command::Presign(args) => presign(args).await?,
+        Command::Subscribe { runner, offer, out, first_in } => {
+            tokio::task::spawn_blocking(move || subscribe::subscribe(&runner, &offer, &out, first_in)).await??
+        }
+        Command::Resume { subscription } => {
+            tokio::task::spawn_blocking(move || subscribe::resume(&subscription)).await??
+        }
+        Command::Send { pocket, wallet_db, to, amount, chain } => {
+            let client = chain.connect().await?;
+            subscribe::send(&pocket, &wallet_db, &to, amount, client).await?
+        }
+        Command::Cancel { subscription, to, chain } => {
+            let client = chain.connect().await?;
+            subscribe::cancel(&subscription, &to, client).await?
+        }
     }
     Ok(())
 }
