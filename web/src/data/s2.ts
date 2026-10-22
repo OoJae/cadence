@@ -1,0 +1,92 @@
+/**
+ * Real decoded installments from the S2 run on NU7 testnet (2026-10-22).
+ * Copied verbatim from evidence/s2-testnet-decoded.json (cadence-decode output);
+ * src/data/s2.test.ts fails if this copy drifts from the evidence file.
+ */
+import type { Shape } from '../api/types';
+
+export const S2_SHAPES: readonly Shape[] = [
+  {
+    txid: '7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790',
+    version: 'V6',
+    branch_id: '77190ad9',
+    lock_time: 0,
+    expiry_height: 4529367,
+    mined_height: 4529248,
+    expiry_minus_mined: 119,
+    transparent_inputs: 0,
+    transparent_outputs: 0,
+    sapling_spends: 0,
+    sapling_outputs: 0,
+    orchard_actions: 0,
+    ironwood_actions: 2,
+    ironwood_flags: 7,
+    ironwood_value_balance: 10000,
+    ironwood_anchor: 'cc9e8c6f91a4d6e725a5d64d85a89ff591d18f7aa78515a8c0e80fd57b7cfd3d',
+    anchor_heights: [4529244, 4529246],
+    anchor_depths: [2, 4],
+    ironwood_proof_bytes: 7264,
+    zero_ovk_recoverable: 0,
+    supplied_ovk_recoverable: 0,
+  },
+  {
+    txid: 'c0daf3c1b149a260c82d44cfa1aafcba449a03c6dafd65b992ec770ee26696c2',
+    version: 'V6',
+    branch_id: '77190ad9',
+    lock_time: 0,
+    expiry_height: 4529372,
+    mined_height: 4529255,
+    expiry_minus_mined: 117,
+    transparent_inputs: 0,
+    transparent_outputs: 0,
+    sapling_spends: 0,
+    sapling_outputs: 0,
+    orchard_actions: 0,
+    ironwood_actions: 2,
+    ironwood_flags: 7,
+    ironwood_value_balance: 10000,
+    ironwood_anchor: '0017d6b1a81ea98c323491640192c7289d0e961796d5765db1ef9ee208dc6312',
+    anchor_heights: [4529248, 4529254],
+    anchor_depths: [1, 7],
+    ironwood_proof_bytes: 7264,
+    zero_ovk_recoverable: 0,
+    supplied_ovk_recoverable: 0,
+  },
+  {
+    txid: 'edad440b06c85b6570a2ca8628fa7a0f463d8d4ed914658339764d9eef3f6900',
+    version: 'V6',
+    branch_id: '77190ad9',
+    lock_time: 0,
+    expiry_height: 4529378,
+    mined_height: 4529263,
+    expiry_minus_mined: 115,
+    transparent_inputs: 0,
+    transparent_outputs: 0,
+    sapling_spends: 0,
+    sapling_outputs: 0,
+    orchard_actions: 0,
+    ironwood_actions: 2,
+    ironwood_flags: 7,
+    ironwood_value_balance: 10000,
+    ironwood_anchor: '899b5d20258f0af07b82601f34f7f246f0fa1cbe3159b984bf8dab03e0019332',
+    anchor_heights: [4529255, 4529262],
+    anchor_depths: [1, 8],
+    ironwood_proof_bytes: 7264,
+    zero_ovk_recoverable: 0,
+    supplied_ovk_recoverable: 0,
+  },
+];
+
+/** The S2 table in evidence/S2-testnet.md: target heights the runner chose for each rung. */
+export const S2_RUN = {
+  funding: { txidShort: 'f7bacff4…aca1', mined_height: 4529209 },
+  installments: [
+    { k: 1, txid: S2_SHAPES[0]!.txid, target_height: 4529247, mined_height: 4529248, anchor_height: 4529244 },
+    { k: 2, txid: S2_SHAPES[1]!.txid, target_height: 4529252, mined_height: 4529255, anchor_height: 4529249 },
+    { k: 3, txid: S2_SHAPES[2]!.txid, target_height: 4529258, mined_height: 4529263, anchor_height: 4529255 },
+  ],
+} as const;
+
+export function findS2Shape(txid: string): Shape | undefined {
+  return S2_SHAPES.find((s) => s.txid === txid);
+}

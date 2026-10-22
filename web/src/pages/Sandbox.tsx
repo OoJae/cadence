@@ -1,0 +1,506 @@
+import { useState, type ReactNode } from 'react';
+import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
+import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView } from '../components/FlowViews';
+import { BanIcon, BoltIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
+import { LogView, useRunnerLog } from '../components/RunnerLog';
+import { ShapeTable } from '../components/ShapeTable';
+import { Timeline } from '../components/Timeline';
+import { Badge, Callout, ErrorNote, PageHead, Spinner, StatusBadge } from '../components/ui';
+import { STOCK_SEND_REFERENCE } from '../data/stockReference';
+import { runMandate, type FlowState } from '../flow';
+import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
+import { roundAt } from '../lib/drand';
+import type { LogLine } from '../lib/runnerLog';
+import { formatZec, totalPrepaidZat } from '../lib/zat';
+import { Link } from '../router';
+import { api, createSigner, isMock, mockHooks } from '../runtime';
+import type { CancelReceipt, Signer } from '../signer/types';
+
+type CheatResult = SandboxCheatResponse | { error: string };
+
+interface SandboxState extends FlowState {
+  offer: Offer | null;
+  signer: Signer | null;
+  abort: AbortController | null;
+  creating: boolean;
+  createError?: string;
+  tabClosedAt: number | null;
+  reopened: boolean;
+  cancel: CancelReceipt | null;
+  decodeTxid: string | null;
+  decodedOnce: boolean;
+  cheats: Partial<Record<CheatKind, CheatResult>>;
+  events: LogLine[];
+}
+
+const store = createStore<SandboxState>(() => ({
+  phase: 'idle',
+  offer: null,
+  signer: null,
+  abort: null,
+  creating: false,
+  tabClosedAt: null,
+  reopened: false,
+  cancel: null,
+  decodeTxid: null,
+  decodedOnce: false,
+  cheats: {},
+  events: [],
+}));
+
+const note = (text: string, tone?: LogLine['tone']) => store.set((s) => ({ events: [...s.events, { at: Date.now() / 1000, text, tone }] }));
+
+const SANDBOX_TOKEN = 'sandbox-judge';
+
+async function createMandate(cfg: { count: number; period: number; amount: number }) {
+  const s = store.get();
+  if (s.creating || s.offer) return;
+  store.set({ creating: true, createError: undefined });
+  try {
+    const merchantUa = mockHooks?.demoMerchantUa;
+    if (!merchantUa) throw new Error('the sandbox needs the sandbox runner (VITE_API=mock, or a runner with /api/sandbox)');
+    const created = await api.createOffer({ name: 'Sandbox standing order', amount_zat: cfg.amount, period_secs: cfg.period, count: cfg.count, merchant_ua: merchantUa }, SANDBOX_TOKEN);
+    const offer = await api.getOffer(created.offer_id);
+    const signer = createSigner();
+    const abort = new AbortController();
+    store.set({ offer, signer, abort, creating: false });
+    note(`merchant: created ${offer.offer_id}: ${offer.count} × ${formatZec(offer.amount_zat)} every ${offer.period_secs} s`);
+    void runMandate(offer, signer, (patch) => {
+      store.set(patch);
+      if (patch.phase === 'signing') note('payer: funding seen in the mempool; pre-signing every installment');
+      if (patch.phase === 'done' && patch.subscriptionId) note(`payer: uploaded ${offer.count} sealed packages; subscription ${patch.subscriptionId}`, 'ok');
+      if (patch.phase === 'error') note(`payer: ${patch.error}`, 'err');
+    }, {
+      signal: abort.signal,
+      onPocket: async (pocket, total) => {
+        note(`payer: fresh pocket ${pocket.ua.slice(0, 16)}…; requesting ${formatZec(total)}`);
+        const fund = await api.sandboxFund({ ua: pocket.ua, amount_zat: total }, abort.signal);
+        store.set({ events: [...store.get().events, { at: Date.now() / 1000, text: `faucet: paid ${formatZec(total)} to the pocket in ${fund.txid.slice(0, 16)}… (mined at ${fund.mined_height})` }] });
+      },
+    });
+  } catch (e) {
+    store.set({ creating: false, createError: (e as Error).message });
+  }
+}
+
+function reset() {
+  const s = store.get();
+  s.abort?.abort();
+  s.signer?.destroy();
+  store.reset();
+}
+
+interface StepDef {
+  id: string;
+  title: string;
+  desc: string;
+  done: boolean;
+}
+
+function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
+  const mined = sub?.installments.filter((i) => i.state === 'mined').length ?? 0;
+  return [
+    { id: 'create', title: 'Create a mandate', desc: 'A merchant offer: N installments, one every few seconds.', done: !!s.offer },
+    { id: 'fund', title: 'Auto-fund it', desc: 'The sandbox faucet pays the pocket QR for you.', done: !!s.funding },
+    { id: 'sign', title: 'Sign', desc: 'Every installment, every candidate height, sealed.', done: s.phase === 'done' },
+    { id: 'close', title: 'Close the tab', desc: 'The payer goes away. Nothing on their side runs.', done: s.tabClosedAt !== null },
+    { id: 'watch', title: 'Watch 3 installments land', desc: 'Sealed → due → broadcast → mined, by the runner alone.', done: mined >= 3 },
+    { id: 'decode', title: 'Decode one', desc: 'Compare its shape with a stock wallet send.', done: s.decodedOnce },
+    { id: 'cancel', title: 'Cancel', desc: 'Spend the pocket note. The rest can never be valid.', done: !!s.cancel && sub?.status === 'cancelled' },
+  ];
+}
+
+function pick(sub: Subscription | undefined, kind: CheatKind): Installment | undefined {
+  if (!sub) return undefined;
+  const list = sub.installments;
+  if (kind === 'open_early') return list.find((i) => i.k === 3 && i.state === 'sealed') ?? list.find((i) => i.state === 'sealed');
+  if (kind === 'tamper_amount') return [...list].reverse().find((i) => i.state === 'due' || i.state === 'broadcast' || i.state === 'mined');
+  return list.find((i) => i.state === 'cancelled');
+}
+
+const CHEATS: Array<{ kind: CheatKind; title: (k?: number) => string; expect: string; why: string; icon: ReactNode }> = [
+  {
+    kind: 'open_early',
+    title: (k) => `Open installment ${k ?? 3} early`,
+    expect: 'fails: tlock',
+    why: "The package is time-locked to a drand round. Its decryption key is drand's signature on that round, which nobody holds until the round is published.",
+    icon: <LockIcon size={16} />,
+  },
+  {
+    kind: 'tamper_amount',
+    title: (k) => `Tamper with installment ${k ?? 1}'s amount`,
+    expect: 'fails: signature',
+    why: "The payer signed the exact outputs. Changing the amount changes the sighash, so the payer's spend authorization no longer verifies.",
+    icon: <PenIcon size={16} />,
+  },
+  {
+    kind: 'replay_after_cancel',
+    title: (k) => `Replay installment ${k ?? 4} after cancel`,
+    expect: 'fails: double-spend',
+    why: 'Each installment spends one specific pocket note. Once the payer spent it, any transaction revealing that nullifier again is a double-spend.',
+    icon: <BanIcon size={16} />,
+  },
+];
+
+function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState }) {
+  const [busy, setBusy] = useState<CheatKind | null>(null);
+  const run = async (kind: CheatKind, k: number) => {
+    if (!sub) return;
+    setBusy(kind);
+    try {
+      const res = await api.sandboxCheat({ subscription_id: sub.subscription_id, kind, k });
+      store.set((st) => ({ cheats: { ...st.cheats, [kind]: res } }));
+      if (res.outcome === 'rejected') note(`cheat: ${kind.replace(/_/g, ' ')} on installment ${k} rejected by ${res.stage}`, 'err');
+    } catch (e) {
+      store.set((st) => ({ cheats: { ...st.cheats, [kind]: { error: (e as Error).message } } }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="card" aria-labelledby="cheats">
+      <div className="card-head">
+        <div className="stack" style={{ ['--gap' as string]: '6px' }}>
+          <span className="kicker">Cheat buttons</span>
+          <h2 id="cheats" className="h3">
+            Make the runner misbehave
+          </h2>
+          <p className="small muted">Each attempt goes to the runner, which tries the forbidden action and reports what stopped it.</p>
+        </div>
+        {isMock && <span className="tag">mock runner · reproduces the real failure path</span>}
+      </div>
+      <div className="grid cols-3" style={{ ['--gap' as string]: '12px' }}>
+        {CHEATS.map((c) => {
+          const target = pick(sub, c.kind);
+          const result = s.cheats[c.kind];
+          let disabled: string | null = null;
+          if (!sub) disabled = 'Sign a mandate first.';
+          else if (!target)
+            disabled =
+              c.kind === 'open_early'
+                ? 'No sealed installment left.'
+                : c.kind === 'tamper_amount'
+                  ? 'Wait for installment 1 to open.'
+                  : s.cancel
+                    ? 'Waiting for the cancel to be mined…'
+                    : 'Cancel first (step 7).';
+          return (
+            <div className="cheat" key={c.kind}>
+              <div className="row between">
+                <span className="row h4" style={{ ['--gap' as string]: '8px' }}>
+                  {c.icon} {c.title(target?.k)}
+                </span>
+              </div>
+              <Badge tone="red">{c.expect}</Badge>
+              <p className="tiny muted">{c.why}</p>
+              <button type="button" className="btn sm" disabled={!!disabled || busy === c.kind} onClick={() => target && run(c.kind, target.k)}>
+                <BoltIcon size={14} /> {busy === c.kind ? 'Trying…' : 'Try it'}
+              </button>
+              {disabled && <span className="tiny faint">{disabled}</span>}
+              {result && (
+                <div className="result stack" style={{ ['--gap' as string]: '6px' }}>
+                  {'error' in result ? (
+                    <ErrorNote error={new Error(result.error)} />
+                  ) : (
+                    <>
+                      <div className="row" style={{ ['--gap' as string]: '6px' }}>
+                        {result.outcome === 'rejected' ? (
+                          <Badge tone="green" dot>
+                            Rejected · {result.stage}
+                          </Badge>
+                        ) : (
+                          <Badge tone="muted">Not applicable yet</Badge>
+                        )}
+                        <span className="tiny muted">installment {result.k}</span>
+                      </div>
+                      <div className="log" role="log" aria-label={`${c.title(result.k)}: runner output`}>
+                        {result.log.map((l, i) => (
+                          <div className={`line ${result.outcome === 'rejected' && i >= result.log.length - 1 ? 'err' : ''}`} key={i}>
+                            <span className="msg">{l}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CreateForm() {
+  const s = useStore(store);
+  const [count, setCount] = useState(6);
+  const [period, setPeriod] = useState(20);
+  const amount = 100_000;
+  return (
+    <div className="stack" style={{ ['--gap' as string]: '16px' }}>
+      <div className="stack" style={{ ['--gap' as string]: '4px' }}>
+        <span className="h3">A standing order, sped up</span>
+        <span className="small muted">Real cadences are days or weeks. Here installments are seconds apart so you can watch them land.</span>
+      </div>
+      <div className="grid cols-3" style={{ ['--gap' as string]: '12px' }}>
+        <div className="field">
+          <label htmlFor="sb-count">Installments</label>
+          <select id="sb-count" className="select" value={count} onChange={(e) => setCount(Number(e.target.value))}>
+            {[4, 5, 6, 8].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="sb-period">Every</label>
+          <select id="sb-period" className="select" value={period} onChange={(e) => setPeriod(Number(e.target.value))}>
+            {[20, 30, 45].map((n) => (
+              <option key={n} value={n}>
+                {n} seconds
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <span className="label">Amount</span>
+          <div className="input mono" style={{ display: 'flex', alignItems: 'center' }} aria-readonly="true">
+            {formatZec(amount)}
+          </div>
+        </div>
+      </div>
+      <div className="panel small text-2">
+        Prepaid in one payment: <span className="mono">{formatZec(totalPrepaidZat(amount, count))}</span>, every installment plus its fee.
+      </div>
+      {s.createError && <ErrorNote error={new Error(s.createError)} />}
+      <button type="button" className="btn primary lg" onClick={() => createMandate({ count, period, amount })} disabled={s.creating}>
+        {s.creating ? 'Creating…' : 'Create mandate and auto-fund'}
+      </button>
+    </div>
+  );
+}
+
+function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined }) {
+  const closed = s.tabClosedAt !== null && !s.reopened;
+  const settled = sub && (sub.status === 'completed' || sub.status === 'cancelled');
+  return (
+    <section className={`pane${closed ? ' closed' : ''}`} aria-label="Payer tab">
+      <div className="pane-head">
+        <span className="row" style={{ ['--gap' as string]: '0' }}>
+          <span className="lights" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          payer tab · /subscribe
+        </span>
+        <span>{closed ? 'closed' : s.reopened ? 'reopened' : s.phase === 'idle' ? 'new' : s.phase}</span>
+      </div>
+      <div className="pane-body">
+        {closed ? (
+          <div className="stack" style={{ ['--gap' as string]: '16px', alignItems: 'center' }}>
+            <PayerOffline since={s.tabClosedAt!} />
+            <button type="button" className="btn" onClick={() => { store.set({ reopened: true }); note('payer: tab reopened; pocket key unlocked (passkey, simulated)'); }}>
+              <KeyIcon size={15} /> Reopen and unlock to cancel
+            </button>
+            <span className="tiny muted" style={{ maxWidth: 360 }}>
+              Simulated: the real signer keeps the pocket key sealed to a passkey. This mock kept it in memory.
+            </span>
+          </div>
+        ) : s.reopened && s.signer ? (
+          <div className="stack" style={{ ['--gap' as string]: '12px' }}>
+            <span className="h3">Cancel your subscription</span>
+            {s.cancel ? (
+              <CancelReceiptView receipt={s.cancel} />
+            ) : (
+              <CancelPanel
+                signer={s.signer}
+                showDemo
+                disabled={settled ? `The subscription is ${sub!.status}; nothing is left to cancel. Start over with more installments.` : undefined}
+                onCancelled={(r) => {
+                  store.set({ cancel: r });
+                  note(`payer: cancel broadcast ${r.txid.slice(0, 16)}…; refund ${formatZec(r.refunded_zat)} to an address of my own`, 'warn');
+                }}
+              />
+            )}
+          </div>
+        ) : !s.offer ? (
+          <CreateForm />
+        ) : s.phase === 'pocket' || s.phase === 'funding' ? (
+          <div className="stack" style={{ ['--gap' as string]: '14px' }}>
+            <span className="h3">Fund the pocket</span>
+            <FundingView offer={s.offer} flow={s} />
+            <span className="tiny muted">The sandbox faucet is paying this QR for you.</span>
+          </div>
+        ) : s.phase === 'signing' || s.phase === 'uploading' ? (
+          <SigningView offer={s.offer} flow={s} />
+        ) : s.phase === 'done' ? (
+          <DoneMoment offer={s.offer} flow={s}>
+            <div className="row" style={{ justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn primary lg"
+                onClick={() => {
+                  store.set({ tabClosedAt: Date.now() / 1000 });
+                  note('payer: tab closed');
+                }}
+              >
+                <TabIcon size={16} /> Close the payer tab
+              </button>
+            </div>
+          </DoneMoment>
+        ) : s.phase === 'error' ? (
+          <ErrorNote error={new Error(s.error ?? 'failed')} />
+        ) : (
+          <Spinner />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RunnerPane({ sub, s }: { sub: Subscription | undefined; s: SandboxState }) {
+  const now = useNow();
+  const status = usePoll((signal) => api.status(signal), 3000);
+  const lines = useRunnerLog(sub, s.events);
+  return (
+    <section className="pane" aria-label="Runner">
+      <div className="pane-head">
+        <span className="row" style={{ ['--gap' as string]: '8px' }}>
+          <ServerIcon size={14} /> runner · merchant side
+        </span>
+        <span className="num">
+          tip {status.data?.tip.toLocaleString('en-US') ?? '…'} · drand {roundAt(now).toLocaleString('en-US')}
+        </span>
+      </div>
+      <div className="pane-body stack" style={{ ['--gap' as string]: '16px' }}>
+        {sub ? (
+          <>
+            <div className="row between">
+              <span className="mono small muted">{sub.subscription_id}</span>
+              <StatusBadge status={sub.status} />
+            </div>
+            <Timeline
+              installments={sub.installments}
+              onDecode={(txid) => {
+                store.set({ decodeTxid: txid, decodedOnce: true });
+                requestAnimationFrame(() => document.getElementById('inline-decode')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+              }}
+            />
+          </>
+        ) : (
+          <p className="small muted">Holding nothing yet. Once the payer uploads, sealed packages appear here.</p>
+        )}
+        <LogView lines={lines} label="Runner log" empty="runner idle" />
+        <span className="tiny faint">Runner lines use the exact message formats of crates/cadence-runner.</span>
+      </div>
+    </section>
+  );
+}
+
+function InlineDecode({ txid }: { txid: string }) {
+  const shape = usePoll((signal) => api.decode(txid, signal), 0, [txid]);
+  return (
+    <section className="card" id="inline-decode" aria-labelledby="inline-decode-title">
+      <div className="card-head">
+        <div className="stack" style={{ ['--gap' as string]: '6px', minWidth: 0 }}>
+          <span className="kicker">Decode</span>
+          <h2 id="inline-decode-title" className="h3">
+            Installment {txid.slice(0, 12)}… next to a stock wallet send
+          </h2>
+        </div>
+        <div className="row" style={{ ['--gap' as string]: '8px' }}>
+          <Link to={`/decode/${txid}`} className="btn sm">
+            Open in decoder
+          </Link>
+          <button type="button" className="btn sm ghost" onClick={() => store.set({ decodeTxid: null })}>
+            Close
+          </button>
+        </div>
+      </div>
+      {shape.loading && <Spinner label="Decoding…" />}
+      {shape.error && <ErrorNote error={shape.error} />}
+      {shape.data && <ShapeTable shape={shape.data} compare={STOCK_SEND_REFERENCE} />}
+    </section>
+  );
+}
+
+export function Sandbox() {
+  useDocumentTitle('Judge sandbox');
+  const s = useStore(store);
+  const sub = usePoll((signal) => (s.subscriptionId ? api.getSubscription(s.subscriptionId, signal) : Promise.resolve(undefined)), 1000, [s.subscriptionId]);
+  const current = sub.data && sub.data.subscription_id === s.subscriptionId ? sub.data : undefined;
+  const list = steps(s, current);
+  const currentIdx = list.findIndex((st) => !st.done);
+
+  if (!isMock) {
+    return (
+      <div className="page container narrow">
+        <PageHead kicker="Judge sandbox" title="The sandbox runs against the sandbox runner." />
+        <Callout kind="warn">
+          This build talks to a real runner, which does not expose the testnet-only <code>/api/sandbox</code> endpoints. Build with <code>VITE_API=mock</code> to use the sandbox.
+        </Callout>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page container">
+      <PageHead
+        kicker="Judge sandbox"
+        title={
+          <>
+            Subscribe, walk away, <em>then try to cheat.</em>
+          </>
+        }
+        lede="A guided run on a mock NU7 testnet with 5-second blocks. Every step uses the same API client and signer interface as the real app."
+      >
+        <div className="row" style={{ ['--gap' as string]: '8px' }}>
+          {s.offer && (
+            <button type="button" className="btn sm ghost" onClick={reset}>
+              Start over
+            </button>
+          )}
+          <Link to="/merchant" className="btn sm ghost">
+            See it on the merchant dashboard
+          </Link>
+        </div>
+      </PageHead>
+
+      <nav className="stack" aria-label="Sandbox steps" style={{ ['--gap' as string]: '12px', marginBottom: 22 }}>
+        <ol className="stepper">
+          {list.map((st, i) => (
+            <li key={st.id} data-state={st.done ? 'done' : i === currentIdx ? 'current' : 'todo'} aria-current={i === currentIdx ? 'step' : undefined} title={st.desc}>
+              <span className="n">{st.done ? '✓' : i + 1}</span>
+              {st.title}
+            </li>
+          ))}
+        </ol>
+        <p className="small text-2" aria-live="polite">
+          {currentIdx === -1 ? (
+            <>All seven steps done. If you haven't yet, try the cheat buttons below.</>
+          ) : (
+            <>
+              <span className="mono accent">
+                Step {currentIdx + 1}/{list.length}
+              </span>{' '}
+              · {list[currentIdx]!.desc}
+            </>
+          )}
+        </p>
+      </nav>
+
+      <div className="stack" style={{ ['--gap' as string]: '20px', minWidth: 0 }}>
+        <div className="grid cols-2" style={{ ['--gap' as string]: '20px', alignItems: 'start' }}>
+          <PayerPane s={s} sub={current} />
+          <RunnerPane s={s} sub={current} />
+        </div>
+        {s.decodeTxid && <InlineDecode key={s.decodeTxid} txid={s.decodeTxid} />}
+        <CheatPanel sub={current} s={s} />
+      </div>
+    </div>
+  );
+}
