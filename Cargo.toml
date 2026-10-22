@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/cadence-core"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/OoJae/cadence"
+
+[workspace.dependencies]
+zcash_primitives = { version = "=0.31.0", default-features = false }
+zcash_proofs = { version = "=0.31.0", default-features = false }
+zcash_protocol = { version = "=0.11.0" }
+zcash_keys = { version = "=0.17.0" }
+zcash_address = { version = "=0.14.0" }
+zip321 = { version = "=0.10.0" }
+pczt = { version = "=0.10.0", default-features = false }
+orchard = { version = "=0.16.0", default-features = false }
+rand = { version = "0.10", default-features = false, features = ["std", "chacha", "sys_rng", "thread_rng"] }
+zip32 = { version = "0.3", default-features = false }
+blake2b_simd = "1"
