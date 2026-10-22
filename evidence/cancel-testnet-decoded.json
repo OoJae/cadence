@@ -1,0 +1,58 @@
+{
+  "txid": "b009f1ab30022a9070f4729ab4ef66f69872a7cbc7093612237c35ba590eaf24",
+  "version": "V6",
+  "branch_id": "77190ad9",
+  "lock_time": 0,
+  "expiry_height": 4529620,
+  "mined_height": 4529503,
+  "expiry_minus_mined": 117,
+  "transparent_inputs": 0,
+  "transparent_outputs": 0,
+  "sapling_spends": 0,
+  "sapling_outputs": 0,
+  "orchard_actions": 0,
+  "ironwood_actions": 2,
+  "ironwood_flags": 7,
+  "ironwood_value_balance": 10000,
+  "ironwood_anchor": "ac08a7a30bbef3d5ba3eb166688e8af76ccfde3165d2695e8906711ee476961c",
+  "anchor_heights": [
+    4529497,
+    4529497
+  ],
+  "anchor_depths": [
+    6,
+    6
+  ],
+  "ironwood_proof_bytes": 7264,
+  "zero_ovk_recoverable": 0,
+  "supplied_ovk_recoverable": 0
+}
+{
+  "txid": "6594ea6cf9d773b9afc11a8e8628328393eace24c5297f33bdb3dd637df56de3",
+  "version": "V6",
+  "branch_id": "77190ad9",
+  "lock_time": 0,
+  "expiry_height": 4529626,
+  "mined_height": 4529506,
+  "expiry_minus_mined": 120,
+  "transparent_inputs": 0,
+  "transparent_outputs": 0,
+  "sapling_spends": 0,
+  "sapling_outputs": 0,
+  "orchard_actions": 0,
+  "ironwood_actions": 2,
+  "ironwood_flags": 7,
+  "ironwood_value_balance": 10000,
+  "ironwood_anchor": "4f4405bec777e68d317e9e25e8ee06c8eb4f1925e41f92eeff04b77f6d9caa08",
+  "anchor_heights": [
+    4529503,
+    4529505
+  ],
+  "anchor_depths": [
+    1,
+    3
+  ],
+  "ironwood_proof_bytes": 7264,
+  "zero_ovk_recoverable": 0,
+  "supplied_ovk_recoverable": 0
+}

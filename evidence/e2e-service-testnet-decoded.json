@@ -1,0 +1,87 @@
+{
+  "txid": "2f1154c7f02916d5c2f36a5091ca39077eb9ba01a3f7b3a29f6aee0540c7006e",
+  "version": "V6",
+  "branch_id": "77190ad9",
+  "lock_time": 0,
+  "expiry_height": 4529590,
+  "mined_height": 4529470,
+  "expiry_minus_mined": 120,
+  "transparent_inputs": 0,
+  "transparent_outputs": 0,
+  "sapling_spends": 0,
+  "sapling_outputs": 0,
+  "orchard_actions": 0,
+  "ironwood_actions": 2,
+  "ironwood_flags": 7,
+  "ironwood_value_balance": 10000,
+  "ironwood_anchor": "4d08398b22e47e84b7353a8d8a970c0d5fd199a644e6d34c6c4c63c00da3ba17",
+  "anchor_heights": [
+    4529465,
+    4529469
+  ],
+  "anchor_depths": [
+    1,
+    5
+  ],
+  "ironwood_proof_bytes": 7264,
+  "zero_ovk_recoverable": 0,
+  "supplied_ovk_recoverable": 0
+}
+{
+  "txid": "4eb4e11cc0d37dcafb934b715a9ab9d81e80e9e49bc95bc284a3491b597b589b",
+  "version": "V6",
+  "branch_id": "77190ad9",
+  "lock_time": 0,
+  "expiry_height": 4529596,
+  "mined_height": 4529480,
+  "expiry_minus_mined": 116,
+  "transparent_inputs": 0,
+  "transparent_outputs": 0,
+  "sapling_spends": 0,
+  "sapling_outputs": 0,
+  "orchard_actions": 0,
+  "ironwood_actions": 2,
+  "ironwood_flags": 7,
+  "ironwood_value_balance": 10000,
+  "ironwood_anchor": "82df3f93ca97c3b46dfa2ab041e7e995654a051ad0da18fe5671f96731554a19",
+  "anchor_heights": [
+    4529473,
+    4529473
+  ],
+  "anchor_depths": [
+    7,
+    7
+  ],
+  "ironwood_proof_bytes": 7264,
+  "zero_ovk_recoverable": 0,
+  "supplied_ovk_recoverable": 0
+}
+{
+  "txid": "378de5bb6ec76cf31e9f363783e5e8452f6c73dc96727279d387ae5604903262",
+  "version": "V6",
+  "branch_id": "77190ad9",
+  "lock_time": 0,
+  "expiry_height": 4529603,
+  "mined_height": 4529488,
+  "expiry_minus_mined": 115,
+  "transparent_inputs": 0,
+  "transparent_outputs": 0,
+  "sapling_spends": 0,
+  "sapling_outputs": 0,
+  "orchard_actions": 0,
+  "ironwood_actions": 2,
+  "ironwood_flags": 7,
+  "ironwood_value_balance": 10000,
+  "ironwood_anchor": "113f0ac10c6aa74fe6a0a19e3ca0b5533839104f370b6d0c2a474cd0986a1b29",
+  "anchor_heights": [
+    4529480,
+    4529487
+  ],
+  "anchor_depths": [
+    1,
+    8
+  ],
+  "ironwood_proof_bytes": 7264,
+  "zero_ovk_recoverable": 0,
+  "supplied_ovk_recoverable": 0
+}

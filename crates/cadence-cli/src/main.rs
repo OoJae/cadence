@@ -70,6 +70,9 @@ enum Command {
         /// Seconds from signing until installment 1 becomes releasable.
         #[arg(long, default_value_t = 60)]
         first_in: u64,
+        /// Testnet: ask the runner's sandbox wallet to fund the pocket.
+        #[arg(long)]
+        sandbox_fund: bool,
     },
     /// Continue an interrupted subscribe from its file.
     Resume {
@@ -339,8 +342,9 @@ async fn main() -> Result<()> {
             }
         },
         Command::Presign(args) => presign(args).await?,
-        Command::Subscribe { runner, offer, out, first_in } => {
-            tokio::task::spawn_blocking(move || subscribe::subscribe(&runner, &offer, &out, first_in)).await??
+        Command::Subscribe { runner, offer, out, first_in, sandbox_fund } => {
+            tokio::task::spawn_blocking(move || subscribe::subscribe(&runner, &offer, &out, first_in, sandbox_fund))
+                .await??
         }
         Command::Resume { subscription } => {
             tokio::task::spawn_blocking(move || subscribe::resume(&subscription)).await??

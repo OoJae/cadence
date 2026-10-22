@@ -161,6 +161,10 @@ async fn advance(
     };
     let inst = &sub.installments[pos];
     let previous = pos.checked_sub(1).map(|p| &sub.installments[p]);
+    if inst.state == "sealed" && pocket_emptied(app, sub, previous, tip).await? {
+        println!("{} #{}: the pocket was emptied by the payer: cancelled", sub.subscription_id, inst.k);
+        return finish(app, sub, "cancelled", Some(inst)).await;
+    }
     match inst.state.as_str() {
         "sealed" if round_now >= inst.release_round => {
             let chain = app.chain.clone();
@@ -177,6 +181,25 @@ async fn advance(
         "broadcast" => confirm(app, client, sub, inst, tip).await,
         _ => Ok(()),
     }
+}
+
+/// A pocket holds exactly one live note between installments. If it holds none once
+/// the previous installment (or the funding) is anchor-deep, the payer has spent it:
+/// the remaining installments can never become valid, so the merchant learns now
+/// rather than when the next one falls due.
+async fn pocket_emptied(app: &App, sub: &Subscription, previous: Option<&Installment>, tip: BlockHeight) -> Result<bool> {
+    let pocket = app.store.lock().unwrap().pocket_for_subscription(&sub.subscription_id)?;
+    let settled_at = match previous {
+        None => pocket.funding.as_ref().map(|f| f.mined_height),
+        Some(p) => p.mined_height,
+    };
+    let Some(h) = settled_at else { return Ok(false) };
+    if u32::from(tip) < h + ANCHOR_CONFIRMATIONS {
+        return Ok(false);
+    }
+    let account = parse_account(&pocket.account)?;
+    let db = app.wallet.lock().await;
+    Ok(wallet::unspent_notes(&db, account, tip + 1)?.is_empty())
 }
 
 async fn release(

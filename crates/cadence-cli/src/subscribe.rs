@@ -142,7 +142,7 @@ fn terms(params: &Network, f: &SubscriptionFile) -> Result<Terms> {
 }
 
 /// Subscribes to `offer_id` at `runner`: pocket, funding, ladders, sealing, upload.
-pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64) -> Result<()> {
+pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbox_fund: bool) -> Result<()> {
     if out.exists() {
         bail!("{} already exists", out.display());
     }
@@ -188,6 +188,14 @@ pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64) -> Res
         funding_height: None,
     };
     save(out, &file)?;
+    if sandbox_fund {
+        let total = mandate::funding_total(&terms(&params, &file)?).context("amount overflow")?;
+        let paid = post_json(
+            &format!("{runner}/api/sandbox/fund"),
+            &json!({ "pocket_id": pocket_id, "amount_zat": u64::from(total) }),
+        )?;
+        println!("sandbox wallet funded the pocket in {}", paid["txid"].as_str().unwrap_or("?"));
+    }
     resume(out)
 }
 

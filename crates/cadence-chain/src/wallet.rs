@@ -108,18 +108,19 @@ pub fn unspent_notes(db: &Db, account: AccountUuid, target: BlockHeight) -> Resu
         &[],
         LockFilter::Unfiltered,
     )?;
-    notes
+    // Notes from unmined transactions have no position in the tree yet; skip them.
+    Ok(notes
         .ironwood()
         .iter()
-        .map(|rn| {
-            Ok(PocketNote {
+        .filter_map(|rn| {
+            Some(PocketNote {
                 note: *rn.note(),
                 position: rn.note_commitment_tree_position(),
-                mined: rn.mined_height().context("unspent note without a mined height")?,
+                mined: rn.mined_height()?,
                 txid: *rn.txid(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// The unspent pocket note with nullifier `nf`, if the wallet has seen it.
