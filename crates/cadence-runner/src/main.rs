@@ -236,8 +236,20 @@ async fn main() -> Result<()> {
                     })
                 }
             };
+            let tor = if direct {
+                None
+            } else {
+                let dir = tor_dir.join("drand");
+                fs::create_dir_all(&dir)?;
+                Some(
+                    zcash_client_backend::tor::Client::create(&dir, |_| {})
+                        .await
+                        .map_err(|e| anyhow!("bootstrapping Tor for drand: {e:?}"))?,
+                )
+            };
             let app = Arc::new(App {
                 funder,
+                tor,
                 cfg: Config {
                     network: paths.network.params(),
                     network_name: paths.network.name(),

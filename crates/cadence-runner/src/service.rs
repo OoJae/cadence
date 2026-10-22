@@ -54,6 +54,9 @@ pub struct Funder {
 pub struct App {
     pub cfg: Config,
     pub funder: Option<Funder>,
+    /// Fetches drand beacons over Tor, so the relay learns neither the runner's
+    /// address nor, from it, the release schedule. `None` in `--direct` dev mode.
+    pub tor: Option<zcash_client_backend::tor::Client>,
     pub wallet: tokio::sync::Mutex<Db>,
     pub store: Mutex<Store>,
     pub sync_client: lwd::Client,
@@ -167,12 +170,8 @@ async fn advance(
     }
     match inst.state.as_str() {
         "sealed" if round_now >= inst.release_round => {
-            let chain = app.chain.clone();
-            let url = app.cfg.drand_url.clone();
             let round = inst.release_round;
-            let beacon = tokio::task::spawn_blocking(move || cadence_seal::fetch_signature(&url, &chain, round))
-                .await?
-                .map_err(|e| anyhow!("drand round {round}: {e:?}"))?;
+            let beacon = fetch_beacon(app, round).await?;
             app.store.lock().unwrap().set_beacon(&sub.subscription_id, inst.k, &beacon)?;
             println!("{} #{}: round {round} passed, package opened", sub.subscription_id, inst.k);
             Ok(())
@@ -200,6 +199,35 @@ async fn pocket_emptied(app: &App, sub: &Subscription, previous: Option<&Install
     let account = parse_account(&pocket.account)?;
     let db = app.wallet.lock().await;
     Ok(wallet::unspent_notes(&db, account, tip + 1)?.is_empty())
+}
+
+/// The drand signature for `round`, verified against the chain's public key.
+async fn fetch_beacon(app: &App, round: u64) -> Result<Vec<u8>> {
+    match &app.tor {
+        Some(tor) => {
+            use zcash_client_backend::tor::http::Retry;
+            let url = cadence_seal::beacon_url(&app.cfg.drand_url, &app.chain, round);
+            let response = tor
+                .http_get_json::<serde_json::Value>(
+                    url.parse()?,
+                    |req| req,
+                    2,
+                    |res| res.is_err().then_some(Retry::Isolated),
+                )
+                .await
+                .map_err(|e| anyhow!("drand round {round} over Tor: {e:?}"))?;
+            let body = serde_json::to_vec(response.body())?;
+            cadence_seal::parse_beacon_json(&body, &app.chain, round)
+                .map_err(|e| anyhow!("drand round {round}: {e:?}"))
+        }
+        None => {
+            let chain = app.chain.clone();
+            let url = app.cfg.drand_url.clone();
+            tokio::task::spawn_blocking(move || cadence_seal::fetch_signature(&url, &chain, round))
+                .await?
+                .map_err(|e| anyhow!("drand round {round}: {e:?}"))
+        }
+    }
 }
 
 async fn release(

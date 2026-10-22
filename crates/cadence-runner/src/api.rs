@@ -21,6 +21,7 @@ use cadence_chain::{
 use orchard::Anchor;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use zcash_client_backend::data_api::WalletRead;
 use zcash_keys::address::Address;
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId};
@@ -186,24 +187,29 @@ async fn create_pocket(
     Json(req): Json<NewPocket>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let mut client = app.sync_client.clone();
-    let tip = lwd::tip(&mut client).await?;
+    let server_tip = lwd::tip(&mut client).await?;
     let id = random_id("pkt");
-    let account = {
+    let (account, tip) = {
         let mut db = app.wallet.lock().await;
-        wallet::import_pocket(&mut client, &mut db, &app.cfg.network, &req.pocket_ufvk, tip, &id)
+        // Adding an account rewinds the wallet to the block before its birthday, so the
+        // birthday must lie past everything already scanned (and past a lagging server's
+        // tip). Funding is only sent after registration, so it can't be missed.
+        let tip = server_tip.max(db.chain_height()?.unwrap_or(server_tip));
+        let account = wallet::import_pocket(&mut client, &mut db, &app.cfg.network, &req.pocket_ufvk, tip + 1, &id)
             .await
-            .map_err(|e| bad(format!("{e:#}")))?
+            .map_err(|e| bad(format!("{e:#}")))?;
+        (account, tip)
     };
     app.store.lock().unwrap().insert_pocket(
         &id,
         &account.expose_uuid().to_string(),
         &req.pocket_ufvk,
-        u32::from(tip),
+        u32::from(tip) + 1,
         now(),
     )?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "pocket_id": id, "birthday_height": u32::from(tip), "tip": u32::from(tip) })),
+        Json(json!({ "pocket_id": id, "birthday_height": u32::from(tip) + 1, "tip": u32::from(tip) })),
     ))
 }
 

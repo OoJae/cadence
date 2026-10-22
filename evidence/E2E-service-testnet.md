@@ -40,3 +40,11 @@ Decoded (`cancel-testnet-decoded.json`, decoded with the pocket's own UFVK, the 
 
 The cancel has exactly an installment's shape. Even with the pocket's full viewing
 key, the runner cannot decrypt where the refund went.
+
+## Run 3: everything over Tor
+
+The runner ran without `--direct`. Wallet sync, the drand beacon fetch (zcash_client_backend's
+arti HTTP client, with the beacon verified against quicknet's key) and both broadcasts went over Tor.
+
+- Sandbox funding: `1a8cec445924e692088cd37c71a56259be086aa975c02d008a6128eeb91ae11f`, mined at 4,529,517.
+- Installment 1 was opened at round 33294192. It is `47be1b48f5f11d4b87cba14e7cbd2f6b42e3583834446268567175388ad6420f`, with target 4,529,520 and **mined at 4,529,520**, so expiry − mined = 120. The subscription then completed and was shredded.
