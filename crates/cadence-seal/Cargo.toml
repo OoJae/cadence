@@ -1,0 +1,36 @@
+[package]
+name = "cadence-seal"
+version = "0.0.1"
+description = "Cadence package sealing: zstd, then age to the runner, then tlock to a drand round, padded to size buckets"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["fetch", "zstd-native"]
+# Blocking drand beacon fetch over HTTPS (ureq + rustls/ring, no OpenSSL).
+# Not available on wasm32; there, fetch the beacon with the host's HTTP stack
+# and pass the body to `parse_beacon_json`.
+fetch = ["dep:ureq"]
+# Compress with the reference C zstd (level 10). Without this feature the
+# pure-Rust ruzstd encoder is used, which keeps wasm32 builds free of C code.
+# Decompression always uses ruzstd, so either build opens the other's packages.
+zstd-native = ["dep:zstd"]
+
+[dependencies]
+age = { workspace = true }
+tlock_age = { workspace = true, features = ["rfc9380", "internal"] }
+tlock = { workspace = true, features = ["rfc9380"] }
+ruzstd = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Beacon verification. These are the versions tlock already uses.
+ark-bls12-381 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+sha2 = { workspace = true }
+zstd = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true, features = ["rustls"] }
