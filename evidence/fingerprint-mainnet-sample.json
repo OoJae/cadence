@@ -1,0 +1,1816 @@
+{
+  "tool": "cadence-decode 0.0.1 scan",
+  "network": "main",
+  "server": "https://zec.rocks:443",
+  "from": 3526581,
+  "to": 3526780,
+  "chain_tip": 3526793,
+  "anchor_search": 40,
+  "generated_at_unix": 1792680865,
+  "notes": [],
+  "stats": {
+    "blocks": 200,
+    "compact_txs": 1297,
+    "orchard_family_txs": 521,
+    "decoded": 521,
+    "decoded_from_cache": 0,
+    "failed": 0,
+    "transparent_data_in_compact_blocks": true,
+    "tree_root_dedupe": true,
+    "tree_state_window": [
+      3526541,
+      3526780
+    ],
+    "tree_states_fetched": 155,
+    "tree_states_from_cache": 0,
+    "tree_states_derived": 85,
+    "transactions_fetched": 521,
+    "retries": 0,
+    "elapsed_secs": {
+      "blocks": 0.99,
+      "tree_states": 7.5,
+      "transactions": 27.37,
+      "total": 36.04
+    },
+    "ms_per_block": 180.0
+  },
+  "population": {
+    "compact_by_pools": [
+      {
+        "label": "transparent",
+        "count": 565,
+        "share": 0.4356
+      },
+      {
+        "label": "transparent+ironwood",
+        "count": 314,
+        "share": 0.2421
+      },
+      {
+        "label": "coinbase transparent",
+        "count": 185,
+        "share": 0.1426
+      },
+      {
+        "label": "ironwood",
+        "count": 185,
+        "share": 0.1426
+      },
+      {
+        "label": "transparent+sapling",
+        "count": 24,
+        "share": 0.0185
+      },
+      {
+        "label": "coinbase transparent+ironwood",
+        "count": 15,
+        "share": 0.0116
+      },
+      {
+        "label": "orchard+ironwood",
+        "count": 4,
+        "share": 0.0031
+      },
+      {
+        "label": "sapling",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "sapling+ironwood",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "transparent+orchard",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "transparent+orchard+ironwood",
+        "count": 1,
+        "share": 0.0008
+      }
+    ],
+    "compact_by_class": [
+      {
+        "label": "t:1in/2out",
+        "count": 220,
+        "share": 0.1696
+      },
+      {
+        "label": "coinbase t:0in/2out",
+        "count": 183,
+        "share": 0.1411
+      },
+      {
+        "label": "ironwood:2",
+        "count": 168,
+        "share": 0.1295
+      },
+      {
+        "label": "t:0in/1out + ironwood:2",
+        "count": 152,
+        "share": 0.1172
+      },
+      {
+        "label": "t:1in/1out",
+        "count": 147,
+        "share": 0.1133
+      },
+      {
+        "label": "t:1in/0out + ironwood:2",
+        "count": 56,
+        "share": 0.0432
+      },
+      {
+        "label": "t:2in/1out + ironwood:1",
+        "count": 49,
+        "share": 0.0378
+      },
+      {
+        "label": "t:2in/2out",
+        "count": 48,
+        "share": 0.037
+      },
+      {
+        "label": "t:3in/2out",
+        "count": 39,
+        "share": 0.0301
+      },
+      {
+        "label": "t:2in/1out",
+        "count": 22,
+        "share": 0.017
+      },
+      {
+        "label": "t:1in/3out",
+        "count": 19,
+        "share": 0.0146
+      },
+      {
+        "label": "t:0in/1out + ironwood:3",
+        "count": 15,
+        "share": 0.0116
+      },
+      {
+        "label": "t:4in/2out",
+        "count": 13,
+        "share": 0.01
+      },
+      {
+        "label": "t:0in/1out + ironwood:4",
+        "count": 11,
+        "share": 0.0085
+      },
+      {
+        "label": "coinbase t:0in/1out + ironwood:4",
+        "count": 10,
+        "share": 0.0077
+      },
+      {
+        "label": "ironwood:3",
+        "count": 9,
+        "share": 0.0069
+      },
+      {
+        "label": "t:2in/0out + ironwood:2",
+        "count": 8,
+        "share": 0.0062
+      },
+      {
+        "label": "t:0in/1out + sapling:1sp/2out",
+        "count": 6,
+        "share": 0.0046
+      },
+      {
+        "label": "t:4in/1out",
+        "count": 6,
+        "share": 0.0046
+      },
+      {
+        "label": "t:0in/1out + ironwood:5",
+        "count": 5,
+        "share": 0.0039
+      },
+      {
+        "label": "t:1in/4out",
+        "count": 5,
+        "share": 0.0039
+      },
+      {
+        "label": "coinbase t:0in/1out + ironwood:1",
+        "count": 4,
+        "share": 0.0031
+      },
+      {
+        "label": "orchard:2 + ironwood:1",
+        "count": 4,
+        "share": 0.0031
+      },
+      {
+        "label": "t:10in/1out",
+        "count": 4,
+        "share": 0.0031
+      },
+      {
+        "label": "t:3in/1out",
+        "count": 4,
+        "share": 0.0031
+      },
+      {
+        "label": "ironwood:4",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "ironwood:6",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:0in/1out + sapling:2sp/2out",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:1in/0out + ironwood:4",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:1in/0out + sapling:0sp/2out",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:1in/5out",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:4in/0out + ironwood:2",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "t:7in/2out",
+        "count": 3,
+        "share": 0.0023
+      },
+      {
+        "label": "coinbase t:0in/3out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "sapling:1sp/2out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:0in/1out + sapling:5sp/4out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:11in/1out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:16in/1out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:1in/0out + ironwood:3",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:1in/7out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:5in/0out + ironwood:2",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:5in/1out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:5in/2out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "t:9in/2out",
+        "count": 2,
+        "share": 0.0015
+      },
+      {
+        "label": "coinbase t:0in/1out + ironwood:5",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "ironwood:5",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "ironwood:7",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "sapling:5sp/2out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/1out + ironwood:11",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/1out + ironwood:6",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/1out + orchard:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/1out + orchard:2 + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/1out + sapling:5sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:0in/2out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:10in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:10in/3out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:11in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:12in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:13in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:13in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:14in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:15in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:16in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:18in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:19in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:1in/11out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:1in/16out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:1in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:1in/1out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:1in/36out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:21in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:23in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:2in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:2in/3out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:37in/1out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:37in/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:3in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:3in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:3in/10out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:3in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:3in/3out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:40in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:4in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:56in/1out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:65in/1out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:73in/1out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:8in/0out + sapling:0sp/2out",
+        "count": 1,
+        "share": 0.0008
+      },
+      {
+        "label": "t:9in/1out",
+        "count": 1,
+        "share": 0.0008
+      }
+    ],
+    "decoded_by_class": [
+      {
+        "label": "V6 ironwood:2",
+        "count": 168,
+        "share": 0.3225
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:2",
+        "count": 152,
+        "share": 0.2917
+      },
+      {
+        "label": "V6 t:1in/0out + ironwood:2",
+        "count": 56,
+        "share": 0.1075
+      },
+      {
+        "label": "V6 t:2in/1out + ironwood:1",
+        "count": 49,
+        "share": 0.094
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:3",
+        "count": 15,
+        "share": 0.0288
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:4",
+        "count": 11,
+        "share": 0.0211
+      },
+      {
+        "label": "V6 t:1in/1out + ironwood:4",
+        "count": 10,
+        "share": 0.0192
+      },
+      {
+        "label": "V6 ironwood:3",
+        "count": 9,
+        "share": 0.0173
+      },
+      {
+        "label": "V6 t:2in/0out + ironwood:2",
+        "count": 8,
+        "share": 0.0154
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:5",
+        "count": 5,
+        "share": 0.0096
+      },
+      {
+        "label": "V6 orchard:2 + ironwood:1",
+        "count": 4,
+        "share": 0.0077
+      },
+      {
+        "label": "V6 t:1in/1out + ironwood:1",
+        "count": 4,
+        "share": 0.0077
+      },
+      {
+        "label": "V6 ironwood:4",
+        "count": 3,
+        "share": 0.0058
+      },
+      {
+        "label": "V6 ironwood:6",
+        "count": 3,
+        "share": 0.0058
+      },
+      {
+        "label": "V6 t:1in/0out + ironwood:4",
+        "count": 3,
+        "share": 0.0058
+      },
+      {
+        "label": "V6 t:4in/0out + ironwood:2",
+        "count": 3,
+        "share": 0.0058
+      },
+      {
+        "label": "V6 t:1in/0out + ironwood:3",
+        "count": 2,
+        "share": 0.0038
+      },
+      {
+        "label": "V6 t:5in/0out + ironwood:2",
+        "count": 2,
+        "share": 0.0038
+      },
+      {
+        "label": "V6 ironwood:5",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 ironwood:7",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 sapling:5sp/2out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:11",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:0in/1out + ironwood:6",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:0in/1out + orchard:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:0in/1out + orchard:2 + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:0in/2out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:11in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:15in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:1in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:1in/1out + ironwood:5",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:3in/0out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      },
+      {
+        "label": "V6 t:3in/1out + ironwood:2",
+        "count": 1,
+        "share": 0.0019
+      }
+    ]
+  },
+  "classes": [
+    {
+      "id": "cadence_class",
+      "description": "V6, Ironwood-only (0 transparent, 0 Sapling, 0 Orchard-pool), 2 Ironwood actions: the shape Cadence installments use",
+      "count": 168,
+      "members": [
+        "87157abce219c100fa5c7ae7de0c2910543c2348651e52b82cc147aae15f37db",
+        "735039b7d40793941b13bea1f09990450bdd7ee3bc9043ee80a03f63caa94459",
+        "486dd75b54da802de2897e28cd71532cb6893904bf7a50ce647ed74042960775",
+        "370f5feb92d58339c3cbfb40caf79944ee3658f21da44d3f81bdd525cf8634e0",
+        "a58a924d1f5e91cb177a0a389523105ffc7a5a1d0be0017bf1e8049c911d9bd0",
+        "36b6a6f934ee08c8461c0ce0a37bb664f2f2a70c237813174df75786b9612608",
+        "54bb8daf93fa3dcfe15084dba283483db5cc1b185cfc21e8528b581dbb70b122",
+        "587da90225c1a2ac0bee0e66aec0ff7e36e7b84db595eb916b453048b15ad7d9",
+        "e915fc1fc80e56a27f14ded5aca4373a4560a197d698ab0a4b4d0504280e5e2a",
+        "7ec8147a41106bda2943d9d2b1f5bdcfd7adfa4ac937e28eb20d5f769c558046",
+        "56d2730b8cc0232511d1ac56e93e19a2d62ac8697de031c3aa8c78c0dbaf11c5",
+        "75beb32bed41d1958d7fdaf287629d781a110ed17eb84c24244a3cae415bfdef",
+        "7d80efd75b6de7bacadc39a5752250b6d7bb02bc1d3deb02ad1878b51d471814",
+        "3669e7985363841435973022fca4b647bab12e674e3ba628c2be7bef2cdc76d9",
+        "4fb974390af1007b89dd5c95c12a79667458cd36392414d0e0c9207782e36f22",
+        "b68a994d8e87cce8a765bee912fd828c8f7902dc3d8b0bba4332602ef7b2c491",
+        "3d14b5b9c31e0b2c5010b37f02506ef1b2194cf8d36da91c9be395d6460f6f88",
+        "61a787f6c467408954584241c10bb720d7cbf102831736920f3dfc81fce97cee",
+        "7c9b058634051e2f8caf350ae9deb28b9e07c529229fb5e26d63eac669cec413",
+        "b2e67ccda13d14c6104eb3e5ee3314b10eb78eb97ab32f9886524845fed16584",
+        "4122f55373aa1b6c35a2ac37c5f2b6df59cc5393ca8a11f2a7ff1a083ac32229",
+        "a927b45b9d3ff0b1075d78fdc15f3610cfe08524d952bfddef13c270260314d9",
+        "c4fe9203d8df7f5e3e36ea6b0c1f1f930843ee920c521ba734998049f1df266f",
+        "4713df791a9e002e1701092b0aaabbec65dba556be7fd68577e9234f66cbd840",
+        "dce31c54e2840ad188ea93c96eda6210f5db35a30dd9355c808992eff656acaf",
+        "2de9dfeb0d3ec9de16717fe47e0f27f15d3cea43ea5a34c48a1dc717c099f656",
+        "f6b9ceab80474a834881604982afb7baba74d5757db64dcc8b3eb8151ac7f089",
+        "cd2f3408fa404f3afa578da8b6f5b38cd41423b3e905e69981340f364fceedb5",
+        "41bc827c8aa738b6090045ea46c0387bf52b200f8b94901c32e3a1f447cd1a59",
+        "1c01da1d195d3b6d746f67754b3ddf64d7bb24754606b5edb267d9485098e963",
+        "93689f174674c6532e6ad1683e216c230d340d4ca8e03b4cfc84ebfda7fa123a",
+        "6b6683ce04a203c293d6de5c62c5739fe4c9b840d64eed9144227c698d42c752",
+        "48c7d1bd075d5fb33bc8c0e243c622acea194fa3b31a5fac94352c871daad0d1",
+        "7482b591eaabcf8c4598a5ace9be338349bf96d74b5be84edea31135bf90bc4a",
+        "75ca3128b52054b949b81cde4a611f0dc32a9ec486997f86975809ca2f7953b4",
+        "fa295b4e8774bed80cf523eb175d2390c1a73137e3fc1ad8bb90ec95138823bd",
+        "4878f387b0398ccc4353a24b2e33d96197346a1081706c5c4b6ec09ed465e9da",
+        "a5910ba10c921c147e68fd48bb4b1c98ea4d5885f9c1502900508485c9c5fab2",
+        "c770f9eb1a1699f6e5558796efe8e582c1c64f8d8cc34677e149624dc8ac29b1",
+        "1f5a85138c0f5dd2045eb85e84ec8682880e80607122cbd22501b01219f0173e",
+        "9935457c9fae0856ed39693dba0b8e6c91331f80dd668fa427674a99f03e59e4",
+        "97993cc3aea86e667f5937ff22c120fa7bea2ee8fdc647691a6f30c7913caafa",
+        "5f433375db8d713aad511ca343332671b5c1f5dc89a871f0420d8439607e7134",
+        "c1394541c44e473d967240763fa76b03376c88e05b019f0c571792c1ab63a38a",
+        "ee2cbaea6ab2c0ee8d7d0f2a24328e6bcc4bdd770b3f90d506b5fd6989ad9a1a",
+        "f8b7fabec86e34754b39e2b2944064cbdb117e35cb1cbb4410a924ce6ce8eb00",
+        "c148060d1d124dfde57ea404c1904af5d1b4fd588b1ab0a0b6c5da92721106ec",
+        "e803254f545f447b0bc7e2405e8de1604134a8202b3295029e4008ed87fca736",
+        "ea407d4783d234633963025d9e8d373c84cb831f72034bee37ed13e216330b7a",
+        "9dc3d4eac81bb4658269c17b434512d2c3bc242445bd8aa2b7dd6a28eed2fdee",
+        "5b3c268d9555cca8e65b1ea99de838049ea64428f3112f7595bdcda46cd5b69e",
+        "6d0515f9092963c8954a957a84ded5bffdab4a40a23727d0606408be712e9145",
+        "e08b74df25bdb382bc26a179da59ea7e84137cad423e184db4a30e883bb92faa",
+        "93745573eafca222c120b4090b08d91f2a0d25cc0b90fcab441415e0ed174e3b",
+        "14d12e9be93aa0a84dc8604038c411cbe4c79f3fcf0cc87a46db5ca0386218cb",
+        "1acc28d1acea20371a7518e9812dbcb6ee1622899cebe3b99364c26fa098e294",
+        "d00a2bed875b2fd2e09de6900e5206050faa69c2fab9b7a110d15e80eff55f15",
+        "6a96334fa4a36830c1713369cc29bd3f7dcaafd8bd74cf610935f9a731480969",
+        "d5c825a7a21078047a816efb6b9346eb7f1b71ae2b86d76a88e1b88fc2d9f964",
+        "374f3c642fc1e9d75e62db52887193cbdf7d20b30ea3c4f92823fdf57bfa7790",
+        "73e37256fa486ce53be622177c05852c0008d2e0492ccede6edbc2f9de447843",
+        "80cb1c049a67d09396d5684babeccf6ff9a5174b2f176613cc182247fd2c5943",
+        "779bc5ce486dd6649cfa52ac5fae170c19d49e287fba649109b3ae45ad05e19f",
+        "7c4f3a3e212dc9023959523152f8bc8bafe620e2dc4d74b0db117721610ddb91",
+        "0469834698dec0dc8cbea7eee998e743caf74edb5b04594f149946ca57d99dc6",
+        "f19d02d7c4e88947c76312bee07c21ff0a4c454be37485438250a0497fc7a984",
+        "98317c9a71fa115f903424edb0f4538616aaa9622643bf08b67bff6b018d29b8",
+        "64c0bea7c801c0b3be8019bc510ccbf015a23ac42803b312aab6b13fdc984f14",
+        "31d05fd48b347447f980700a3342ca259338677690d015e8e7c2d66d1bfcdc0e",
+        "3622fa35fa0aba8447f6450aea3e02f819076f32ab5213e8a3b5081d9902e685",
+        "da9faafcd45c4876ab7cc17530892b31e446544efea834c0e7bda0570f17e3e5",
+        "6966af59a6f4b86b436356e5eb51bbb68ce891dbf161fcd410c4d5e4f3707168",
+        "5864c805c00cd06b72d015df1df5ed022840844a31fbac1f3c11561eb0449745",
+        "69266378753cb030a358ec7afbba9115da8b31a272dbcdb5f1890b9f11767337",
+        "ead11bdc357a0690f89d65fae23cfc128bc0f46db69c18d44206ca7bf5ba7a21",
+        "69e26d305aa49cf091bd85fa8f4bfb55e631b885511f20a14eb28f96c423b096",
+        "bfba3b2e3ab608fd4cf7b1af650cc32391ab3031b797466024adba6f5be4a09a",
+        "d17922f46d86e6dcc579fccd145e10dc2bdc15f0fa15b94d41bc3012bf5b8894",
+        "ae8789422528b0e1b903a7a18fe437be29cd9ceee4fb60fbad98e99b7edc4adc",
+        "5ec0e3cca4214757d345d6212b8518ee4e878e6637e749bd488baca21a08c430",
+        "912aa8df654d78e0de0159b074d11fcd803a9cad96b29b890c41b02868f1fa4a",
+        "b5a3a51a33f20442d26a174a14442109741e2d42825beb91ee170aedf3e97bab",
+        "2382779be0c7dd33bd2f430a7227bc9f05c65ff9511337f0a1606113ded1f1fc",
+        "147668f5e80144da3e2a5e2b74913fcd0d3a1fa4773e7db8d50ababdaf8986b1",
+        "fa168839e26eac2ef3b12d25f897a38745770f277b8e31fafcc31ef24cf01883",
+        "96487f20b7d1dfc5b589d9be5b0e5e3faf1de9ec7301a51fb55b0af4c9856324",
+        "34fd4c4ecce153b169c68361f55c1fdc21ca552ee9219c114112642dbc6e0728",
+        "77da63f0aa77f3d8a92a93c6818df21c3e5eff4cb6fb8bb96d80beb865234b4b",
+        "b967564dc8bece53f7c9287673722641ff3c2942df3fcaa9137c4b55af6185fb",
+        "dcc433a1696c0e8ec4eece98e10884c415b04c505bd742901e3c6c156e6cd88e",
+        "08e8c2ff9fa418a4400cee1691940c3a2af912b343c58ea726e3983563de014d",
+        "8a6edf140aab2252dcbed75d14cc4786a57ddac3ca0b9ee6f25d91d1afe06c80",
+        "b7e8f9113426929ef96ff52780fb66e5f9b0ca7737111ac5abe6d8a2ac5a02a2",
+        "74a8130264a8f9e2b53b9035ba2eb55d9ed18d30196eacd15b621556116985b6",
+        "ecf604272ba9e99968de5b10a521d398fa1066462cd8d9f0e619c6bfc969867e",
+        "b856ac4ac9717c132177de98d05d14b019f82cd275ae0b6f237b46ae6d9ce90d",
+        "2643dfe99a75769dedb2bf7182a2f6923a1972d16b05bb30920e6ff06b0599cb",
+        "6d2229d00d80fc3db5a8ae808605fc2f0c63a5875664aedfbba3c72343983e98",
+        "5837a68582fbce4df376b4e8068c1288e8b2f01f51a89de8362455e80dc359e9",
+        "53ec8d7748d2df36bedc63559ac45a3ccdd2fdc7d27677116850a26c40e02b80"
+      ],
+      "members_truncated": true,
+      "histograms": [
+        {
+          "field": "fee",
+          "buckets": [
+            {
+              "value": "10000",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "expiry_minus_mined",
+          "buckets": [
+            {
+              "value": "40",
+              "count": 78,
+              "share": 0.4643
+            },
+            {
+              "value": "39",
+              "count": 50,
+              "share": 0.2976
+            },
+            {
+              "value": "38",
+              "count": 17,
+              "share": 0.1012
+            },
+            {
+              "value": "37",
+              "count": 7,
+              "share": 0.0417
+            },
+            {
+              "value": "36",
+              "count": 6,
+              "share": 0.0357
+            },
+            {
+              "value": "34",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "5",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "2",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "4",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "30",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "33",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "35",
+              "count": 1,
+              "share": 0.006
+            }
+          ]
+        },
+        {
+          "field": "min_anchor_depth",
+          "buckets": [
+            {
+              "value": "3",
+              "count": 58,
+              "share": 0.3452
+            },
+            {
+              "value": "1",
+              "count": 39,
+              "share": 0.2321
+            },
+            {
+              "value": "2",
+              "count": 24,
+              "share": 0.1429
+            },
+            {
+              "value": "4",
+              "count": 23,
+              "share": 0.1369
+            },
+            {
+              "value": "5",
+              "count": 8,
+              "share": 0.0476
+            },
+            {
+              "value": "7",
+              "count": 4,
+              "share": 0.0238
+            },
+            {
+              "value": "6",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "10",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "8",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "9",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "13",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "14",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "21",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "unresolved(>40)",
+              "count": 1,
+              "share": 0.006
+            }
+          ]
+        },
+        {
+          "field": "flags",
+          "buckets": [
+            {
+              "value": "7",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "lock_time",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "proof_bytes",
+          "buckets": [
+            {
+              "value": "7264",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "zero_ovk_recoverable",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "branch_id",
+          "buckets": [
+            {
+              "value": "37a5165b",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "version",
+          "buckets": [
+            {
+              "value": "V6",
+              "count": 168,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "joint",
+          "buckets": [
+            {
+              "value": "fee=10000 expiry_minus_mined=40 min_anchor_depth=3 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 43,
+              "share": 0.256
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=40 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 21,
+              "share": 0.125
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=4 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 19,
+              "share": 0.1131
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 15,
+              "share": 0.0893
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=40 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 12,
+              "share": 0.0714
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=3 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 8,
+              "share": 0.0476
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 6,
+              "share": 0.0357
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=38 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 5,
+              "share": 0.0298
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=38 min_anchor_depth=3 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 4,
+              "share": 0.0238
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=36 min_anchor_depth=5 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=38 min_anchor_depth=1 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=38 min_anchor_depth=5 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=34 min_anchor_depth=7 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=36 min_anchor_depth=7 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=37 min_anchor_depth=3 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=37 min_anchor_depth=5 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=37 min_anchor_depth=6 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=38 min_anchor_depth=4 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=40 min_anchor_depth=10 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=2 min_anchor_depth=6 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=30 min_anchor_depth=13 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=33 min_anchor_depth=10 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=34 min_anchor_depth=9 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=35 min_anchor_depth=8 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=36 min_anchor_depth=unresolved(>40) flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=37 min_anchor_depth=4 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=14 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=39 min_anchor_depth=21 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=4 min_anchor_depth=4 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=5 min_anchor_depth=2 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "fee=10000 expiry_minus_mined=5 min_anchor_depth=3 flags=7 lock_time=0 proof_bytes=7264 zero_ovk_recoverable=0 branch_id=37a5165b version=V6",
+              "count": 1,
+              "share": 0.006
+            }
+          ]
+        },
+        {
+          "field": "anchor_offset_from_target",
+          "buckets": [
+            {
+              "value": "3",
+              "count": 48,
+              "share": 0.2857
+            },
+            {
+              "value": "1..3",
+              "count": 20,
+              "share": 0.119
+            },
+            {
+              "value": "1",
+              "count": 18,
+              "share": 0.1071
+            },
+            {
+              "value": "3..4",
+              "count": 18,
+              "share": 0.1071
+            },
+            {
+              "value": "2..3",
+              "count": 17,
+              "share": 0.1012
+            },
+            {
+              "value": "1..2",
+              "count": 13,
+              "share": 0.0774
+            },
+            {
+              "value": "unknown",
+              "count": 8,
+              "share": 0.0476
+            },
+            {
+              "value": "1..4",
+              "count": 5,
+              "share": 0.0298
+            },
+            {
+              "value": "2..4",
+              "count": 4,
+              "share": 0.0238
+            },
+            {
+              "value": "3..5",
+              "count": 4,
+              "share": 0.0238
+            },
+            {
+              "value": "1..5",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "2..5",
+              "count": 3,
+              "share": 0.0179
+            },
+            {
+              "value": "3..6",
+              "count": 2,
+              "share": 0.0119
+            },
+            {
+              "value": "10",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "10..11",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "13..14",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "20..21",
+              "count": 1,
+              "share": 0.006
+            },
+            {
+              "value": "3..7",
+              "count": 1,
+              "share": 0.006
+            }
+          ]
+        }
+      ],
+      "anchor_offset_known": 160,
+      "anchor_offset_consistency": [
+        {
+          "offset": 1,
+          "consistent": 59,
+          "share": 0.3688
+        },
+        {
+          "offset": 2,
+          "consistent": 65,
+          "share": 0.4063
+        },
+        {
+          "offset": 3,
+          "consistent": 125,
+          "share": 0.7813
+        },
+        {
+          "offset": 4,
+          "consistent": 40,
+          "share": 0.25
+        },
+        {
+          "offset": 5,
+          "consistent": 13,
+          "share": 0.0813
+        },
+        {
+          "offset": 6,
+          "consistent": 3,
+          "share": 0.0188
+        },
+        {
+          "offset": 7,
+          "consistent": 1,
+          "share": 0.0063
+        },
+        {
+          "offset": 8,
+          "consistent": 0,
+          "share": 0.0
+        },
+        {
+          "offset": 9,
+          "consistent": 0,
+          "share": 0.0
+        },
+        {
+          "offset": 10,
+          "consistent": 2,
+          "share": 0.0125
+        }
+      ]
+    },
+    {
+      "id": "orchard_analog",
+      "description": "Orchard-pool only (0 transparent, 0 Sapling, 0 Ironwood), 2 Orchard actions, any version: the pre-Ironwood equivalent of the Cadence class",
+      "count": 0,
+      "members": [],
+      "members_truncated": false,
+      "histograms": [],
+      "anchor_offset_known": 0
+    },
+    {
+      "id": "all_orchard_family",
+      "description": "Every transaction with Orchard-pool or Ironwood actions, any shape",
+      "count": 521,
+      "members": [
+        "b6ceb495ffc1d2a0e56b2a989b1e31c45f5d32eaf7c1224a50a8d2e45bc171ff",
+        "82734f7980b254ce7602c27c50c5c53323b03258e7aee76b791a716f32f0f8a0",
+        "87157abce219c100fa5c7ae7de0c2910543c2348651e52b82cc147aae15f37db",
+        "615b2d5b51f52243e78310358325da2ec20cf78ed194235056c08f641c570610",
+        "735039b7d40793941b13bea1f09990450bdd7ee3bc9043ee80a03f63caa94459",
+        "5625d81fb1b1070b5d9f82841c9e20b06222554f6511e950eff883bf47aed625",
+        "bebf1028f1ed5d8d89dc3e7689f548229d69fb2f3f678403a2caa82b72275990",
+        "e67f2803974f798eb69f294ad02d19edaca3472f58985d3a9721953573d46906",
+        "486dd75b54da802de2897e28cd71532cb6893904bf7a50ce647ed74042960775",
+        "c64f0cfd5465d136624fc3f103adbbf1bcbe3a484a0fd61c8ac3cdd458c0e74c",
+        "31ed105c7e4a05b115110f4c476ec5913a8b0a5242ce4587746d9a0366f9e917",
+        "aaad21f99e43e69df8fa7a79d59dd3c33600ad2f6febfda9e6faa82665dac409",
+        "a798a86f6a45c8e4732a751429770605fcec0b1b75de92477b0a00e41f02d63b",
+        "2d635b343d51fd08fdb5dc5959a7023262228fa10791991bed2a5d84b209b59f",
+        "370f5feb92d58339c3cbfb40caf79944ee3658f21da44d3f81bdd525cf8634e0",
+        "56ed4da1354d7258758e9e9e29492f87f47388510ed7a32c40f75680303582cb",
+        "e4d0aadf3c1efb6495b6c8cba24298131710465a15681439b8d81b3c33e75bdf",
+        "a58a924d1f5e91cb177a0a389523105ffc7a5a1d0be0017bf1e8049c911d9bd0",
+        "36b6a6f934ee08c8461c0ce0a37bb664f2f2a70c237813174df75786b9612608",
+        "fb483f4768999e648cffa00838650bf0eb15333652246373930bfe7af9923189",
+        "54bb8daf93fa3dcfe15084dba283483db5cc1b185cfc21e8528b581dbb70b122",
+        "a1b701d8be663e7509299a97e962cb24ca6f1f9ddd6f9afeed96b515f2834714",
+        "587da90225c1a2ac0bee0e66aec0ff7e36e7b84db595eb916b453048b15ad7d9",
+        "1649c0556ed53e31e6cf6667062e2ac33d1168d6c0547372dd70be933c0df280",
+        "e915fc1fc80e56a27f14ded5aca4373a4560a197d698ab0a4b4d0504280e5e2a",
+        "86b1de066075ab0673b24112c69ba25ff65af65e40b18e1e5a74b0d1084bda66",
+        "7ec8147a41106bda2943d9d2b1f5bdcfd7adfa4ac937e28eb20d5f769c558046",
+        "617ef403004f147d4edeaa8925f094da68c2f31a9df2c8e5e899f905c6e32c3d",
+        "56d2730b8cc0232511d1ac56e93e19a2d62ac8697de031c3aa8c78c0dbaf11c5",
+        "84c5f7011bacb7b03478b79e988ac5e950e31adfcd1fc8f7d8e4405151b57cab",
+        "5948b2c80c732ec0b75033789065196f13a727b2773c4d7a179e09f2c4c8e430",
+        "631028e5308c6afe3e88705a2330391cf4ad1b7466b739db2ce8a66025269099",
+        "614d9c1afad8f99379b05f7cbe0f140ad0f6825eba003fe2d2b0ff0f04a6270e",
+        "19893abd7cc8174c2ee615b3cfb2a3859a4cb84881efac18cf16a9537ae048d2",
+        "75beb32bed41d1958d7fdaf287629d781a110ed17eb84c24244a3cae415bfdef",
+        "b8e9bf7314629656590c536c09e68e309dfe1d4790bfbc9899c8833c93cc0610",
+        "8fde5941a20e5f3859c7d845a72565774e8e08773b2f3f527fd7ef1e06d96666",
+        "226fba2cfdfcdecefa0b805bbd51c694bc4342063d4bc2da2649c42aa462c909",
+        "f6114b3a5b3fcb27a6f92f1cceb980b0ce4247bde883a515a84d78e61cf04b0c",
+        "0e1f86cd4095bccb5c465587c6740c1af7f9320ed17271d1833e8dae60026b19",
+        "07232b7cac2469df972fe4065e60b2033a676ed72480beba09f083ab085c85aa",
+        "7d80efd75b6de7bacadc39a5752250b6d7bb02bc1d3deb02ad1878b51d471814",
+        "b0a2c3baa165a45f5ecf30104b1ed19af90f31621fc59739bc7f835f0b630949",
+        "0263929faf22e243cc631306c1cafdbc2549e406576fe237ae8a1043d62201a9",
+        "c26052d0f9c8df0293259db41cef1364a42c93e83db1090362ab3b9c9c68c8d8",
+        "48bacf9b9408395744df1a056cf4294418244250d97e397fea8d094b8402c947",
+        "3669e7985363841435973022fca4b647bab12e674e3ba628c2be7bef2cdc76d9",
+        "5002e9ce37debd6300b9b1215fa316e8599386d79eaf0e6d3bd242ae0ffe5aec",
+        "67f3e483cb3fea3b2276efbd169c5caaa219df1e7fa18c7d99970aa44b2a3e85",
+        "e3f139258a660ac57b76bf0afe3d19c15a0d17a21bfea64b094f506037555115",
+        "7ca33336870886cc2d73f8174ec652525d3eb3c76203e08f65d16b47910e039c",
+        "2cab9b33a81ffc5672d1cd56b191892279c6e97b772a7b886ffcd9eb28855515",
+        "4b5d7d5e7ffef2e670ee9cb8e9705227e37591f0d600c647fada3c1578af28da",
+        "4fb974390af1007b89dd5c95c12a79667458cd36392414d0e0c9207782e36f22",
+        "2a351c90ff709a168468cb34376ede53d13dbd8970040fbef20242820a3c13e9",
+        "58b966be9f4a225a27219c8bc3a8588b72531edcccca5eb5acaa0e97f99dddf9",
+        "c3036e627e9f84d0fb7397a3426aea2f743578d0c40ad52a3c5e7e7a793cd448",
+        "6e480ced75fc1d2296d2529760a7161d6d18306bb35cc9243be4b81fa1487c5c",
+        "dcb557b46a690090b07f05bb9d18029292a9feb4fee2939039345877887aec79",
+        "b68a994d8e87cce8a765bee912fd828c8f7902dc3d8b0bba4332602ef7b2c491",
+        "3d14b5b9c31e0b2c5010b37f02506ef1b2194cf8d36da91c9be395d6460f6f88",
+        "73e9e0a6816d37432865736136895bca6b1359e39d73cf24ebdd1bebc1ddc07f",
+        "562b6551ecc08a7930f54f185309ce994ff9473ad5a77fc344d1a8e8e1cb5ba9",
+        "61a787f6c467408954584241c10bb720d7cbf102831736920f3dfc81fce97cee",
+        "7c9b058634051e2f8caf350ae9deb28b9e07c529229fb5e26d63eac669cec413",
+        "e0e6d2e94fe6678df47956c0dc79e5e3827bd3d327e6c8bb561f960f7b05e8f4",
+        "b2e67ccda13d14c6104eb3e5ee3314b10eb78eb97ab32f9886524845fed16584",
+        "5eecfe49213654000a0d28fa60e57ccc9b8e34f7d6838ca6e6dab7701878777a",
+        "4122f55373aa1b6c35a2ac37c5f2b6df59cc5393ca8a11f2a7ff1a083ac32229",
+        "a927b45b9d3ff0b1075d78fdc15f3610cfe08524d952bfddef13c270260314d9",
+        "c4fe9203d8df7f5e3e36ea6b0c1f1f930843ee920c521ba734998049f1df266f",
+        "99cf24621f64c69beebe247a2662e0ef36f820ecb28e3036ece255e7930e1ee4",
+        "7e986311a231f1532e9c2d461dd06c8334286c7ea888442aff56d9a4a830794c",
+        "ad4022c7be0218feacbca08bc2dfea2beffcc02e482d8c9ee78463cfda5949e1",
+        "4713df791a9e002e1701092b0aaabbec65dba556be7fd68577e9234f66cbd840",
+        "dce31c54e2840ad188ea93c96eda6210f5db35a30dd9355c808992eff656acaf",
+        "9f60fc843545bd9a02e0e668e6c627f9e4465bdbe08c7933d4c81a197eabe8d0",
+        "1dc7127ecc3a40bd27b3b3e3fe5ef4029734bff9e224d09cc2c37860a077d6bc",
+        "b42a20bb38e4aa4f8ea0341f030eb453a49d35032a7a96ba417588cc5a8cebff",
+        "2ed7d7917c7daa5350e85297c98712a9c74fae7d6d8cffac4c51dc542959858f",
+        "3929a1bff3fde2545a6f7517f2bf3f11b9a9adaf3eabeefca8f43853b32bd288",
+        "062b0214d9a471b40bb3a9f94f222bebc89bdff8e52dca3c8167a62261f6ecb8",
+        "79fd8e2469e5aad1dec6d5b43e03e62235bb803e93f8833c0d50e29ac0195f50",
+        "d0183b81706b2f8bf98457553784bf9dd2cc27a7d4dda99b38c3af097ed763b1",
+        "5696a4b775756cd0c2767aefb64cae284d6b5ef6c753008ccc73332084b72c0c",
+        "2de9dfeb0d3ec9de16717fe47e0f27f15d3cea43ea5a34c48a1dc717c099f656",
+        "f6b9ceab80474a834881604982afb7baba74d5757db64dcc8b3eb8151ac7f089",
+        "f2bf516b5e1967911a5f1d84a99c22cf029fca25d6c6e9fbca54e686070ac440",
+        "82b9c6373bb445d0cded80ee007bcda59f35b4902029caf2f79fb011fb5d809c",
+        "97d408d308701e428a932ed8cfc2d832c65ac8e3bbc96b7e7e8896cc20101693",
+        "6758549189943bd795d5e4659f7ff732a8d13c16135b7b68014060caa88c849d",
+        "7902a5ba2ac9efc4f36228227e8b436bba8c1cecac4f4cc521cebf49b57a7332",
+        "cd2f3408fa404f3afa578da8b6f5b38cd41423b3e905e69981340f364fceedb5",
+        "db365fe094fbd85bf193e61f21b48d9b4a5b130b5d2b63eb4f04994c1a51d20f",
+        "a2b6974ddf8afd600d11f84b57afea38d492f5265366005f03837afb9a12ca7e",
+        "e7896290f20d2e871fc9b9b90157285da33f5356f989fc3aabbbc50b4204dca7",
+        "973c7bbc3223d97d77489235f07c6ecef3f57592c67e2c491b753e3b805ca9a0",
+        "ff9f84a65782a94a3fb1833866e276250ff056012df43bc060430444269a36fb",
+        "f74a317be91cd33da67ef89483bde84621b709cad334a19191fb475419b6ded7",
+        "3e2563e26580e4f6388b4c7861d7a2fea2280936ebdb2a74aeaac63a5f02ddd2"
+      ],
+      "members_truncated": true,
+      "histograms": [
+        {
+          "field": "pools",
+          "buckets": [
+            {
+              "value": "transparent+ironwood",
+              "count": 329,
+              "share": 0.6315
+            },
+            {
+              "value": "ironwood",
+              "count": 185,
+              "share": 0.3551
+            },
+            {
+              "value": "orchard+ironwood",
+              "count": 4,
+              "share": 0.0077
+            },
+            {
+              "value": "sapling+ironwood",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "transparent+orchard",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "transparent+orchard+ironwood",
+              "count": 1,
+              "share": 0.0019
+            }
+          ]
+        },
+        {
+          "field": "version",
+          "buckets": [
+            {
+              "value": "V6",
+              "count": 521,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "branch_id",
+          "buckets": [
+            {
+              "value": "37a5165b",
+              "count": 521,
+              "share": 1.0
+            }
+          ]
+        },
+        {
+          "field": "fee",
+          "buckets": [
+            {
+              "value": "10000",
+              "count": 168,
+              "share": 0.3225
+            },
+            {
+              "value": "15000",
+              "count": 165,
+              "share": 0.3167
+            },
+            {
+              "value": "unknown(transparent inputs)",
+              "count": 143,
+              "share": 0.2745
+            },
+            {
+              "value": "20000",
+              "count": 19,
+              "share": 0.0365
+            },
+            {
+              "value": "25000",
+              "count": 13,
+              "share": 0.025
+            },
+            {
+              "value": "30000",
+              "count": 8,
+              "share": 0.0154
+            },
+            {
+              "value": "35000",
+              "count": 3,
+              "share": 0.0058
+            },
+            {
+              "value": "60000",
+              "count": 2,
+              "share": 0.0038
+            }
+          ]
+        },
+        {
+          "field": "expiry_minus_mined",
+          "buckets": [
+            {
+              "value": "40",
+              "count": 186,
+              "share": 0.357
+            },
+            {
+              "value": "39",
+              "count": 146,
+              "share": 0.2802
+            },
+            {
+              "value": "38",
+              "count": 45,
+              "share": 0.0864
+            },
+            {
+              "value": "1499",
+              "count": 30,
+              "share": 0.0576
+            },
+            {
+              "value": "37",
+              "count": 23,
+              "share": 0.0441
+            },
+            {
+              "value": "0",
+              "count": 17,
+              "share": 0.0326
+            },
+            {
+              "value": "1498",
+              "count": 14,
+              "share": 0.0269
+            },
+            {
+              "value": "36",
+              "count": 11,
+              "share": 0.0211
+            },
+            {
+              "value": "5",
+              "count": 9,
+              "share": 0.0173
+            },
+            {
+              "value": "3",
+              "count": 6,
+              "share": 0.0115
+            },
+            {
+              "value": "4",
+              "count": 6,
+              "share": 0.0115
+            },
+            {
+              "value": "19",
+              "count": 4,
+              "share": 0.0077
+            },
+            {
+              "value": "34",
+              "count": 4,
+              "share": 0.0077
+            },
+            {
+              "value": "35",
+              "count": 3,
+              "share": 0.0058
+            },
+            {
+              "value": "1497",
+              "count": 3,
+              "share": 0.0058
+            },
+            {
+              "value": "32",
+              "count": 2,
+              "share": 0.0038
+            },
+            {
+              "value": "67616",
+              "count": 2,
+              "share": 0.0038
+            },
+            {
+              "value": "1",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "2",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "30",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "33",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "68",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "1495",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "1496",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "67518",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "67615",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "no-expiry",
+              "count": 1,
+              "share": 0.0019
+            }
+          ]
+        },
+        {
+          "field": "lock_time",
+          "buckets": [
+            {
+              "value": "0",
+              "count": 519,
+              "share": 0.9962
+            },
+            {
+              "value": "mined-1",
+              "count": 2,
+              "share": 0.0038
+            }
+          ]
+        },
+        {
+          "field": "ironwood_min_anchor_depth",
+          "buckets": [
+            {
+              "value": "3",
+              "count": 148,
+              "share": 0.2841
+            },
+            {
+              "value": "1",
+              "count": 104,
+              "share": 0.1996
+            },
+            {
+              "value": "2",
+              "count": 72,
+              "share": 0.1382
+            },
+            {
+              "value": "empty-tree-root",
+              "count": 66,
+              "share": 0.1267
+            },
+            {
+              "value": "4",
+              "count": 58,
+              "share": 0.1113
+            },
+            {
+              "value": "5",
+              "count": 30,
+              "share": 0.0576
+            },
+            {
+              "value": "6",
+              "count": 12,
+              "share": 0.023
+            },
+            {
+              "value": "7",
+              "count": 8,
+              "share": 0.0154
+            },
+            {
+              "value": "10",
+              "count": 5,
+              "share": 0.0096
+            },
+            {
+              "value": "unresolved(>40)",
+              "count": 5,
+              "share": 0.0096
+            },
+            {
+              "value": "8",
+              "count": 3,
+              "share": 0.0058
+            },
+            {
+              "value": "9",
+              "count": 2,
+              "share": 0.0038
+            },
+            {
+              "value": "11",
+              "count": 2,
+              "share": 0.0038
+            },
+            {
+              "value": "12",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "13",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "14",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "21",
+              "count": 1,
+              "share": 0.0019
+            },
+            {
+              "value": "31",
+              "count": 1,
+              "share": 0.0019
+            }
+          ]
+        },
+        {
+          "field": "orchard_min_anchor_depth",
+          "buckets": [
+            {
+              "value": "unresolved(>40)",
+              "count": 5,
+              "share": 0.0096
+            },
+            {
+              "value": "1",
+              "count": 1,
+              "share": 0.0019
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "compare": [],
+  "failures": []
+}
