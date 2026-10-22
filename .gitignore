@@ -8,3 +8,4 @@ ladders/
 .claude/
 .playwright-mcp/
 deploy/.env
+.playwright-mcp/

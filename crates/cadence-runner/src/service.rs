@@ -202,7 +202,7 @@ async fn pocket_emptied(app: &App, sub: &Subscription, previous: Option<&Install
 }
 
 /// The drand signature for `round`, verified against the chain's public key.
-async fn fetch_beacon(app: &App, round: u64) -> Result<Vec<u8>> {
+pub async fn fetch_beacon(app: &App, round: u64) -> Result<Vec<u8>> {
     match &app.tor {
         Some(tor) => {
             use zcash_client_backend::tor::http::Retry;

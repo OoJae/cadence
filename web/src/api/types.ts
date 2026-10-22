@@ -185,6 +185,8 @@ export interface RunnerStatus {
   tip: number;
   drand_round: number;
   subscriptions: number;
+  /** True when this runner serves the testnet-only `/api/sandbox` endpoints. */
+  sandbox?: boolean;
 }
 
 // ---------------------------------------------------------------- webhooks (runner → merchant)
@@ -212,8 +214,14 @@ export interface SandboxFundRequest {
 }
 export interface SandboxFundResponse {
   txid: string;
-  /** The block it will be mined in (it sits in the mempool until then). */
-  mined_height: number;
+  /** The block it was mined in, if known (a real runner answers while it is still in the mempool). */
+  mined_height: number | null;
+}
+
+export interface SandboxOfferRequest {
+  count: number;
+  period_secs: number;
+  amount_zat: number;
 }
 
 export type CheatKind = 'open_early' | 'tamper_amount' | 'replay_after_cancel';

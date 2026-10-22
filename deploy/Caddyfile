@@ -3,7 +3,9 @@
 {$PUBLIC_HOST} {
 	encode zstd gzip
 	header {
-		Content-Security-Policy "frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types cadence-worker; frame-ancestors 'none'"
+		Cross-Origin-Resource-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), browsing-topics=()"
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 		Cross-Origin-Opener-Policy same-origin
@@ -26,7 +28,9 @@
 {$SANDBOX_HOST} {
 	encode zstd gzip
 	header {
-		Content-Security-Policy "frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types cadence-worker; frame-ancestors 'none'"
+		Cross-Origin-Resource-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), browsing-topics=()"
 		Referrer-Policy no-referrer
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp

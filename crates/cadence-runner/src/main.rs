@@ -7,6 +7,7 @@
 //! signed byte.
 
 mod api;
+mod sandbox;
 mod service;
 mod store;
 mod webhook;
@@ -119,6 +120,9 @@ enum Command {
         /// Height before the sandbox funder's first note.
         #[arg(long)]
         sandbox_funder_birthday: Option<u32>,
+        /// Serve the built web app (web/dist) from this directory, same-origin with the API.
+        #[arg(long)]
+        web_dir: Option<PathBuf>,
     },
 }
 
@@ -177,6 +181,7 @@ async fn main() -> Result<()> {
             tick,
             sandbox_funder,
             sandbox_funder_birthday,
+            web_dir,
         } => {
             if merchant_token.len() < 16 {
                 bail!("use a merchant token of at least 16 characters");
@@ -272,7 +277,7 @@ async fn main() -> Result<()> {
             tokio::spawn(service::run(app.clone()));
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             println!("runner listening on {listen}; payers seal to {recipient}");
-            axum::serve(listener, api::router(app)).await?;
+            axum::serve(listener, api::router(app, web_dir)).await?;
         }
     }
     Ok(())

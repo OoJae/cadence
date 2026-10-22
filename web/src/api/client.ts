@@ -16,8 +16,7 @@ import type {
   SandboxFundRequest,
   SandboxFundResponse,
   Shape,
-  Subscription,
-} from './types';
+  Subscription, SandboxOfferRequest } from './types';
 
 export type Method = 'GET' | 'POST';
 
@@ -139,6 +138,11 @@ export class CadenceClient {
   }
 
   // -------------------------------------------------- sandbox extension (testnet only)
+
+  /** `POST /api/sandbox/offer`: an offer whose merchant is the sandbox wallet (testnet only). */
+  sandboxOffer(body: SandboxOfferRequest, signal?: AbortSignal): Promise<CreateOfferResponse> {
+    return this.transport.request({ method: 'POST', path: '/api/sandbox/offer', body, signal });
+  }
 
   /** `POST /api/sandbox/fund`: the testnet auto-funder pays a pocket. */
   sandboxFund(body: SandboxFundRequest, signal?: AbortSignal): Promise<SandboxFundResponse> {

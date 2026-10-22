@@ -31,7 +31,7 @@ use crate::{
     store::{Installment, Offer},
 };
 
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(pub StatusCode, pub String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -45,13 +45,13 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
     }
 }
 
-type ApiResult<T> = Result<T, ApiError>;
+pub type ApiResult<T> = Result<T, ApiError>;
 
-fn bad(msg: impl Into<String>) -> ApiError {
+pub fn bad(msg: impl Into<String>) -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, msg.into())
 }
 
-fn not_found() -> ApiError {
+pub fn not_found() -> ApiError {
     ApiError(StatusCode::NOT_FOUND, "not found".into())
 }
 
@@ -81,8 +81,8 @@ fn require_merchant(app: &App, headers: &HeaderMap) -> ApiResult<()> {
     }
 }
 
-pub fn router(app: Arc<App>) -> Router {
-    Router::new()
+pub fn router(app: Arc<App>, web_dir: Option<std::path::PathBuf>) -> Router {
+    let api = Router::new()
         .route("/api/status", get(status))
         .route("/api/offers", post(create_offer))
         .route("/api/offers/{id}", get(get_offer))
@@ -94,10 +94,44 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}/stop", post(stop_subscription))
         .route("/api/decode/{txid}", get(decode))
-        .route("/api/sandbox/fund", post(sandbox_fund))
+        .route("/api/sandbox/offer", post(crate::sandbox::offer))
+        .route("/api/sandbox/fund", post(crate::sandbox::fund))
+        .route("/api/sandbox/cheat", post(crate::sandbox::cheat))
         .layer(DefaultBodyLimit::max(80 * 1024 * 1024))
-        .with_state(app)
+        .with_state(app);
+    match web_dir {
+        None => api,
+        Some(dir) => {
+            use axum::http::{header, HeaderValue};
+            use tower_http::{
+                services::{ServeDir, ServeFile},
+                set_header::SetResponseHeaderLayer,
+            };
+            let index = dir.join("index.html");
+            let set = |name: header::HeaderName, value: &'static str| {
+                SetResponseHeaderLayer::overriding(name, HeaderValue::from_static(value))
+            };
+            api.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
+                .layer(set(header::CONTENT_SECURITY_POLICY, WEB_CSP))
+                .layer(set(header::REFERRER_POLICY, "no-referrer"))
+                .layer(set(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+                .layer(set(header::HeaderName::from_static("cross-origin-opener-policy"), "same-origin"))
+                .layer(set(header::HeaderName::from_static("cross-origin-embedder-policy"), "require-corp"))
+                .layer(set(header::HeaderName::from_static("cross-origin-resource-policy"), "same-origin"))
+                .layer(set(
+                    header::HeaderName::from_static("permissions-policy"),
+                    "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+                ))
+        }
+    }
 }
+
+/// The web app's policy (web/README.md), as a header so it also covers the signer's
+/// workers and can forbid framing.
+const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; \
+    img-src 'self'; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; \
+    media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; \
+    require-trusted-types-for 'script'; trusted-types cadence-worker; frame-ancestors 'none'";
 
 async fn status(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
     let subscriptions = app.store.lock().unwrap().count_subscriptions()?;
@@ -106,6 +140,7 @@ async fn status(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
         "tip": app.tip.load(Ordering::Relaxed),
         "drand_round": cadence_seal::round_at(&app.chain, now()),
         "subscriptions": subscriptions,
+        "sandbox": app.funder.is_some() && app.cfg.network_name == "test",
     })))
 }
 
@@ -149,27 +184,30 @@ async fn create_offer(
         Some(Address::Unified(ua)) if ua.orchard().is_some() => {}
         _ => return Err(bad("merchant_ua must be a unified address with an Orchard receiver")),
     }
+    let created = insert_offer(&app, req.name, req.amount_zat, req.period_secs, req.count, req.merchant_ua)?;
+    Ok((StatusCode::CREATED, Json(created)))
+}
+
+/// Stores an offer and returns `{offer_id, share_url}`.
+pub fn insert_offer(app: &App, name: String, amount_zat: u64, period_secs: u64, count: u32, merchant_ua: String) -> anyhow::Result<Value> {
     let offer = Offer {
         offer_id: random_id("off"),
-        name: req.name,
-        amount_zat: req.amount_zat,
-        period_secs: req.period_secs,
-        count: req.count,
-        merchant_ua: req.merchant_ua,
+        name,
+        amount_zat,
+        period_secs,
+        count,
+        merchant_ua,
         created_at: now(),
     };
     app.store.lock().unwrap().insert_offer(&offer)?;
-    let view = offer_view(&app, &offer);
+    let view = offer_view(app, &offer);
     // The offer travels in the URL fragment, which browsers never send to a server.
     let share_url = format!(
         "{}/subscribe#offer={}",
         app.cfg.public_url.trim_end_matches('/'),
         URL_SAFE_NO_PAD.encode(serde_json::to_vec(&view)?)
     );
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "offer_id": offer.offer_id, "share_url": share_url })),
-    ))
+    Ok(json!({ "offer_id": offer.offer_id, "share_url": share_url }))
 }
 
 async fn get_offer(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
@@ -403,65 +441,3 @@ async fn decode(State(app): State<Arc<App>>, Path(txid): Path<String>) -> ApiRes
     Ok(Json(serde_json::to_value(shape).map_err(|e| anyhow!(e))?))
 }
 
-#[derive(Deserialize)]
-struct SandboxFund {
-    pocket_id: String,
-    amount_zat: u64,
-}
-
-/// Testnet only: pays a judge's pocket from the sandbox wallet so the full flow can
-/// be tried without funds. The sandbox wallet is custodial and disclosed as such.
-async fn sandbox_fund(State(app): State<Arc<App>>, Json(req): Json<SandboxFund>) -> ApiResult<Json<Value>> {
-    let funder = app
-        .funder
-        .as_ref()
-        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "the sandbox is not enabled".into()))?;
-    if app.cfg.network_name != "test" {
-        return Err(bad("the sandbox only runs on testnet"));
-    }
-    if req.amount_zat == 0 || req.amount_zat > 2_000_000 {
-        return Err(bad("amount_zat must be between 1 and 2,000,000"));
-    }
-    let pocket = app.store.lock().unwrap().pocket(&req.pocket_id)?.ok_or_else(not_found)?;
-    if pocket.funding.is_some() || !funder.funded.lock().unwrap().insert(pocket.pocket_id.clone()) {
-        return Err(bad("this pocket has already been funded"));
-    }
-    let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&app.cfg.network, &pocket.ufvk)
-        .map_err(|e| anyhow!(e))?;
-    let fvk = ufvk.orchard().ok_or_else(|| bad("pocket has no Orchard key"))?;
-    let to = fvk.address_at(0u32, orchard::keys::Scope::External);
-    let amount = zcash_protocol::value::Zatoshis::from_u64(req.amount_zat).map_err(|_| bad("bad amount"))?;
-
-    let _turn = funder.queue.lock().await;
-    let exclude = funder.in_flight.lock().unwrap().clone();
-    let mut client = app.sync_client.clone();
-    let mut broadcaster = app.broadcast_client.clone();
-    let result = {
-        let mut db = app.wallet.lock().await;
-        wallet::pay(
-            &mut client,
-            &mut broadcaster,
-            &mut db,
-            &app.cfg.network,
-            funder.account,
-            &funder.pocket,
-            to,
-            amount,
-            &exclude,
-        )
-        .await
-    };
-    match result {
-        Ok((txid, nf)) => {
-            funder.in_flight.lock().unwrap().push(nf);
-            Ok(Json(json!({ "txid": txid.to_string() })))
-        }
-        Err(e) => {
-            funder.funded.lock().unwrap().remove(&pocket.pocket_id);
-            Err(ApiError(
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("the sandbox wallet is busy, retry in a minute: {e:#}"),
-            ))
-        }
-    }
-}

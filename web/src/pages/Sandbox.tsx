@@ -57,9 +57,15 @@ async function createMandate(cfg: { count: number; period: number; amount: numbe
   if (s.creating || s.offer) return;
   store.set({ creating: true, createError: undefined });
   try {
-    const merchantUa = mockHooks?.demoMerchantUa;
-    if (!merchantUa) throw new Error('the sandbox needs the sandbox runner (VITE_API=mock, or a runner with /api/sandbox)');
-    const created = await api.createOffer({ name: 'Sandbox standing order', amount_zat: cfg.amount, period_secs: cfg.period, count: cfg.count, merchant_ua: merchantUa }, SANDBOX_TOKEN);
+    let created;
+    if (isMock) {
+      const merchantUa = mockHooks?.demoMerchantUa;
+      if (!merchantUa) throw new Error('the mock runner has no demo merchant');
+      created = await api.createOffer({ name: 'Sandbox standing order', amount_zat: cfg.amount, period_secs: cfg.period, count: cfg.count, merchant_ua: merchantUa }, SANDBOX_TOKEN);
+    } else {
+      // The real sandbox runner pays installments back into its own testnet wallet.
+      created = await api.sandboxOffer({ count: cfg.count, period_secs: cfg.period, amount_zat: cfg.amount });
+    }
     const offer = await api.getOffer(created.offer_id);
     const signer = createSigner();
     const abort = new AbortController();
@@ -75,7 +81,7 @@ async function createMandate(cfg: { count: number; period: number; amount: numbe
       onPocket: async (pocket, total) => {
         note(`payer: fresh pocket ${pocket.ua.slice(0, 16)}…; requesting ${formatZec(total)}`);
         const fund = await api.sandboxFund({ ua: pocket.ua, amount_zat: total }, abort.signal);
-        store.set({ events: [...store.get().events, { at: Date.now() / 1000, text: `faucet: paid ${formatZec(total)} to the pocket in ${fund.txid.slice(0, 16)}… (mined at ${fund.mined_height})` }] });
+        store.set({ events: [...store.get().events, { at: Date.now() / 1000, text: `faucet: paid ${formatZec(total)} to the pocket in ${fund.txid.slice(0, 16)}…${fund.mined_height ? ` (mined at ${fund.mined_height})` : ' (in the mempool)'}` }] });
       },
     });
   } catch (e) {
@@ -235,8 +241,8 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
 
 function CreateForm() {
   const s = useStore(store);
-  const [count, setCount] = useState(6);
-  const [period, setPeriod] = useState(20);
+  const [count, setCount] = useState(isMock ? 6 : 3);
+  const [period, setPeriod] = useState(isMock ? 20 : 90);
   const amount = 100_000;
   return (
     <div className="stack" style={{ ['--gap' as string]: '16px' }}>
@@ -248,7 +254,7 @@ function CreateForm() {
         <div className="field">
           <label htmlFor="sb-count">Installments</label>
           <select id="sb-count" className="select" value={count} onChange={(e) => setCount(Number(e.target.value))}>
-            {[4, 5, 6, 8].map((n) => (
+            {(isMock ? [4, 5, 6, 8] : [3, 4]).map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
@@ -258,7 +264,7 @@ function CreateForm() {
         <div className="field">
           <label htmlFor="sb-period">Every</label>
           <select id="sb-period" className="select" value={period} onChange={(e) => setPeriod(Number(e.target.value))}>
-            {[20, 30, 45].map((n) => (
+            {(isMock ? [20, 30, 45] : [90, 120, 180]).map((n) => (
               <option key={n} value={n}>
                 {n} seconds
               </option>
@@ -435,13 +441,14 @@ export function Sandbox() {
   const current = sub.data && sub.data.subscription_id === s.subscriptionId ? sub.data : undefined;
   const list = steps(s, current);
   const currentIdx = list.findIndex((st) => !st.done);
+  const status = usePoll((signal) => (isMock ? Promise.resolve(undefined) : api.status(signal)), 30000, []);
 
-  if (!isMock) {
+  if (!isMock && status.data && !status.data.sandbox) {
     return (
       <div className="page container narrow">
-        <PageHead kicker="Judge sandbox" title="The sandbox runs against the sandbox runner." />
+        <PageHead kicker="Judge sandbox" title="This runner has no sandbox." />
         <Callout kind="warn">
-          This build talks to a real runner, which does not expose the testnet-only <code>/api/sandbox</code> endpoints. Build with <code>VITE_API=mock</code> to use the sandbox.
+          The judge sandbox runs against the testnet sandbox runner, which serves the <code>/api/sandbox</code> endpoints. This runner does not.
         </Callout>
       </div>
     );
@@ -456,7 +463,11 @@ export function Sandbox() {
             Subscribe, walk away, <em>then try to cheat.</em>
           </>
         }
-        lede="A guided run on a mock NU7 testnet with 5-second blocks. Every step uses the same API client and signer interface as the real app."
+        lede={
+          isMock
+            ? 'A guided run on a mock NU7 testnet with 5-second blocks. Every step uses the same API client and signer interface as the real app.'
+            : 'A guided run on the real Zcash testnet (NU7, 25-second blocks). Every transaction is real: decode any of them. The sandbox wallet that funds you is custodial testnet money, and is the merchant here, so payments flow back to it.'
+        }
       >
         <div className="row" style={{ ['--gap' as string]: '8px' }}>
           {s.offer && (
