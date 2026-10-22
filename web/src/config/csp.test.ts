@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseApiSetting } from './apiSetting';
 import { buildCsp } from './csp';
+import { parseSignerSetting } from './signerSetting';
 
 const directive = (csp: string, name: string) =>
   csp
@@ -29,6 +30,15 @@ describe('VITE_API setting', () => {
   });
 });
 
+describe('VITE_SIGNER setting', () => {
+  it('defaults to the mock and accepts wasm', () => {
+    expect(parseSignerSetting(undefined)).toBe('mock');
+    expect(parseSignerSetting(' mock ')).toBe('mock');
+    expect(parseSignerSetting('wasm')).toBe('wasm');
+    expect(() => parseSignerSetting('native')).toThrow(/VITE_SIGNER/);
+  });
+});
+
 describe('Content-Security-Policy', () => {
   it('is self-only in mock builds, with no inline code and no eval', () => {
     const csp = buildCsp({ kind: 'mock' }, 'build');
@@ -42,6 +52,22 @@ describe('Content-Security-Policy', () => {
     expect(csp).not.toMatch(/https?:/);
     expect(directive(csp, 'object-src')).toBe("object-src 'none'");
     expect(directive(csp, 'require-trusted-types-for')).toBe("require-trusted-types-for 'script'");
+  });
+
+  it('allows one same-origin worker policy, and nothing else, in WASM-signer builds', () => {
+    const mock = buildCsp({ kind: 'mock' }, 'build');
+    expect(directive(mock, 'trusted-types')).toBe("trusted-types 'none'");
+    const csp = buildCsp(parseApiSetting('self'), 'build', 'wasm');
+    expect(directive(csp, 'trusted-types')).toBe('trusted-types cadence-worker');
+    expect(directive(csp, 'require-trusted-types-for')).toBe("require-trusted-types-for 'script'");
+    expect(directive(csp, 'script-src')).toBe("script-src 'self' 'wasm-unsafe-eval'");
+    expect(directive(csp, 'worker-src')).toBe("worker-src 'self'");
+    expect(directive(csp, 'connect-src')).toBe("connect-src 'self'");
+    expect(csp).not.toContain('allow-duplicates');
+    expect(csp).not.toContain('unsafe-inline');
+    expect(csp).not.toMatch(/'unsafe-eval'/);
+    expect(csp).not.toMatch(/https?:|blob:|data:/);
+    expect(csp.replace('trusted-types cadence-worker', "trusted-types 'none'")).toBe(buildCsp(parseApiSetting('self'), 'build'));
   });
 
   it('adds exactly the configured runner origin to connect-src', () => {

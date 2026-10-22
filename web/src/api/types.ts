@@ -54,6 +54,8 @@ export interface SealedInstallment {
 /** Body of `POST /api/subscriptions`, sent by the payer app after it pre-signs the ladder. */
 export interface CreateSubscriptionRequest {
   offer_id: string;
+  /** The pocket registered with `POST /api/pockets` (the WASM signer registers one; the mock does not). */
+  pocket_id?: string;
   /** The pocket's Orchard-only UFVK. View-only, scoped to this one subscription. */
   pocket_ufvk: string;
   birthday_height: number;
@@ -87,6 +89,65 @@ export interface Subscription {
   created_at: number;
   funding: { txid: string; mined_height: number; amount_zat: number };
   installments: Installment[];
+}
+
+// ---------------------------------------------------------------- payer pockets
+
+/** Body of `POST /api/pockets`: ask the runner to watch a pocket (the browser has no chain access). */
+export interface RegisterPocketRequest {
+  pocket_ufvk: string;
+}
+
+/** `201` response of `POST /api/pockets`. */
+export interface RegisterPocketResponse {
+  pocket_id: string;
+  birthday_height: number;
+  tip: number;
+}
+
+/** The mined funding transaction, relayed raw so the app decrypts the note itself. */
+export interface PocketFunding {
+  txid: string;
+  tx_hex: string;
+  mined_height: number;
+  value_zat: number;
+}
+
+/** An unspent note of the pocket, as the runner's view-only wallet sees it. */
+export interface PocketNoteInfo {
+  /** Hex of the note's 32-byte nullifier. */
+  nullifier: string;
+  value_zat: number;
+  mined_height: number;
+  position: number;
+}
+
+/** `GET /api/pockets/:id`. `funding` is null until the funding transaction is mined. */
+export interface PocketState {
+  pocket_id: string;
+  tip: number;
+  funding: PocketFunding | null;
+  notes: PocketNoteInfo[];
+}
+
+/** `GET /api/pockets/:id/witness?nullifier=…`: what the browser needs to prove a cancel. */
+export interface PocketWitness {
+  target_height: number;
+  anchor_height: number;
+  /** Hex of the 32-byte Ironwood tree root at `anchor_height`. */
+  anchor: string;
+  position: number;
+  /** 32 sibling hashes, leaf first, each hex of 32 bytes. */
+  auth_path: string[];
+}
+
+/** Body of `POST /api/broadcast`. */
+export interface BroadcastRequest {
+  tx_hex: string;
+}
+
+export interface BroadcastResponse {
+  txid: string;
 }
 
 // ---------------------------------------------------------------- evidence

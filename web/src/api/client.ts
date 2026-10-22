@@ -1,9 +1,15 @@
 import type {
+  BroadcastRequest,
+  BroadcastResponse,
   CreateOfferRequest,
   CreateOfferResponse,
   CreateSubscriptionRequest,
   CreateSubscriptionResponse,
   Offer,
+  PocketState,
+  PocketWitness,
+  RegisterPocketRequest,
+  RegisterPocketResponse,
   RunnerStatus,
   SandboxCheatRequest,
   SandboxCheatResponse,
@@ -41,6 +47,7 @@ export class ApiError extends Error {
 }
 
 const TXID = /^[0-9a-f]{64}$/;
+const HEX32 = /^[0-9a-f]{64}$/;
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
 
 function idSegment(id: string, what: string): string {
@@ -69,6 +76,28 @@ export class CadenceClient {
   /** `POST /api/subscriptions`: upload the sealed, pre-signed ladder (payer). */
   createSubscription(body: CreateSubscriptionRequest, signal?: AbortSignal): Promise<CreateSubscriptionResponse> {
     return this.transport.request({ method: 'POST', path: '/api/subscriptions', body, signal });
+  }
+
+  /** `POST /api/pockets`: ask the runner to watch a new pocket (payer, WASM signer). */
+  registerPocket(body: RegisterPocketRequest, signal?: AbortSignal): Promise<RegisterPocketResponse> {
+    return this.transport.request({ method: 'POST', path: '/api/pockets', body, signal });
+  }
+
+  /** `GET /api/pockets/:id`: tip, the raw funding transaction once mined, and unspent notes. */
+  getPocket(pocketId: string, signal?: AbortSignal): Promise<PocketState> {
+    return this.transport.request({ method: 'GET', path: `/api/pockets/${idSegment(pocketId, 'pocket id')}`, signal });
+  }
+
+  /** `GET /api/pockets/:id/witness?nullifier=`: anchor and authentication path to prove a cancel. */
+  getPocketWitness(pocketId: string, nullifier: string, signal?: AbortSignal): Promise<PocketWitness> {
+    const nf = nullifier.trim().toLowerCase();
+    if (!HEX32.test(nf)) return Promise.reject(new ApiError(400, 'a nullifier is 64 hex characters'));
+    return this.transport.request({ method: 'GET', path: `/api/pockets/${idSegment(pocketId, 'pocket id')}/witness?nullifier=${nf}`, signal });
+  }
+
+  /** `POST /api/broadcast`: relay a finished transaction (the browser's cancel). */
+  broadcast(body: BroadcastRequest, signal?: AbortSignal): Promise<BroadcastResponse> {
+    return this.transport.request({ method: 'POST', path: '/api/broadcast', body, signal });
   }
 
   /** `GET /api/subscriptions`. Accepts a bare array or `{ subscriptions: [...] }`. */

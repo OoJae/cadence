@@ -991,6 +991,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cadence-wasm"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "blake2b_simd",
+ "cadence-core",
+ "cadence-seal",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "hex",
+ "incrementalmerkletree",
+ "orchard",
+ "pczt",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "zcash_keys",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zcash_transparent",
+]
+
+[[package]]
 name = "caret"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -7,10 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "build:wasm": "bash scripts/build-wasm.sh",
     "preview": "vite preview --port 4173 --strictPort",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "verify": "node scripts/verify-and-screenshot.mjs"
+    "verify": "node scripts/verify-and-screenshot.mjs",
+    "verify:wasm": "node scripts/wasm-smoke.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

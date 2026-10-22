@@ -179,15 +179,15 @@ export class MockSigner implements Signer {
   }
 }
 
-/** The signer for builds that talk to a real runner, until the WASM signer is wired in. */
+/** The signer for builds that talk to a real runner without VITE_SIGNER=wasm. */
 export class UnavailableSigner implements Signer {
   readonly implementation = 'wasm' as const;
   readonly keyCustody = 'passkey' as const;
   #fail(): never {
-    throw new SignerError('the in-browser WASM signer is not bundled in this build yet; use the cadence CLI to pre-sign');
+    throw new SignerError('this build has no in-browser signer (build with VITE_SIGNER=wasm); use the cadence CLI to pre-sign');
   }
   createPocket(): Promise<PocketInfo> {
-    return Promise.reject(new SignerError('the in-browser WASM signer is not bundled in this build yet; use the cadence CLI to pre-sign'));
+    return Promise.reject(new SignerError('this build has no in-browser signer (build with VITE_SIGNER=wasm); use the cadence CLI to pre-sign'));
   }
   awaitFunding(): Promise<FundingTx> {
     this.#fail();

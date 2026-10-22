@@ -24,6 +24,9 @@ pnpm build      # type-check, then a production build into dist/ with the strict
 pnpm preview    # serve dist/ at http://localhost:4173
 pnpm test       # vitest unit tests
 pnpm verify     # after a build: Playwright privacy check plus screenshots (see below)
+
+pnpm build:wasm   # build the real signer (crates/cadence-wasm) into src/wasm/ (see "The WASM signer")
+pnpm verify:wasm  # after build:wasm: the WASM signer end to end in headless Chromium
 ```
 
 Node 20 or newer works; this was built with Node 26 and pnpm 11. There are no runtime dependencies
@@ -84,7 +87,7 @@ so.
 | The S2 row on the merchant dashboard | Real txids and heights. Its amounts and release rounds are illustrative, and the row is labelled. |
 | The other dashboard rows, and decodes of their txids | Synthetic, labelled "mock". Their shapes follow the S2 rules. |
 | The "stock wallet send" column | A reference profile built by the same rules a stock `zcash_client_backend` send follows. It is **not** a decoded Zodl transaction. Use `?compare=<txid>` to fill it from a real decode. |
-| The signer | Mock (see below). The real one is the WASM build of `cadence-core`. |
+| The signer | Mock by default (see below). `VITE_SIGNER=wasm` ships the real one: `cadence-core` compiled to WebAssembly (see "The WASM signer"). |
 | Cheat-button errors | Reproduced by the mock runner (see below). |
 
 **Cheat errors.** The lines that start with `installment k:` use the exact message formats from
@@ -101,13 +104,13 @@ The tlock packaging and the replay probe are not in the runner yet. Once a real 
 
 ## The `Signer` interface
 
-`src/signer/types.ts` defines it. The WASM signer, being built separately, plugs in by
-implementing it:
+`src/signer/types.ts` defines it. `MockSigner` (`src/signer/mock.ts`) and `WasmSigner`
+(`src/signer/wasm.ts`) implement it:
 
 ```ts
 export interface Signer {
   readonly implementation: 'mock' | 'wasm';
-  /** 'memory' forgets the pocket key when the tab closes; 'passkey' keeps it sealed (WebAuthn PRF / passphrase). */
+  /** 'memory' forgets the pocket key when the tab closes; 'passkey' (planned) keeps it sealed (WebAuthn PRF / passphrase). */
   readonly keyCustody: 'memory' | 'passkey';
 
   /** Fresh single-use pocket: new random seed, non-zero ZIP 32 account, Orchard-only UA and UFVK. */
@@ -143,9 +146,86 @@ before signing can start, and keys need an explicit end of life.
 - Every sealed package is the same fixed size (16 KiB of random bytes).
 - `destroy()` zeroises the seed.
 
-**To wire in the WASM signer**, return it from `createSigner()` in `src/runtime.ts`. The CSP already
-allows `'wasm-unsafe-eval'` (WebAssembly compilation only, not JavaScript eval) and
-`worker-src 'self'`.
+## The WASM signer: `VITE_SIGNER`
+
+`VITE_SIGNER` is read at build time. `mock` (the default) ships the mock signer. `wasm` ships
+`WasmSigner`, which is `cadence-core` and `cadence-seal` compiled to WebAssembly
+(`crates/cadence-wasm`) and run in Web Workers. The choice is a build-time constant, so a mock
+build contains no trace of the WASM signer, its workers or its wasm. The WASM signer needs a real
+runner, because it registers pockets with `POST /api/pockets`:
+
+```sh
+pnpm build:wasm                               # needs wasm32-unknown-unknown, wasm-bindgen-cli 0.2.129, Homebrew LLVM
+VITE_SIGNER=wasm VITE_API=self pnpm build     # the build fails if src/wasm/ is missing
+```
+
+`scripts/build-wasm.sh` builds two modules into `src/wasm/`, which is gitignored. The Vite build
+emits them as `dist/wasm/…`, and `pnpm dev` serves them at `/wasm/…`. Everything comes from this
+origin and nothing comes from a CDN:
+
+| Module | wasm (gzip -9) | What loads it |
+|---|---|---|
+| `wasm/signer/` | 2.47 MB (0.94 MB) | the signing pool: pocket, funding decryption, rungs, sealing, the cancel's signature |
+| `wasm/prover/` | 5.21 MB (1.77 MB) | one prover worker, only while cancelling |
+
+These sizes are without `wasm-opt`. The script runs it when binaryen is installed.
+
+**What it does.**
+
+| Step | How |
+|---|---|
+| `createPocket` | A worker draws 32 random bytes with `crypto.getRandomValues` and derives the Orchard-only UA and UFVK. The seed comes back as a `Uint8Array` and stays in a private field. The UFVK is registered with `POST /api/pockets`. |
+| `awaitFunding` | Polls `GET /api/pockets/:id` every 5 s while the tab is visible. When `funding` appears, a worker decrypts the relayed `tx_hex` with the pocket key (`mandate::decrypt_funding`). The amount is never taken from the runner. |
+| `presign` | For each installment: `round_for(release_at)` and `mandate::window`. The window is cut into chunks across the pool, and every chunk must agree on the spent nullifier, the actions digest and the change note. The ladder is then sealed (zstd, age to the runner, tlock to the round). The flow uploads it with `POST /api/subscriptions`, adding `pocket_id`. |
+| `cancel` | Starts a prover worker and its proving key at once (about 14 s). Finds the live pocket note among the runner's `notes`, by nullifier, among the notes this signer created. Fetches `GET …/witness`, signs the spend (note minus the 10,000-zat fee, to the refund UA's Orchard receiver, no OVK) in the pool, proves and extracts in the prover worker, then `POST /api/broadcast`. It checks that the runner's txid matches. |
+| `destroy` | Zeroises the seed and terminates every worker, which drops their wasm memory. |
+
+**The worker pool** (`src/signer/wasmPool.ts`, `wasmWorker.ts`, `wasmEngine.ts`):
+
+- It has `min(8, hardwareConcurrency − 1)` module workers. They start lazily and each serves one
+  request at a time.
+- Workers are stateless. Every request carries the seed and the note it needs, so any worker can
+  sign any chunk. All rungs of installment k use the same builder seed and input note, so the
+  chunks produce byte-identical actions.
+- The queue is ordered by priority: k's chunks, then k's sealing, then k+1's chunks.
+- Installment k+1 starts as soon as the first chunk of k returns its change note, so the pool never
+  idles between installments.
+- A wasm trap retires that worker, and a fresh one replaces it. A worker that cannot start fails the
+  whole pool, so it never respawns in a loop.
+
+**Measured** (headless Chromium 1.60, 10-core Apple Silicon): a 2-installment schedule over real
+windows (157 + 196 = 353 rungs) presigns and seals in **3.1 s** with 8 workers (8.9 ms per rung
+effective). The same schedule takes 5.3 s with 4 workers and 19.7 s with 1 (55.8 ms per rung, as
+in the spike). Each sealed package is 128 KiB. A cancel takes about 47 s end to end. Most of that
+is building the proving key and proving single-threaded.
+
+**CSP.** `new Worker(url)` is a Trusted Types sink. Under `trusted-types 'none'`, Chromium refuses
+to start a worker at all. WASM-signer builds therefore allow exactly one policy,
+`trusted-types cadence-worker`, which passes only same-origin http(s) script URLs. Mock builds keep
+`'none'`. Everything else is unchanged. A dedicated worker takes its CSP from its own response
+headers, not from the page, so deploy the header CSP with `'wasm-unsafe-eval'` (it is part of the
+policy) on the worker scripts too.
+
+**Key custody** is `'memory'`, as in the mock: closing the tab forgets the pocket key, so a cancel
+must happen from the same tab. Passkey sealing is not built yet.
+
+**`pnpm verify:wasm`** (`scripts/wasm-smoke.mjs`) builds a harness page (`scripts/wasm-smoke/`)
+with this `vite.config.ts`. It serves the page with the production response headers, plays the
+runner for the payer endpoints, and drives headless Chromium. It fails on any off-origin request,
+CSP violation, console error or storage write. A native helper
+(`crates/cadence-wasm/examples/smoke_fixture.rs`) mints a real, proven funding transaction to the
+pocket (spending a stand-in faucet note in a one-leaf tree). The same helper opens the sealed
+packages and parses the cancel. The run has two parts:
+
+1. **Engine.** It signs 1 installment over 20 heights from a synthetic funding note and seals it to
+   drand round 33,000,000, which has a public beacon. The helper opens the package with that beacon
+   and verifies every rung's spend authorization signatures.
+2. **Signer.** It runs `WasmSigner` end to end: register, decrypt the funding, presign 2 installments
+   over their real windows, upload, cancel with the proof made in the browser, and broadcast. The
+   helper then parses the cancel natively: 2 Ironwood actions, a 10,000-zat value balance, and a
+   matching txid.
+
+Options: `--no-cancel`, `--count N`, `--pool N`.
 
 ## Privacy guarantees of the front-end
 
@@ -173,7 +253,9 @@ build, drives every page and both flows in headless Chromium, and fails on any o
 
    The policy allows no inline script, no inline style element and no eval. Trusted Types are
    enforced and no policy may be created, so no code path can write HTML strings into the DOM. A
-   unit test asserts the policy's shape.
+   unit test asserts the policy's shape. `VITE_SIGNER=wasm` builds make exactly one change. They
+   use `trusted-types cadence-worker` instead of `'none'`, for one policy that can only produce
+   same-origin worker script URLs (see "The WASM signer").
 3. **Offer data only in the URL fragment.** Share links are `/subscribe#offer=<base64url(json)>`.
    Browsers never send the fragment to a server, so neither the web host nor the runner learns who
    opened a link. The fragment is untrusted input and is parsed strictly (`src/lib/offer.ts`):
@@ -221,7 +303,7 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 
 ## Tests
 
-`pnpm test` runs 55 vitest tests:
+`pnpm test` runs 70 vitest tests:
 
 - `src/lib/offer.test.ts`: fragment parsing. Round trip, hostile and damaged links, display-spoofing
   names, wrong networks, non-https runners.
@@ -235,7 +317,25 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 - `src/signer/mock.test.ts`: the `Signer` contract (single-use pockets, fixed-size packages, cancel
   rules, `destroy`).
 - `src/data/s2.test.ts`: the S2 copy matches the evidence file, and every invariant holds.
-- `src/config/csp.test.ts`: the `VITE_API` parsing and the CSP's shape.
+- `src/config/csp.test.ts`: the `VITE_API` and `VITE_SIGNER` parsing and the CSP's shape, including
+  the one Trusted Types policy of WASM-signer builds.
+- `src/signer/wasmEngine.test.ts`: the WASM signer's pipeline with a fake pool. It covers change
+  chaining, pipelining, progress order, disagreeing shards, foreign notes, exhausted pockets and
+  abort. It also tests the worker pool with fake workers: priorities, lazy start, trapped workers,
+  abort and terminate.
+
+`cargo test -p cadence-wasm` covers the Rust side:
+
+- sharded output equals unsharded output;
+- every rung matches what `cadence_core::mandate::presign` signs;
+- note encoding round trips;
+- sealed packages open with a real beacon;
+- the cancel builds and signs.
+
+`cargo test -p cadence-wasm --release --features prover -- --include-ignored` adds two more tests:
+
+- the whole sharded pipeline against `mandate::presign` over full windows;
+- a cancel proved and extracted natively.
 
 ## Screenshots
 
@@ -254,10 +354,11 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 ```
 src/api/        typed client, wire types, fetch transport
 src/mock/       in-memory chain + runner + fixtures (dynamically imported, mock builds only)
-src/signer/     Signer interface, MockSigner
+src/signer/     Signer interface, MockSigner, WasmSigner (wasm.ts) with its worker pool, workers and engine
+src/wasm/       wasm-bindgen output of pnpm build:wasm (gitignored)
 src/lib/        offer fragment, ZIP 321, drand, amounts, states, shape checks, runner log formats
 src/components/ UI pieces: tables, QR, timeline, flow views, disclosure panel
 src/pages/      Landing, Merchant, Subscribe, Decode, Sandbox
-src/config/     VITE_API parsing and the CSP (shared with vite.config.ts)
-scripts/        verify-and-screenshot.mjs
+src/config/     VITE_API and VITE_SIGNER parsing and the CSP (shared with vite.config.ts)
+scripts/        verify-and-screenshot.mjs, build-wasm.sh, wasm-smoke.mjs + wasm-smoke/ (harness page)
 ```
