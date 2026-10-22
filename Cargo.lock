@@ -891,6 +891,7 @@ name = "cadence-core"
 version = "0.0.1"
 dependencies = [
  "blake2b_simd",
+ "hex",
  "orchard",
  "pczt",
  "rand 0.10.3",

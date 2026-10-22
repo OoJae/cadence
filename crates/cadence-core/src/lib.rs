@@ -12,6 +12,7 @@
 //! of an installment share byte-identical actions, so they spend the same note and
 //! produce the same change `C(k)`.
 
+pub mod mandate;
 pub mod package;
 pub mod pocket;
 pub mod rung;

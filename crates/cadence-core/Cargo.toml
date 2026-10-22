@@ -16,6 +16,7 @@ rand = { workspace = true }
 zip32 = { workspace = true }
 blake2b_simd = { workspace = true }
 serde = { workspace = true }
+hex = { workspace = true }
 
 [features]
 default = []

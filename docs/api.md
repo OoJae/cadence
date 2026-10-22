@@ -25,15 +25,58 @@ The response is `201`. The share URL carries the offer in its **fragment**, so i
   "network": "main | test", "drand_chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971" }
 ```
 
+## Payer: pockets
+
+The payer app is a browser, so it has no chain access of its own. Before it can sign, it asks the runner to watch the pocket. The runner learns nothing it would not learn from the subscription anyway.
+
+`POST /api/pockets` registers a pocket:
+
+```json
+{ "pocket_ufvk": "uview1…" }
+```
+
+The response is `201`:
+
+```json
+{ "pocket_id": "pkt_…", "birthday_height": 3529000, "tip": 3529001 }
+```
+
+`GET /api/pockets/:id` returns `funding` as `null` until the funding transaction is mined. `tx_hex` is the raw transaction; the app decrypts the note itself with `mandate::decrypt_funding`.
+
+```json
+{ "pocket_id": "pkt_…", "tip": 3529010, "funding": { "txid": "…", "tx_hex": "…", "mined_height": 3529004, "value_zat": 330000 },
+  "notes": [ { "nullifier": "…", "value_zat": 220000, "mined_height": 3529009, "position": 123456 } ] }
+```
+
+`GET /api/pockets/:id/witness?nullifier=<hex>` gives the payer what it needs to cancel and prove in the browser. `auth_path` is 32 hex sibling hashes, leaf first.
+
+```json
+{ "target_height": 3529011, "anchor_height": 3529008, "anchor": "…", "position": 123456, "auth_path": ["…"] }
+```
+
+`POST /api/broadcast` relays a finished transaction. It is used for the browser's cancel. The runner learns of the cancel either way; the CLI and Tauri builds broadcast over Tor through a different server instead.
+
+```json
+{ "tx_hex": "…" }
+```
+
+The response is `{ "txid": "…" }`.
+
+`POST /api/sandbox/fund` is testnet only and rate-limited. The runner's sandbox wallet pays `amount_zat` (plus fees) to the pocket.
+
+```json
+{ "pocket_id": "pkt_…", "amount_zat": 330000 }
+```
+
+The response is `{ "txid": "…" }`.
+
 ## Payer: subscribing
 
 `POST /api/subscriptions` is called by the payer app after it pre-signs the ladder.
 
 ```json
 { "offer_id": "off_…",
-  "pocket_ufvk": "uview1…",
-  "birthday_height": 3529000,
-  "funding_txid": "…",
+  "pocket_id": "pkt_…",
   "installments": [
     { "k": 1, "release_round": 23456789, "sealed": "<base64 tlock(age(zstd(ladder_k)))>" }
   ] }
