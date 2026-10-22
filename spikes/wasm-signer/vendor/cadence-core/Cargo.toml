@@ -1,0 +1,27 @@
+# VENDORED COPY of crates/cadence-core (src/ and tests/ unchanged) used only to
+# test the proposed feature split. Workspace-inherited values are inlined.
+[package]
+name = "cadence-core"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[features]
+default = []
+# Proving/extraction support, for consumers that want it via cadence-core.
+# The runner already enables these on its own zcash_primitives/pczt/orchard deps.
+prover = ["zcash_primitives/circuits", "pczt/prover", "pczt/tx-extractor", "orchard/circuit"]
+
+[dependencies]
+zcash_primitives = { version = "=0.31.0", default-features = false, features = ["std"] }
+zcash_protocol = { version = "=0.11.0" }
+zcash_keys = { version = "=0.17.0", features = ["orchard", "unstable-frost"] }
+pczt = { version = "=0.10.0", default-features = false, features = ["orchard", "zcp-builder", "io-finalizer", "signer"] }
+orchard = { version = "=0.16.0", default-features = false, features = ["std"] }
+rand = { version = "0.10", default-features = false, features = ["std", "chacha", "sys_rng", "thread_rng"] }
+zip32 = { version = "0.3", default-features = false }
+blake2b_simd = "1"
+serde = { version = "1", features = ["derive"] }

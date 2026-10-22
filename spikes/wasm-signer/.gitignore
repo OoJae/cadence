@@ -1,0 +1,6 @@
+target/
+pkg-*/
+opt/
+slim/target/
+slim/pkg-*/
+vendor/cadence-core/target/

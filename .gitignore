@@ -5,3 +5,5 @@ target/
 pockets/
 ladders/
 .cadence/
+.claude/
+.playwright-mcp/

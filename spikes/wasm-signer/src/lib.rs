@@ -230,6 +230,12 @@ mod exports {
         super::run_bench(n).map(|r| r.to_json()).map_err(|e| JsError::new(&e))
     }
 
+    /// Current wasm linear memory size in bytes (memory only grows, so this is the peak).
+    #[wasm_bindgen]
+    pub fn wasm_memory_bytes() -> f64 {
+        (core::arch::wasm32::memory_size(0) * 65536) as f64
+    }
+
     #[cfg(feature = "prove")]
     #[wasm_bindgen]
     pub fn bench_prove() -> Result<String, JsError> {

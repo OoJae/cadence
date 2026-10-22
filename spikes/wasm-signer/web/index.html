@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Cadence wasm signer spike</title></head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const n = Number(q.get('n') ?? 50), prove = q.has('prove');
+const worker = new Worker('./worker.js', { type: 'module' });
+worker.onmessage = ({ data }) => {
+  window.result = data;
+  document.getElementById('out').textContent = JSON.stringify({ userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency, ...data }, null, 2);
+};
+worker.onerror = (e) => { window.result = { error: e.message }; document.getElementById('out').textContent = 'ERROR ' + e.message; };
+worker.postMessage({ n, prove });
+</script>
+</body></html>

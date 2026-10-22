@@ -1,0 +1,43 @@
+[package]
+name = "cadence-wasm-signer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Same bench, built against the slim vendored cadence-core. Standalone workspace.
+[workspace]
+
+[lib]
+path = "../src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Ironwood proving bench (ProvingKey build + create_ironwood_proof + verify).
+prove = ["dep:incrementalmerkletree", "pczt/prover", "pczt/tx-extractor", "orchard/circuit"]
+
+[dependencies]
+cadence-core = { path = "../vendor/cadence-core" }
+orchard = { version = "=0.16.0", default-features = false }
+zcash_protocol = { version = "=0.11.0" }
+pczt = { version = "=0.10.0", default-features = false, features = ["orchard"] }
+rand = { version = "0.10", default-features = false, features = ["std", "chacha", "sys_rng", "thread_rng"] }
+incrementalmerkletree = { version = "0.9", optional = true }
+blake2b_simd = "1"
+hex = "0.4"
+serde_json = "1"
+wasm-bindgen = "=0.2.129"
+
+# getrandom 0.4 is the only version in the wasm32 tree (via rand 0.10). Its JS
+# backend is just the `wasm_js` feature (no --cfg needed for 0.4).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[[bin]]
+name = "native"
+path = "../src/bin/native.rs"
