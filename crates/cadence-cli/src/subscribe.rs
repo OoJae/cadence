@@ -406,34 +406,11 @@ pub async fn send(
 
     let mut db = wallet::open(wallet_db, params)?;
     wallet::sync(&mut client, &params, &mut db).await?;
-    let tip = lwd::tip(&mut client).await?;
-    let target = tip + 1;
-    let anchor_height = target - wallet::ANCHOR_CONFIRMATIONS;
     use zcash_client_backend::data_api::WalletRead;
     let account = *db.get_account_ids()?.first().context("the wallet tracks no pocket")?;
-    let needed = amount + u64::from(installment_fee());
-    let input = wallet::unspent_notes(&db, account, target)?
-        .into_iter()
-        .filter(|n| n.mined <= anchor_height && n.note.value().inner() >= needed)
-        .max_by_key(|n| n.note.value().inner())
-        .context("no anchor-deep note large enough")?;
-    if input.note.recipient() != pocket.change_address() && input.note.recipient() != pocket.funding_address() {
-        bail!("the wallet's note does not belong to this pocket");
-    }
-    let (anchor, witness) = wallet::anchor_and_witness(&mut db, input.position, anchor_height)?;
-    wallet::check_anchor(&mut client, &anchor, anchor_height).await?;
-
-    let mut fresh = [0u8; 32];
-    rand::fill(&mut fresh);
-    let inst = Installment {
-        input: input.note,
-        amount: Zatoshis::from_u64(amount).map_err(|_| anyhow!("bad amount"))?,
-        merchant: recipient,
-        memo: MemoBytes::empty(),
-    };
-    let rung = build_rung(&params, target, &pocket, &inst, fresh).map_err(|e| anyhow!("{e:?}"))?;
-    let tx = tokio::task::spawn_blocking(move || wallet::complete(rung.pczt, anchor, witness)).await??;
-    let txid = wallet::broadcast(&mut client, &tx).await?;
+    let amount_z = Zatoshis::from_u64(amount).map_err(|_| anyhow!("bad amount"))?;
+    let mut broadcaster = client.clone();
+    let (txid, _) = wallet::pay(&mut client, &mut broadcaster, &mut db, &params, account, &pocket, recipient, amount_z, &[]).await?;
     println!("sent {amount} zats in {txid}");
     Ok(())
 }

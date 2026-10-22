@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+cadence-core = { path = "../cadence-core" }
 zcash_client_backend = { workspace = true, features = ["orchard", "pczt", "transparent-inputs", "sync", "tor", "lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
 zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
 zcash_primitives = { workspace = true, features = ["std", "circuits"] }

@@ -39,8 +39,21 @@ pub struct Config {
     pub tick: Duration,
 }
 
+/// The testnet sandbox's own (custodial, disclosed) wallet that funds judges' pockets.
+pub struct Funder {
+    pub pocket: cadence_core::Pocket,
+    pub account: AccountUuid,
+    /// Notes spent by payments that are not mined yet.
+    pub in_flight: Mutex<Vec<Nullifier>>,
+    /// Pockets already funded, so each gets one payment.
+    pub funded: Mutex<std::collections::HashSet<String>>,
+    /// One payment at a time.
+    pub queue: tokio::sync::Mutex<()>,
+}
+
 pub struct App {
     pub cfg: Config,
+    pub funder: Option<Funder>,
     pub wallet: tokio::sync::Mutex<Db>,
     pub store: Mutex<Store>,
     pub sync_client: lwd::Client,

@@ -198,3 +198,46 @@ pub async fn broadcast(client: &mut lwd::Client, tx: &Transaction) -> Result<TxI
     lwd::send(client, bytes).await?;
     Ok(tx.txid())
 }
+
+/// Pays `amount` from `pocket`'s largest anchor-deep note to `to`, with change back to
+/// the pocket. Every output uses Discard, and the transaction has the same shape as
+/// an installment. `exclude` lists nullifiers already spent by unmined transactions.
+#[allow(clippy::too_many_arguments)]
+pub async fn pay(
+    client: &mut lwd::Client,
+    broadcaster: &mut lwd::Client,
+    db: &mut Db,
+    params: &Network,
+    account: AccountUuid,
+    pocket: &cadence_core::Pocket,
+    to: orchard::Address,
+    amount: zcash_protocol::value::Zatoshis,
+    exclude: &[Nullifier],
+) -> Result<(TxId, Nullifier)> {
+    let tip = lwd::tip(client).await?;
+    let target = tip + 1;
+    let anchor_height = target - ANCHOR_CONFIRMATIONS;
+    let needed = u64::from(amount) + u64::from(cadence_core::mandate::installment_fee());
+    let input = unspent_notes(db, account, target)?
+        .into_iter()
+        .filter(|n| n.mined <= anchor_height && n.note.value().inner() >= needed)
+        .filter(|n| !exclude.contains(&n.note.nullifier(pocket.fvk())))
+        .max_by_key(|n| n.note.value().inner())
+        .context("no anchor-deep note large enough")?;
+    let nf = input.note.nullifier(pocket.fvk());
+    let (anchor, witness) = anchor_and_witness(db, input.position, anchor_height)?;
+    check_anchor(client, &anchor, anchor_height).await?;
+
+    let mut fresh = [0u8; 32];
+    rand::fill(&mut fresh);
+    let inst = cadence_core::Installment {
+        input: input.note,
+        amount,
+        merchant: to,
+        memo: zcash_protocol::memo::MemoBytes::empty(),
+    };
+    let rung = cadence_core::build_rung(params, target, pocket, &inst, fresh)
+        .map_err(|e| anyhow!("building payment: {e:?}"))?;
+    let tx = tokio::task::spawn_blocking(move || complete(rung.pczt, anchor, witness)).await??;
+    Ok((broadcast(broadcaster, &tx).await?, nf))
+}

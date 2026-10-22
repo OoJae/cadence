@@ -96,6 +96,7 @@ impl Store {
              CREATE TABLE IF NOT EXISTS subscriptions (
                  subscription_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, pocket_id TEXT NOT NULL,
                  status TEXT NOT NULL, created_at INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS installments (
                  subscription_id TEXT NOT NULL, k INTEGER NOT NULL, amount_zat INTEGER NOT NULL,
                  release_round INTEGER NOT NULL, release_at INTEGER NOT NULL, state TEXT NOT NULL,
@@ -355,6 +356,21 @@ impl Store {
             .query_row(&sql, [subscription_id], Self::pocket_row)
             .optional()?
             .context("subscription has no pocket")
+    }
+
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
+            .optional()?)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![key, value],
+        )?;
+        Ok(())
     }
 
     pub fn count_subscriptions(&self) -> Result<u64> {

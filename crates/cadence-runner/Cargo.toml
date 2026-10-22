@@ -14,7 +14,7 @@ zcash_primitives = { workspace = true, features = ["std", "circuits"] }
 zcash_protocol = { workspace = true }
 zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
 pczt = { workspace = true, features = ["orchard", "prover", "tx-extractor"] }
-orchard = { workspace = true, features = ["std", "circuit"] }
+orchard = { workspace = true, features = ["std", "circuit", "multicore"] }
 shardtree = { workspace = true }
 incrementalmerkletree = { workspace = true }
 tokio = { workspace = true }

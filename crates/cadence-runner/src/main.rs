@@ -113,6 +113,12 @@ enum Command {
         /// Seconds between scheduler ticks.
         #[arg(long, default_value_t = 10)]
         tick: u64,
+        /// Testnet only: a dev pocket file whose funds pay judges' sandbox pockets.
+        #[arg(long)]
+        sandbox_funder: Option<PathBuf>,
+        /// Height before the sandbox funder's first note.
+        #[arg(long)]
+        sandbox_funder_birthday: Option<u32>,
     },
 }
 
@@ -169,6 +175,8 @@ async fn main() -> Result<()> {
             webhook_secret,
             drand_url,
             tick,
+            sandbox_funder,
+            sandbox_funder_birthday,
         } => {
             if merchant_token.len() < 16 {
                 bail!("use a merchant token of at least 16 characters");
@@ -182,7 +190,54 @@ async fn main() -> Result<()> {
                 tor_dir.join("broadcast"),
             )
             .await?;
+            let mut wallet_db = wallet::open(&paths.wallet_db, paths.network.params())?;
+            let store = Store::open(&paths.state_db)?;
+            let funder = match sandbox_funder {
+                None => None,
+                Some(path) => {
+                    #[derive(serde::Deserialize)]
+                    struct DevPocket {
+                        seed_hex: String,
+                    }
+                    let file: DevPocket = serde_json::from_slice(&fs::read(&path)?)?;
+                    let seed: [u8; 32] = hex::decode(&file.seed_hex)?
+                        .try_into()
+                        .map_err(|_| anyhow!("bad funder seed"))?;
+                    use zcash_protocol::consensus::{NetworkConstants, Parameters};
+                    let params = paths.network.params();
+                    let pocket = cadence_core::Pocket::from_seed(&seed, params.network_type().coin_type());
+                    let account = match store.meta("funder_account")? {
+                        Some(a) => service::parse_account(&a)?,
+                        None => {
+                            let birthday = sandbox_funder_birthday
+                                .context("--sandbox-funder-birthday is needed the first time")?;
+                            let ufvk = pocket.ufvk().encode(&params).map_err(|e| anyhow!("{e:?}"))?;
+                            let mut client = sync_client.clone();
+                            let account = wallet::import_pocket(
+                                &mut client,
+                                &mut wallet_db,
+                                &params,
+                                &ufvk,
+                                zcash_protocol::consensus::BlockHeight::from_u32(birthday),
+                                "sandbox-funder",
+                            )
+                            .await?;
+                            store.set_meta("funder_account", &account.expose_uuid().to_string())?;
+                            account
+                        }
+                    };
+                    println!("sandbox funder enabled");
+                    Some(service::Funder {
+                        pocket,
+                        account,
+                        in_flight: Mutex::new(vec![]),
+                        funded: Mutex::new(Default::default()),
+                        queue: tokio::sync::Mutex::new(()),
+                    })
+                }
+            };
             let app = Arc::new(App {
+                funder,
                 cfg: Config {
                     network: paths.network.params(),
                     network_name: paths.network.name(),
@@ -193,8 +248,8 @@ async fn main() -> Result<()> {
                     drand_url,
                     tick: Duration::from_secs(tick),
                 },
-                wallet: tokio::sync::Mutex::new(wallet::open(&paths.wallet_db, paths.network.params())?),
-                store: Mutex::new(Store::open(&paths.state_db)?),
+                wallet: tokio::sync::Mutex::new(wallet_db),
+                store: Mutex::new(store),
                 sync_client,
                 broadcast_client,
                 identity,

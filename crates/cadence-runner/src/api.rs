@@ -93,6 +93,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}/stop", post(stop_subscription))
         .route("/api/decode/{txid}", get(decode))
+        .route("/api/sandbox/fund", post(sandbox_fund))
         .layer(DefaultBodyLimit::max(80 * 1024 * 1024))
         .with_state(app)
 }
@@ -394,4 +395,67 @@ async fn decode(State(app): State<Arc<App>>, Path(txid): Path<String>) -> ApiRes
     let range = matching.iter().min().zip(matching.iter().max()).map(|(a, b)| (*a, *b));
     let shape = cadence_decode::shape(&tx, mined, range, &[]);
     Ok(Json(serde_json::to_value(shape).map_err(|e| anyhow!(e))?))
+}
+
+#[derive(Deserialize)]
+struct SandboxFund {
+    pocket_id: String,
+    amount_zat: u64,
+}
+
+/// Testnet only: pays a judge's pocket from the sandbox wallet so the full flow can
+/// be tried without funds. The sandbox wallet is custodial and disclosed as such.
+async fn sandbox_fund(State(app): State<Arc<App>>, Json(req): Json<SandboxFund>) -> ApiResult<Json<Value>> {
+    let funder = app
+        .funder
+        .as_ref()
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "the sandbox is not enabled".into()))?;
+    if app.cfg.network_name != "test" {
+        return Err(bad("the sandbox only runs on testnet"));
+    }
+    if req.amount_zat == 0 || req.amount_zat > 2_000_000 {
+        return Err(bad("amount_zat must be between 1 and 2,000,000"));
+    }
+    let pocket = app.store.lock().unwrap().pocket(&req.pocket_id)?.ok_or_else(not_found)?;
+    if pocket.funding.is_some() || !funder.funded.lock().unwrap().insert(pocket.pocket_id.clone()) {
+        return Err(bad("this pocket has already been funded"));
+    }
+    let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&app.cfg.network, &pocket.ufvk)
+        .map_err(|e| anyhow!(e))?;
+    let fvk = ufvk.orchard().ok_or_else(|| bad("pocket has no Orchard key"))?;
+    let to = fvk.address_at(0u32, orchard::keys::Scope::External);
+    let amount = zcash_protocol::value::Zatoshis::from_u64(req.amount_zat).map_err(|_| bad("bad amount"))?;
+
+    let _turn = funder.queue.lock().await;
+    let exclude = funder.in_flight.lock().unwrap().clone();
+    let mut client = app.sync_client.clone();
+    let mut broadcaster = app.broadcast_client.clone();
+    let result = {
+        let mut db = app.wallet.lock().await;
+        wallet::pay(
+            &mut client,
+            &mut broadcaster,
+            &mut db,
+            &app.cfg.network,
+            funder.account,
+            &funder.pocket,
+            to,
+            amount,
+            &exclude,
+        )
+        .await
+    };
+    match result {
+        Ok((txid, nf)) => {
+            funder.in_flight.lock().unwrap().push(nf);
+            Ok(Json(json!({ "txid": txid.to_string() })))
+        }
+        Err(e) => {
+            funder.funded.lock().unwrap().remove(&pocket.pocket_id);
+            Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("the sandbox wallet is busy, retry in a minute: {e:#}"),
+            ))
+        }
+    }
 }

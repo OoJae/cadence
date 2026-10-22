@@ -860,6 +860,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "cadence-core",
  "incrementalmerkletree",
  "orchard",
  "pczt",
