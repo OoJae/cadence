@@ -7,8 +7,15 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-zcash_client_backend = { workspace = true, features = ["orchard", "sync", "tor", "lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
-zcash_primitives = { workspace = true, features = ["std"] }
+zcash_client_backend = { workspace = true, features = ["orchard", "pczt", "transparent-inputs", "sync", "tor", "lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { workspace = true, features = ["std", "circuits"] }
+zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
+pczt = { workspace = true, features = ["orchard", "prover", "tx-extractor"] }
+orchard = { workspace = true, features = ["std", "circuit", "multicore"] }
+incrementalmerkletree = { workspace = true }
+rusqlite = { workspace = true }
+rand = { workspace = true }
 zcash_protocol = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
