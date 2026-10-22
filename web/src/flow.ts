@@ -66,6 +66,7 @@ export async function runMandate(
     const res = await api.createSubscription(
       {
         offer_id: offer.offer_id,
+        ...(pocket.pocket_id ? { pocket_id: pocket.pocket_id } : {}),
         pocket_ufvk: pocket.ufvk,
         birthday_height: pocket.birthday_height,
         funding_txid: funding.txid,

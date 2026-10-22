@@ -126,7 +126,7 @@ export function SigningView({ offer, flow }: { offer: Offer; flow: FlowState }) 
                 <div className="meta">
                   {done && (
                     <>
-                      {done.rungsTotal} rungs (heights {done.window[0].toLocaleString('en-US')}–{done.window[1].toLocaleString('en-US')}) · sealed {PACKAGE_BYTES / 1024} KiB · opens at round{' '}
+                      {done.rungsTotal} rungs (heights {done.window[0].toLocaleString('en-US')}–{done.window[1].toLocaleString('en-US')}) · sealed {(done.sealedBytes ?? PACKAGE_BYTES) / 1024} KiB · opens at round{' '}
                       {done.release_round.toLocaleString('en-US')}
                     </>
                   )}

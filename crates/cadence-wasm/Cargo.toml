@@ -1,0 +1,50 @@
+[package]
+name = "cadence-wasm"
+version = "0.0.1"
+description = "Cadence payer signer for the browser: wasm-bindgen bindings over cadence-core and cadence-seal"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# The Ironwood prover (ProvingKey build, create_ironwood_proof, extract + verify),
+# needed only to cancel from the browser. Built as a separate wasm module so the
+# signer the payer loads to subscribe stays small (see web/scripts/build-wasm.sh).
+prover = ["pczt/prover", "pczt/tx-extractor", "orchard/circuit"]
+
+[dependencies]
+cadence-core = { path = "../cadence-core" }
+cadence-seal = { path = "../cadence-seal", default-features = false }
+orchard = { workspace = true, features = ["std"] }
+pczt = { workspace = true, features = ["orchard"] }
+zcash_keys = { workspace = true, features = ["orchard"] }
+zcash_protocol = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+blake2b_simd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = "0.22"
+wasm-bindgen = "=0.2.129"
+
+# Every getrandom in the wasm32 tree needs its JS (crypto.getRandomValues) backend:
+# 0.4 via rand 0.10 and tlock, 0.3 via rand_core 0.9, 0.2 via age and tlock_age.
+# 0.3 also needs `--cfg getrandom_backend="wasm_js"` (see .cargo/config.toml).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+zcash_transparent = "0.11"
+zcash_primitives = { workspace = true, features = ["std"] }
+incrementalmerkletree = { workspace = true }
+
+# Native helper for web/scripts/wasm-smoke.mjs (it plays the runner).
+[[example]]
+name = "smoke_fixture"
+required-features = ["prover"]

@@ -1,0 +1,11 @@
+# Applies when cargo runs from this directory (web/scripts/build-wasm.sh cds here).
+#
+# getrandom 0.3 picks its JS backend from this cfg; 0.4 and 0.2 use features only.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+# secp256k1-sys (via zcash_keys) compiles C for wasm32; Apple clang has no wasm32
+# backend, so use Homebrew LLVM. The build script exports the same defaults.
+[env]
+CC_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/clang"
+AR_wasm32_unknown_unknown = "/opt/homebrew/opt/llvm/bin/llvm-ar"

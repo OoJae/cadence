@@ -2,6 +2,10 @@
  * Wires the app to either the in-memory mock (VITE_API=mock, the default) or a real
  * runner over HTTP. The mock module is loaded with a dynamic import so it is never
  * fetched by builds pointed at a real runner.
+ *
+ * The signer is the mock unless the build sets VITE_SIGNER=wasm, which ships the
+ * real cadence-core signer (src/signer/wasm.ts). That choice is a build-time
+ * constant, so mock builds contain no trace of the WASM signer or its workers.
  */
 import { CadenceClient, type Transport } from './api/client';
 import { HttpTransport } from './api/http';
@@ -15,6 +19,10 @@ export const isMock = apiSetting.kind === 'mock';
 type MockModule = typeof import('./mock');
 const mock: MockModule | null = apiSetting.kind === 'mock' ? await import('./mock') : null;
 
+export const signerSetting = __CADENCE_SIGNER__;
+type WasmModule = typeof import('./signer/wasm');
+const wasm: WasmModule | null = __CADENCE_SIGNER__ === 'wasm' ? await import('./signer/wasm') : null;
+
 const transport: Transport = mock ? mock.transport : new HttpTransport(apiSetting.kind === 'http' ? apiSetting.base : '');
 
 export const api = new CadenceClient(transport);
@@ -25,6 +33,7 @@ export const connectTargets: string[] =
   apiSetting.kind === 'mock' ? [] : [apiSetting.origin ?? (typeof location !== 'undefined' ? location.origin : 'same origin')];
 
 export function createSigner(): Signer {
+  if (wasm) return new wasm.WasmSigner(api);
   return mock ? new MockSigner(mock.ledger) : new UnavailableSigner();
 }
 

@@ -21,6 +21,8 @@ export interface PocketInfo {
   ufvk: string;
   /** Last block before the pocket could have been funded (the runner scans from here). */
   birthday_height: number;
+  /** The runner's id for this pocket (`POST /api/pockets`). Set by the WASM signer, which registers it. */
+  pocket_id?: string;
 }
 
 /** The payment into the pocket, as seen through the pocket's incoming viewing key. */
@@ -45,6 +47,8 @@ export interface PresignProgress {
   /** Candidate target heights for installment k. */
   window: [number, number];
   release_round: number;
+  /** Size of the sealed package once phase is 'done' (one of the fixed buckets), if the signer reports it. */
+  sealedBytes?: number;
 }
 
 export interface PresignOptions {
@@ -67,9 +71,10 @@ export interface Signer {
   /** 'wasm' is the real cadence-core signer; 'mock' is this build's stand-in. */
   readonly implementation: 'mock' | 'wasm';
   /**
-   * Where the pocket key lives. 'memory' (the mock) forgets it when the tab closes,
-   * so cancel is only possible from this tab. 'passkey' (the real signer) keeps it
-   * sealed under WebAuthn PRF or a passphrase so the payer can come back to cancel.
+   * Where the pocket key lives. 'memory' forgets it when the tab closes, so cancel is
+   * only possible from this tab; both the mock and the WASM signer are 'memory' today.
+   * 'passkey' (planned) keeps it sealed under WebAuthn PRF or a passphrase so the
+   * payer can come back to cancel.
    */
   readonly keyCustody: 'memory' | 'passkey';
 
