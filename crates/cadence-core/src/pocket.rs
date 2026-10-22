@@ -1,4 +1,6 @@
 use orchard::keys::{FullViewingKey, Scope, SpendAuthorizingKey, SpendingKey};
+use zcash_keys::{address::UnifiedAddress, keys::UnifiedFullViewingKey};
+use zcash_protocol::consensus::Parameters;
 use zip32::AccountId;
 
 /// Pockets live at a fixed, non-zero ZIP 32 account. A stock wallet that restores
@@ -40,6 +42,22 @@ impl Pocket {
     /// The internal receiver that holds each installment's change `C(k)`.
     pub fn change_address(&self) -> orchard::Address {
         self.fvk.address_at(0u32, Scope::Internal)
+    }
+
+    /// The Orchard-only unified address the payer funds from any Ironwood wallet.
+    pub fn funding_ua<P: Parameters>(&self, params: &P) -> String {
+        UnifiedAddress::from_receivers(Some(self.funding_address()), None, None, None, None)
+            .expect("a lone Orchard receiver is a valid unified address")
+            .encode(params)
+    }
+
+    /// The Orchard-only UFVK the merchant's runner imports as a view-only account.
+    ///
+    /// The runner needs it to prove each installment with a fresh anchor (ZIP 374);
+    /// it carries no transparent or Sapling component and no spend authority.
+    pub fn ufvk(&self) -> UnifiedFullViewingKey {
+        UnifiedFullViewingKey::from_orchard_fvk(self.fvk.clone())
+            .expect("an Orchard FVK alone is a valid UFVK")
     }
 
     pub(crate) fn sk_bytes(&self) -> &[u8; 32] {

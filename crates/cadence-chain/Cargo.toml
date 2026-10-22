@@ -1,0 +1,16 @@
+[package]
+name = "cadence-chain"
+version = "0.0.1"
+description = "Cadence light-client chain access: lightwalletd over Tor, compact block cache, wallet sync"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+zcash_client_backend = { workspace = true, features = ["orchard", "sync", "tor", "lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
+zcash_primitives = { workspace = true, features = ["std"] }
+zcash_protocol = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }

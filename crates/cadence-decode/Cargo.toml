@@ -1,0 +1,25 @@
+[package]
+name = "cadence-decode"
+version = "0.0.1"
+description = "Decodes a Zcash transaction's public shape, the evidence judges check for fingerprints and leaks"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cadence-decode"
+path = "src/main.rs"
+
+[dependencies]
+cadence-chain = { path = "../cadence-chain" }
+zcash_client_backend = { workspace = true, features = ["orchard"] }
+zcash_primitives = { workspace = true, features = ["std"] }
+zcash_protocol = { workspace = true }
+zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
+orchard = { workspace = true, features = ["std"] }
+tokio = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }

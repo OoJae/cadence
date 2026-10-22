@@ -1,0 +1,28 @@
+[package]
+name = "cadence-cli"
+version = "0.0.1"
+description = "Cadence payer CLI: create pockets, pre-sign installment ladders, cancel"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cadence"
+path = "src/main.rs"
+
+[dependencies]
+cadence-core = { path = "../cadence-core" }
+cadence-chain = { path = "../cadence-chain" }
+zcash_client_backend = { workspace = true, features = ["orchard"] }
+zcash_primitives = { workspace = true, features = ["std"] }
+orchard = { workspace = true, features = ["std", "circuit"] }
+pczt = { workspace = true, features = ["orchard"] }
+tokio = { workspace = true }
+zcash_protocol = { workspace = true }
+zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
+rand = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }

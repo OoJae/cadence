@@ -1,0 +1,29 @@
+[package]
+name = "cadence-runner"
+version = "0.0.1"
+description = "Cadence merchant runner: view-only pockets, anchor + witness + prove + broadcast at release time"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cadence-core = { path = "../cadence-core" }
+zcash_client_backend = { workspace = true, features = ["orchard", "pczt", "transparent-inputs", "sync", "tor", "lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { workspace = true, features = ["std", "circuits"] }
+zcash_protocol = { workspace = true }
+zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
+pczt = { workspace = true, features = ["orchard", "prover", "tx-extractor"] }
+orchard = { workspace = true, features = ["std", "circuit"] }
+shardtree = { workspace = true }
+incrementalmerkletree = { workspace = true }
+tokio = { workspace = true }
+cadence-chain = { path = "../cadence-chain" }
+rusqlite = { workspace = true }
+tonic = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }

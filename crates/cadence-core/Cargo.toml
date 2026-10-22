@@ -9,9 +9,10 @@ license.workspace = true
 [dependencies]
 zcash_primitives = { workspace = true, features = ["std", "circuits"] }
 zcash_protocol = { workspace = true }
-zcash_keys = { workspace = true, features = ["orchard"] }
+zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
 pczt = { workspace = true, features = ["orchard", "zcp-builder", "io-finalizer", "signer", "prover", "tx-extractor"] }
 orchard = { workspace = true, features = ["std", "circuit"] }
 rand = { workspace = true }
 zip32 = { workspace = true }
 blake2b_simd = { workspace = true }
+serde = { workspace = true }
