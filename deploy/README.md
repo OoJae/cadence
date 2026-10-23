@@ -1,5 +1,28 @@
 # Deploying Cadence
 
+## Railway (no node of our own)
+
+The live demo runs on Railway, one service per runner, each serving the web app on its own origin:
+
+| Service | Network | Variables |
+|---|---|---|
+| `sandbox` | testnet | `CADENCE_NETWORK=test`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN`, `SANDBOX_FUNDER_SEED`, `SANDBOX_FUNDER_BIRTHDAY` |
+| `main` | mainnet | `CADENCE_NETWORK=main`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN` |
+
+Each service has a volume at `/data` (wallet, records, age identity, Tor state) and a generated `*.up.railway.app` domain on port 8080. `deploy/railway/entrypoint.sh` initialises the runner on first boot. Without a node, both runners reach public lightwalletd servers and drand over Tor; set `CADENCE_LIGHTWALLETD` to point a runner elsewhere.
+
+Deploy from a checkout with the web app built:
+
+```sh
+deploy/railway/stage.sh /tmp/cadence-stage        # code, web/dist and the Dockerfile only
+railway up /tmp/cadence-stage --path-as-root --service sandbox --detach
+railway up /tmp/cadence-stage --path-as-root --service main --detach
+```
+
+Only one process may use a given sandbox funder seed at a time: stop any local sandbox runner first.
+
+## A server with our own node
+
 One server runs everything: a Zebra mainnet node with lightwalletd, the mainnet runner, the testnet judge sandbox, Caddy for TLS, and a Tor onion service for the mainnet runner.
 
 ## 1. Server

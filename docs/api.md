@@ -115,7 +115,7 @@ The response is `201`:
 
 ## Dashboard: subscriptions
 
-`GET /api/subscriptions` lists every subscription; it needs the merchant's bearer token. `GET /api/subscriptions/:id` returns one, and like `GET /api/pockets/:id` needs no token: the ids are random, and the payer's app polls them.
+`GET /api/subscriptions` lists every subscription; it needs the merchant's bearer token, except on a testnet sandbox runner, whose merchant is its own demo wallet. `GET /api/subscriptions/:id` returns one, and like `GET /api/pockets/:id` needs no token: the ids are random, and the payer's app polls them.
 
 ```json
 { "subscription_id": "sub_…", "offer_id": "off_…", "status": "active | completed | cancelled | stopped | stalled",
