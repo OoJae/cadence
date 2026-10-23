@@ -4,11 +4,14 @@
  * that implements the same contract with in-memory keys.
  *
  * One Signer instance serves one mandate: createPocket() → awaitFunding() →
- * presign() → (later) cancel(). Key material never leaves the signer: the app only
- * ever sees the pocket's address, its view-only UFVK and sealed packages.
+ * presign() → sealKit() → (later) cancel(). A signer can instead start from a saved
+ * cancel key: openKit() → restore() → cancel(). Key material leaves the signer only
+ * encrypted to the payer's passphrase (sealKit); otherwise the app only ever sees
+ * the pocket's address, its view-only UFVK and sealed packages.
  */
 import type { Offer, SealedInstallment } from '../api/types';
 import type { NetworkId } from '../lib/zat';
+import type { OpenedKit, SealedKit } from './kit';
 
 export type { SealedInstallment };
 
@@ -29,7 +32,10 @@ export interface PocketInfo {
 export interface FundingTx {
   txid: string;
   value_zat: number;
-  /** Signing starts as soon as the payment is in the mempool. */
+  /**
+   * The WASM signer starts signing once the runner sees the payment mined (the runner
+   * only records mined funding); the mock accepts the mempool.
+   */
   status: 'mempool' | 'mined';
   mined_height?: number;
 }
@@ -65,23 +71,48 @@ export interface CancelReceipt {
   fee_zat: number;
   /** The block it should be mined in. */
   target_height: number;
+  /** Which pocket note it spent, in words ("the change from installment 2"). */
+  spent?: string;
+}
+
+/** Where a cancel is, for the page to show. `k` is the pocket note's installment (0: the funding note). */
+export type CancelStatus =
+  | { step: 'finding' }
+  /** The note is not yet anchor-deep; the next try is at `retryAt` (ms). */
+  | { step: 'waiting'; k: number; blocks: number; retryAt: number }
+  /** Installment `k` spent the note first; waiting for its change, then retrying once. */
+  | { step: 'raced'; k: number; retryAt: number }
+  | { step: 'proving'; k: number }
+  | { step: 'broadcasting'; k: number };
+
+export interface CancelOptions {
+  /** Stops waiting. A cancel already being proved is not broadcast. */
+  signal?: AbortSignal;
+  onStatus?: (s: CancelStatus) => void;
+}
+
+/** Where the subscription lives, for the cancel key. */
+export interface KitContext {
+  /** The runner's absolute base URL. */
+  runner: string;
+  subscriptionId: string | null;
 }
 
 export interface Signer {
   /** 'wasm' is the real cadence-core signer; 'mock' is this build's stand-in. */
   readonly implementation: 'mock' | 'wasm';
   /**
-   * Where the pocket key lives. 'memory' forgets it when the tab closes, so cancel is
-   * only possible from this tab; both the mock and the WASM signer are 'memory' today.
-   * 'passkey' (planned) keeps it sealed under WebAuthn PRF or a passphrase so the
-   * payer can come back to cancel.
+   * Where the pocket key lives. 'memory' forgets it when the tab closes; to cancel
+   * later, the payer saves a cancel key (sealKit), a file encrypted to a passphrase.
+   * Both the mock and the WASM signer are 'memory'. 'passkey' (planned) would keep it
+   * sealed under WebAuthn PRF instead.
    */
   readonly keyCustody: 'memory' | 'passkey';
 
   /** Creates a fresh single-use pocket: a new random seed at a non-zero ZIP 32 account. */
   createPocket(network: NetworkId): Promise<PocketInfo>;
 
-  /** Resolves when a payment of at least `expectedZat` reaches the pocket (mempool is enough). */
+  /** Resolves when a payment of at least `expectedZat` reaches the pocket (the WASM signer: mined; the mock: the mempool is enough). */
   awaitFunding(expectedZat: number, opts?: { signal?: AbortSignal }): Promise<FundingTx>;
 
   /**
@@ -92,10 +123,25 @@ export interface Signer {
   presign(offer: Offer, fundingTx: FundingTx, opts?: PresignOptions): Promise<SealedInstallment[]>;
 
   /**
+   * Encrypts this pocket's cancel key (the recovery kit: seed, schedule, notes) to
+   * `passphrase`, in a worker. The page only ever sees the ciphertext. Needs presign().
+   */
+  sealKit(passphrase: string, ctx: KitContext): Promise<SealedKit>;
+
+  /** Decrypts a cancel key saved by sealKit, in a worker, and checks its shape. */
+  openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit>;
+
+  /** Loads an opened cancel key into this fresh signer, so it can cancel. */
+  restore(kit: OpenedKit): Promise<PocketInfo>;
+
+  /**
    * Spends the pocket's current note to the payer's own `refundUa` (OvkPolicy::Discard),
    * so every later installment becomes a double-spend the runner cannot broadcast.
+   * Waits (up to about 5 minutes) for a fresh note to be deep enough to spend, and
+   * retries once if an installment spends the note first. Throws
+   * NothingToCancelError when every installment was released first.
    */
-  cancel(refundUa: string): Promise<CancelReceipt>;
+  cancel(refundUa: string, opts?: CancelOptions): Promise<CancelReceipt>;
 
   /** Zeroises all key material. The signer is unusable afterwards. */
   destroy(): void;

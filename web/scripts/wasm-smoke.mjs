@@ -15,8 +15,10 @@
 // 4. Signer run: WasmSigner end to end. createPocket (POST /api/pockets),
 //    awaitFunding (GET /api/pockets/:id, decrypting the relayed tx), presign over
 //    every installment's real window (~330 rungs for 2 installments), upload
-//    (POST /api/subscriptions), then cancel: build, witness, prove in the browser,
-//    POST /api/broadcast.
+//    (POST /api/subscriptions), save the cancel key (age scrypt, in a worker),
+//    destroy the signer, restore a fresh one from the key, then cancel with it:
+//    build, witness, prove in the browser, POST /api/broadcast. The key is also
+//    opened with the cadence CLI, if target/release/cadence is built.
 //
 // Fails on any request to another origin, CSP violation, console error, browser
 // storage write, or a check below.
@@ -241,6 +243,24 @@ try {
     check(tx?.ironwood_actions === 2 && tx?.ironwood_value_balance === 10_000 && !tx.transparent && !tx.sapling && !tx.orchard, 'cancel is a 2-action Ironwood-only transaction paying the 10,000-zat fee');
     check(s.cancel?.refunded_zat === fundAmount - 10_000 && s.cancel?.target_height === TIP + 1, `refunds ${s.cancel?.refunded_zat} zats at height ${s.cancel?.target_height}`);
   }
+  const k = s.kit;
+  check(k.file_name === `cadence-cancel-key-${s.pocket_id}.age` && k.restored_ua === k.pocket_ua, `cancel key saved (${k.bytes} bytes, ${Math.round(k.seal_ms)} ms) and restored into a fresh signer (${Math.round(k.open_ms)} ms)`);
+  check(/wrong passphrase/.test(k.wrong_passphrase), 'the key refuses a wrong passphrase');
+  check(
+    k.fields.kind === 'cadence-kit/1' && k.fields.subscription_id === s.subscription.subscription_id && k.fields.count === count && k.fields.funding_height === TIP - 5 && /^[0-9a-f]{32}$/.test(k.fields.mandate_id) && /^[0-9a-f]+$/.test(k.fields.funding_tx_hex),
+    'the key carries the schedule, the mandate id and the funding transaction',
+  );
+  check(k.notes.length === count && k.notes[0].k === 0 && k.notes[0].nullifier === pockets.get(s.pocket_id)?.notes[0]?.nullifier, `the key carries the pocket's ${k.notes.length} notes, the funding note first`);
+  const cli = join(process.env.CARGO_TARGET_DIR ?? join(repo, 'target'), 'release/cadence');
+  if (existsSync(cli)) {
+    const file = join(tmp, k.file_name);
+    writeFileSync(file, Buffer.from(k.b64, 'base64'));
+    const r = spawnSync(cli, ['pocket', 'show', '--pocket', file], { encoding: 'utf8', env: { ...process.env, CADENCE_KIT_PASSPHRASE: 'smoke test passphrase' } });
+    const ua = /funding address: (\S+)/.exec(r.stdout ?? '')?.[1];
+    check(r.status === 0 && ua === k.pocket_ua, `the cadence CLI opens the key: ${ua ? `${ua.slice(0, 20)}…` : r.stderr.trim()}`);
+  } else {
+    console.log(`skip the CLI check (no ${cli})`);
+  }
   check(/destroyed/.test(s.after_destroy), 'destroy() leaves a signer that refuses to act');
   summary.signer = {
     pool: s.pool_size,
@@ -248,6 +268,7 @@ try {
     presign_ms: Math.round(s.presign_ms),
     per_rung_ms: +s.per_rung_ms.toFixed(1),
     installments: s.installments.map((x) => `${x.k}: ${x.rungs} rungs ${x.window[0]}-${x.window[1]} → ${x.sealed_bytes} B`),
+    kit: { bytes: k.bytes, seal_ms: Math.round(k.seal_ms), open_ms: Math.round(k.open_ms) },
     cancel_ms: s.cancel ? Math.round(s.cancel.ms) : null,
   };
 } catch (e) {

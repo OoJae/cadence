@@ -84,6 +84,7 @@ impl Store {
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
+             PRAGMA secure_delete = ON;
              CREATE TABLE IF NOT EXISTS offers (
                  offer_id TEXT PRIMARY KEY, name TEXT NOT NULL, amount_zat INTEGER NOT NULL,
                  period_secs INTEGER NOT NULL, count INTEGER NOT NULL, merchant_ua TEXT NOT NULL,
@@ -103,7 +104,22 @@ impl Store {
                  sealed BLOB, beacon BLOB, txid TEXT, target_height INTEGER, expiry_height INTEGER,
                  mined_height INTEGER, PRIMARY KEY (subscription_id, k));",
         )?;
-        Ok(Store { conn })
+        let store = Store { conn };
+        // Pockets of subscriptions that ended before shredding covered their keys.
+        store.conn.execute(
+            "UPDATE pockets SET ufvk = '', funding_tx_hex = NULL
+             WHERE ufvk != '' AND subscription_id IN
+               (SELECT subscription_id FROM subscriptions WHERE status NOT IN ('active', 'stalled'))",
+            [],
+        )?;
+        store.conn.execute(
+            "UPDATE installments SET sealed = NULL, beacon = NULL
+             WHERE (sealed IS NOT NULL OR beacon IS NOT NULL) AND subscription_id IN
+               (SELECT subscription_id FROM subscriptions WHERE status NOT IN ('active', 'stalled'))",
+            [],
+        )?;
+        store.checkpoint()?;
+        Ok(store)
     }
 
     pub fn insert_offer(&self, o: &Offer) -> Result<()> {
@@ -148,7 +164,7 @@ impl Store {
         let funding = match r.get::<_, Option<String>>(4)? {
             Some(txid) => Some(Funding {
                 txid,
-                tx_hex: r.get(5)?,
+                tx_hex: r.get::<_, Option<String>>(5)?.unwrap_or_default(),
                 mined_height: r.get(6)?,
                 value_zat: r.get(7)?,
             }),
@@ -341,12 +357,45 @@ impl Store {
         Ok(())
     }
 
-    /// Deletes everything that could ever open again: sealed packages and beacons.
+    /// Deletes everything that could ever open again or see into the pocket: sealed
+    /// packages, beacons, the pocket's viewing key and its funding transaction.
     pub fn shred(&self, subscription_id: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE installments SET sealed = NULL, beacon = NULL WHERE subscription_id = ?1",
             [subscription_id],
         )?;
+        self.conn.execute(
+            "UPDATE pockets SET ufvk = '', funding_tx_hex = NULL WHERE subscription_id = ?1",
+            [subscription_id],
+        )?;
+        self.checkpoint()
+    }
+
+    /// Pockets nobody subscribed with: unfunded since `unfunded_before`, or funded
+    /// but never given packages since `funded_before`.
+    pub fn abandoned_pockets(&self, unfunded_before: u64, funded_before: u64) -> Result<Vec<Pocket>> {
+        let sql = format!(
+            "SELECT {} FROM pockets WHERE subscription_id IS NULL
+             AND ((funding_txid IS NULL AND created_at < ?1) OR (funding_txid IS NOT NULL AND created_at < ?2))",
+            Self::POCKET_COLUMNS
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![unfunded_before, funded_before], Self::pocket_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn delete_pocket(&self, pocket_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM pockets WHERE pocket_id = ?1", [pocket_id])?;
+        self.checkpoint()
+    }
+
+    /// `secure_delete` overwrites what is deleted from now on. `VACUUM` rewrites the
+    /// file, so free pages left by earlier writes keep no copy either, and the WAL
+    /// is then folded back in and emptied. (The filesystem may still hold older
+    /// blocks; the runner's disk should be encrypted.)
+    fn checkpoint(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
         Ok(())
     }
 

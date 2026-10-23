@@ -52,7 +52,7 @@ export function Timeline({ installments, network = 'test', onDecode }: { install
                   mined at {i.mined_height} · <Txid value={i.txid} />
                 </>
               )}
-              {(i.state === 'cancelled' || i.state === 'missed') && (
+              {(i.state === 'cancelled' || i.state === 'missed' || i.state === 'invalid') && (
                 <>
                   {installmentStateInfo(i.state).description} <span className="faint">· was due {formatDateTime(i.release_at)}</span>
                 </>

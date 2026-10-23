@@ -5,18 +5,20 @@ use std::{fs, path::Path, thread, time::Duration};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use cadence_chain::{lwd, wallet};
+
+use crate::http::Http;
 use cadence_core::{
     build_rung,
-    mandate::{self, installment_fee, Terms},
-    seed, Installment, Pocket,
+    mandate::{self, Terms},
+    Installment, Pocket,
 };
 use cadence_seal::{age::x25519, DrandChain};
 use orchard::{
     tree::{MerkleHashOrchard, MerklePath},
-    Anchor, Note,
+    Anchor,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use zcash_keys::address::Address;
 use zcash_protocol::{
     consensus::{BlockHeight, Network, NetworkConstants, Parameters},
@@ -46,7 +48,9 @@ pub struct SubscriptionFile {
     pocket_id: String,
     subscription_id: Option<String>,
     mandate_id: String,
-    tag: String,
+    /// What the merchant's wallet shows for each installment (the memo).
+    #[serde(default)]
+    label: String,
     amount_zat: u64,
     count: u32,
     period_secs: u64,
@@ -59,36 +63,35 @@ pub struct SubscriptionFile {
     funding_height: Option<u32>,
 }
 
-fn http() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(120)))
-        .build()
-        .into()
-}
-
-fn read(mut response: ureq::http::Response<ureq::Body>) -> Result<Value> {
-    let status = response.status();
-    let body = response.body_mut().read_to_string()?;
-    let value: Value = serde_json::from_str(&body).unwrap_or(Value::String(body));
-    if !status.is_success() {
-        bail!("runner answered {status}: {value}");
+/// Reads a subscription or pocket file. A recovery kit saved by the web app is
+/// encrypted to a passphrase, taken from `CADENCE_KIT_PASSPHRASE` or asked for.
+pub fn read_kit(path: &Path) -> Result<Vec<u8>> {
+    static OPENED: std::sync::Mutex<Vec<(std::path::PathBuf, Vec<u8>)>> = std::sync::Mutex::new(vec![]);
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    if !cadence_seal::is_sealed_kit(&bytes) {
+        return Ok(bytes);
     }
-    Ok(value)
+    // Ask once per command, however many times the kit is read.
+    let mut opened = OPENED.lock().unwrap();
+    if let Some((_, plain)) = opened.iter().find(|(p, _)| p == path) {
+        return Ok(plain.clone());
+    }
+    let passphrase = match std::env::var("CADENCE_KIT_PASSPHRASE") {
+        Ok(p) => p,
+        Err(_) => rpassword::prompt_password(format!("passphrase for {}: ", path.display()))?,
+    };
+    let plain = cadence_seal::open_kit(&bytes, &passphrase).map_err(|e| anyhow!("{e}"))?;
+    opened.push((path.to_path_buf(), plain.clone()));
+    Ok(plain)
 }
 
-fn get_json(url: &str) -> Result<Value> {
-    read(http().get(url).call()?)
-}
-
-fn post_json(url: &str, body: &Value) -> Result<Value> {
-    let bytes = serde_json::to_vec(body)?;
-    read(
-        http()
-            .post(url)
-            .header("Content-Type", "application/json")
-            .send(&bytes[..])?,
-    )
+/// The runner a subscription file belongs to.
+pub fn runner_of(path: &Path) -> Result<String> {
+    #[derive(Deserialize)]
+    struct Runner {
+        runner: String,
+    }
+    Ok(serde_json::from_slice::<Runner>(&read_kit(path)?)?.runner)
 }
 
 fn network(name: &str) -> Result<Network> {
@@ -104,6 +107,14 @@ fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
         Some(Address::Unified(ua)) => ua.orchard().copied().context("address has no Orchard receiver"),
         _ => bail!("expected a unified address with an Orchard receiver"),
     }
+}
+
+fn parse_txid(display_hex: &str) -> Result<zcash_primitives::transaction::TxId> {
+    let mut bytes: [u8; 32] = hex::decode(display_hex)?
+        .try_into()
+        .map_err(|_| anyhow!("txid must be 32 bytes"))?;
+    bytes.reverse();
+    Ok(zcash_primitives::transaction::TxId::from_bytes(bytes))
 }
 
 fn unix_now() -> u64 {
@@ -137,17 +148,17 @@ fn terms(params: &Network, f: &SubscriptionFile) -> Result<Terms> {
         period_secs: f.period_secs,
         first_release_at: f.first_release_at,
         merchant: orchard_receiver(params, &f.merchant_ua)?,
-        tag: hex16(&f.tag)?,
+        label: f.label.clone(),
     })
 }
 
 /// Subscribes to `offer_id` at `runner`: pocket, funding, ladders, sealing, upload.
-pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbox_fund: bool) -> Result<()> {
+pub fn subscribe(http: &Http, runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbox_fund: bool) -> Result<()> {
     if out.exists() {
         bail!("{} already exists", out.display());
     }
     let runner = runner.trim_end_matches('/');
-    let offer: OfferView = serde_json::from_value(get_json(&format!("{runner}/api/offers/{offer_id}"))?)?;
+    let offer: OfferView = serde_json::from_value(http.get_json(&format!("{runner}/api/offers/{offer_id}"))?)?;
     let params = network(&offer.network)?;
     orchard_receiver(&params, &offer.merchant_ua)?;
     offer
@@ -162,11 +173,9 @@ pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbo
         .ufvk()
         .encode(&params)
         .map_err(|e| anyhow!("encoding UFVK: {e:?}"))?;
-    let reg = post_json(&format!("{runner}/api/pockets"), &json!({ "pocket_ufvk": ufvk }))?;
+    let reg = http.post_json(&format!("{runner}/api/pockets"), &json!({ "pocket_ufvk": ufvk }))?;
     let pocket_id = reg["pocket_id"].as_str().context("no pocket_id")?.to_string();
 
-    let mut tag = [0u8; 16];
-    rand::fill(&mut tag);
     let mut mandate_id = [0u8; 16];
     rand::fill(&mut mandate_id);
     let file = SubscriptionFile {
@@ -177,7 +186,7 @@ pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbo
         pocket_id: pocket_id.clone(),
         subscription_id: None,
         mandate_id: hex::encode(mandate_id),
-        tag: hex::encode(tag),
+        label: format!("{} ({pocket_id})", offer.name),
         amount_zat: offer.amount_zat,
         count: offer.count,
         period_secs: offer.period_secs,
@@ -190,18 +199,18 @@ pub fn subscribe(runner: &str, offer_id: &str, out: &Path, first_in: u64, sandbo
     save(out, &file)?;
     if sandbox_fund {
         let total = mandate::funding_total(&terms(&params, &file)?).context("amount overflow")?;
-        let paid = post_json(
+        let paid = http.post_json(
             &format!("{runner}/api/sandbox/fund"),
             &json!({ "pocket_id": pocket_id, "amount_zat": u64::from(total) }),
         )?;
         println!("sandbox wallet funded the pocket in {}", paid["txid"].as_str().unwrap_or("?"));
     }
-    resume(out)
+    resume(http, out)
 }
 
 /// Continues a subscription from its file: wait for funding, pre-sign, seal, upload.
 /// Safe to re-run after an interruption before the upload.
-pub fn resume(out: &Path) -> Result<()> {
+pub fn resume(http: &Http, out: &Path) -> Result<()> {
     let mut file: SubscriptionFile = serde_json::from_slice(&fs::read(out)?)?;
     if file.subscription_id.is_some() {
         bail!("this subscription was already uploaded");
@@ -212,7 +221,7 @@ pub fn resume(out: &Path) -> Result<()> {
         .map_err(|_| anyhow!("bad seed"))?;
     let pocket = Pocket::from_seed(&seed, params.network_type().coin_type());
     let runner = file.runner.clone();
-    let offer: OfferView = serde_json::from_value(get_json(&format!("{runner}/api/offers/{}", file.offer_id))?)?;
+    let offer: OfferView = serde_json::from_value(http.get_json(&format!("{runner}/api/offers/{}", file.offer_id))?)?;
     let recipient: x25519::Recipient = offer
         .runner_age_recipient
         .parse()
@@ -227,7 +236,7 @@ pub fn resume(out: &Path) -> Result<()> {
 
     let pocket_url = format!("{runner}/api/pockets/{pocket_id}");
     let (funding, tip) = loop {
-        match get_json(&pocket_url) {
+        match http.get_json(&pocket_url) {
             Ok(p) => {
                 if let Some(f) = p.get("funding").filter(|f| !f.is_null()) {
                     break (f.clone(), p["tip"].as_u64().unwrap_or(0) as u32);
@@ -278,7 +287,7 @@ pub fn resume(out: &Path) -> Result<()> {
         println!("installment {}: sealed to drand round {round} ({} bytes)", p.k, sealed.len());
         installments.push(json!({ "k": p.k, "release_round": round, "sealed": STANDARD.encode(sealed) }));
     }
-    let sub = post_json(
+    let sub = http.post_json(
         &format!("{runner}/api/subscriptions"),
         &json!({ "offer_id": offer.offer_id, "pocket_id": pocket_id, "installments": installments }),
     )?;
@@ -288,44 +297,9 @@ pub fn resume(out: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Every note the pocket can hold: the funding note, then each installment's change.
-fn pocket_notes(params: &Network, pocket: &Pocket, f: &SubscriptionFile) -> Result<Vec<Note>> {
-    let tx_hex = f.funding_tx_hex.as_deref().context("the pocket was never funded")?;
-    let height = BlockHeight::from_u32(f.funding_height.context("no funding height")?);
-    let funding = mandate::decrypt_funding(params, &hex::decode(tx_hex)?, height, pocket)
-        .map_err(|e| anyhow!("{e:?}"))?;
-    let terms = terms(params, f)?;
-    let secret = seed::app_secret(pocket);
-    let mandate_id = hex16(&f.mandate_id)?;
-    let mut notes = vec![funding];
-    let mut input = funding;
-    for k in 1..f.count {
-        let mut memo = [0u8; 20];
-        memo[..16].copy_from_slice(&terms.tag);
-        memo[16..].copy_from_slice(&k.to_le_bytes());
-        let inst = Installment {
-            input,
-            amount: terms.amount,
-            merchant: terms.merchant,
-            memo: MemoBytes::from_bytes(&memo)?,
-        };
-        // Change does not depend on the target height, so any valid height will do.
-        let rung = build_rung(params, height + 1, pocket, &inst, seed::rung_seed(&secret, &mandate_id, k, 0))
-            .map_err(|e| anyhow!("{e:?}"))?;
-        match rung.change {
-            Some(c) => {
-                notes.push(c);
-                input = c;
-            }
-            None => break,
-        }
-    }
-    Ok(notes)
-}
-
 /// Spends the pocket's live note to `refund_ua`, so no later installment can be valid.
-pub async fn cancel(path: &Path, refund_ua: &str, mut client: lwd::Client) -> Result<()> {
-    let file: SubscriptionFile = serde_json::from_slice(&fs::read(path)?)?;
+pub async fn cancel(http: &Http, path: &Path, refund_ua: &str, mut client: lwd::Client) -> Result<()> {
+    let file: SubscriptionFile = serde_json::from_slice(&read_kit(path)?)?;
     let params = network(&file.network)?;
     let seed: [u8; 32] = hex::decode(&file.seed_hex)?
         .try_into()
@@ -333,21 +307,24 @@ pub async fn cancel(path: &Path, refund_ua: &str, mut client: lwd::Client) -> Re
     let pocket = Pocket::from_seed(&seed, params.network_type().coin_type());
     let refund = orchard_receiver(&params, refund_ua)?;
 
-    let state = get_json(&format!("{}/api/pockets/{}", file.runner, file.pocket_id))?;
+    let state = http.get(&format!("{}/api/pockets/{}", file.runner, file.pocket_id)).await?;
     let live = state["notes"]
         .as_array()
         .and_then(|n| n.first())
         .context("the pocket holds no unspent note (completed, or already cancelled)")?;
     let nf_hex = live["nullifier"].as_str().context("no nullifier")?;
-    let note = pocket_notes(&params, &pocket, &file)?
+    // Read the note from the transaction that created it, from an independent server,
+    // so the runner can only point at it.
+    let created_in = parse_txid(live["txid"].as_str().context("no txid")?)?;
+    let (tx, _) = lwd::transaction(&mut client, &params, &created_in).await?;
+    let note = mandate::pocket_outputs(&tx, &pocket)
         .into_iter()
         .find(|n| hex::encode(n.nullifier(pocket.fvk()).to_bytes()) == nf_hex)
-        .context("the runner reports a note this pocket never created")?;
+        .context("the runner reports a note this pocket never received")?;
 
-    let w = get_json(&format!(
-        "{}/api/pockets/{}/witness?nullifier={nf_hex}",
-        file.runner, file.pocket_id
-    ))?;
+    let w = http
+        .get(&format!("{}/api/pockets/{}/witness?nullifier={nf_hex}", file.runner, file.pocket_id))
+        .await?;
     let target = BlockHeight::from_u32(w["target_height"].as_u64().context("no target")? as u32);
     let anchor_height = BlockHeight::from_u32(w["anchor_height"].as_u64().context("no anchor height")? as u32);
     let anchor_bytes: [u8; 32] = hex::decode(w["anchor"].as_str().context("no anchor")?)?
@@ -373,7 +350,7 @@ pub async fn cancel(path: &Path, refund_ua: &str, mut client: lwd::Client) -> Re
     wallet::check_anchor(&mut client, &anchor, anchor_height).await?;
 
     let value = note.value().inner();
-    let amount = Zatoshis::from_u64(value.saturating_sub(installment_fee().into()))
+    let amount = Zatoshis::from_u64(value.saturating_sub(mandate::installment_fee_at(&params, target).into()))
         .map_err(|_| anyhow!("note too small to refund"))?;
     let mut fresh = [0u8; 32];
     rand::fill(&mut fresh);
@@ -420,5 +397,86 @@ pub async fn send(
     let mut broadcaster = client.clone();
     let (txid, _) = wallet::pay(&mut client, &mut broadcaster, &mut db, &params, account, &pocket, recipient, amount_z, &[]).await?;
     println!("sent {amount} zats in {txid}");
+    Ok(())
+}
+
+/// Returns every note left in a pocket to `to`, each as an ordinary 2-action send.
+/// It needs only the pocket's seed and a lightwalletd server, never the runner, so
+/// funds stay recoverable after a stop, an overfunding, or with the runner gone.
+/// On a live subscription this also cancels it.
+pub async fn sweep(
+    path: &Path,
+    to: &str,
+    from: Option<u32>,
+    wallet_dir: &Path,
+    mut client: lwd::Client,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    struct AnyPocket {
+        network: String,
+        seed_hex: String,
+        funding_height: Option<u32>,
+    }
+    let file: AnyPocket = serde_json::from_slice(&read_kit(path)?)?;
+    let params = network(&file.network)?;
+    let seed: [u8; 32] = hex::decode(&file.seed_hex)?
+        .try_into()
+        .map_err(|_| anyhow!("bad seed"))?;
+    let pocket = Pocket::from_seed(&seed, params.network_type().coin_type());
+    let recipient = orchard_receiver(&params, to)?;
+
+    fs::create_dir_all(wallet_dir)?;
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("pocket");
+    let db_path = wallet_dir.join(format!("{stem}.sqlite"));
+    let fresh = !db_path.exists();
+    let mut db = wallet::open(&db_path, params)?;
+    use zcash_client_backend::data_api::WalletRead;
+    if fresh {
+        let birthday = from
+            .or(file.funding_height)
+            .context("pass --from <a height at or below the pocket's funding transaction>")?;
+        wallet::init(&mut db)?;
+        let ufvk = pocket.ufvk().encode(&params).map_err(|e| anyhow!("encoding UFVK: {e:?}"))?;
+        wallet::import_pocket(&mut client, &mut db, &params, &ufvk, BlockHeight::from_u32(birthday), "sweep").await?;
+    }
+    let account = *db.get_account_ids()?.first().context("the sweep wallet tracks no pocket")?;
+    println!("scanning…");
+    wallet::sync(&mut client, &params, &mut db).await?;
+
+    let tip = lwd::tip(&mut client).await?;
+    let anchor_height = tip + 1 - wallet::ANCHOR_CONFIRMATIONS;
+    // `pay` targets the next block too; only a sweep in the block of the fee switch
+    // can disagree, and it then fails or leaves change for another sweep.
+    let fee = u64::from(mandate::installment_fee_at(&params, tip + 1));
+    let mut notes = wallet::unspent_notes(&db, account, tip + 1)?;
+    notes.sort_by_key(|n| std::cmp::Reverse(n.note.value().inner()));
+    let (ready, waiting): (Vec<_>, Vec<_>) = notes.into_iter().partition(|n| n.mined <= anchor_height);
+    if ready.is_empty() && waiting.is_empty() {
+        println!("the pocket is empty");
+        return Ok(());
+    }
+    let mut spent = vec![];
+    let mut broadcaster = client.clone();
+    for note in &ready {
+        let value = note.note.value().inner();
+        let Some(amount) = value.checked_sub(fee).filter(|a| *a > 0) else {
+            println!("skipping a {value}-zat note: smaller than the fee");
+            continue;
+        };
+        let amount_z = Zatoshis::from_u64(amount).map_err(|_| anyhow!("bad amount"))?;
+        let (txid, nf) = wallet::pay(
+            &mut client, &mut broadcaster, &mut db, &params, account, &pocket, recipient, amount_z, &spent,
+        )
+        .await?;
+        spent.push(nf);
+        println!("returned {} ZEC in {txid}", zec(amount));
+    }
+    if !waiting.is_empty() {
+        println!(
+            "{} note(s) are less than {} blocks deep; run sweep again in a few minutes",
+            waiting.len(),
+            wallet::ANCHOR_CONFIRMATIONS
+        );
+    }
     Ok(())
 }

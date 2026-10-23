@@ -255,15 +255,31 @@ async fn get_pocket(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiR
     let pocket = app.store.lock().unwrap().pocket(&id)?.ok_or_else(not_found)?;
     let tip = BlockHeight::from_u32(app.tip.load(Ordering::Relaxed));
     let account = parse_account(&pocket.account)?;
-    let notes: Vec<Value> = {
+    // The pocket holds one live note. Until the wallet has scanned the block of the
+    // latest mined installment, it still lists the note that installment spent.
+    let settled = match &pocket.subscription_id {
+        Some(sub) => app
+            .store
+            .lock()
+            .unwrap()
+            .subscription(sub)?
+            .and_then(|s| s.installments.iter().filter_map(|i| i.mined_height).max()),
+        None => None,
+    };
+    let (notes, syncing): (Vec<Value>, bool) = {
         let db = app.wallet.lock().await;
-        match wallet::pocket_fvk(&db, account) {
+        // Until the wallet reaches that block, the change it left is not listed yet.
+        let scanned = db.block_fully_scanned()?.map(|b| u32::from(b.block_height()));
+        let syncing = settled.is_some_and(|h| scanned.is_none_or(|s| s < h));
+        let notes = match wallet::pocket_fvk(&db, account) {
             Ok(fvk) => wallet::unspent_notes(&db, account, tip + 1)?
                 .into_iter()
+                .filter(|n| settled.is_none_or(|h| u32::from(n.mined) >= h))
                 .map(|n| {
                     json!({
                         "nullifier": hex::encode(n.note.nullifier(&fvk).to_bytes()),
                         "value_zat": n.note.value().inner(),
+                        "txid": n.txid.to_string(),
                         "mined_height": u32::from(n.mined),
                         "position": u64::from(n.position),
                     })
@@ -271,11 +287,14 @@ async fn get_pocket(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiR
                 .collect(),
             // The pocket's account is deleted once its subscription ends.
             Err(_) => vec![],
-        }
+        };
+        (notes, syncing)
     };
     Ok(Json(json!({
         "pocket_id": pocket.pocket_id,
         "tip": u32::from(tip),
+        "syncing": syncing,
+        "birthday_height": pocket.birthday,
         "funding": pocket.funding,
         "notes": notes,
     })))
@@ -416,6 +435,9 @@ async fn stop_subscription(
 ) -> ApiResult<Json<Value>> {
     require_merchant(&app, &headers)?;
     let sub = app.store.lock().unwrap().subscription(&id)?.ok_or_else(not_found)?;
+    if !matches!(sub.status.as_str(), "active" | "stalled") {
+        return Err(bad(format!("the subscription is already {}", sub.status)));
+    }
     service::finish(&app, &sub, "stopped", None).await?;
     Ok(Json(json!({ "subscription_id": id, "status": "stopped" })))
 }

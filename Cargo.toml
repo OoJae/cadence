@@ -58,3 +58,13 @@ base64 = "0.22"
 hmac = "0.12"
 uuid = "1"
 tower-http = { version = "0.6", features = ["fs", "set-header"] }
+
+# Proving and key stretching are unusably slow unoptimized, even in dev builds.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.halo2_proofs]
+opt-level = 3
+[profile.dev.package.pasta_curves]
+opt-level = 3

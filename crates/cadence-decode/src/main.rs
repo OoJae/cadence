@@ -90,6 +90,10 @@ enum Command {
         /// UFVKs whose OVKs to try on every output (to prove they recover nothing).
         #[arg(long = "ufvk")]
         ufvks: Vec<String>,
+        /// UFVKs whose incoming viewing keys to decrypt outputs with, to show what
+        /// that wallet sees: values and memos (the merchant's, for an installment).
+        #[arg(long = "view")]
+        views: Vec<String>,
         /// How far below the mined height to search for the anchor's tree root.
         #[arg(long, default_value_t = 12)]
         anchor_search: u32,
@@ -135,12 +139,15 @@ enum Command {
     },
 }
 
-async fn decode(conn: Conn, txids: Vec<String>, ufvks: Vec<String>, anchor_search: u32) -> Result<()> {
+async fn decode(conn: Conn, txids: Vec<String>, ufvks: Vec<String>, views: Vec<String>, anchor_search: u32) -> Result<()> {
     let params = conn.params();
-    let ufvks = ufvks
-        .iter()
-        .map(|s| UnifiedFullViewingKey::decode(&params, s).map_err(|e| anyhow!(e)))
-        .collect::<Result<Vec<_>>>()?;
+    let parse = |keys: &[String]| {
+        keys.iter()
+            .map(|s| UnifiedFullViewingKey::decode(&params, s).map_err(|e| anyhow!(e)))
+            .collect::<Result<Vec<_>>>()
+    };
+    let ufvks = parse(&ufvks)?;
+    let views = parse(&views)?;
     let client = conn.connect().await?;
     // Shared across txids, so neighbouring transactions reuse each other's tree states.
     let mut roots = RootStore::default();
@@ -154,7 +161,13 @@ async fn decode(conn: Conn, txids: Vec<String>, ufvks: Vec<String>, anchor_searc
         }
         let ranges = anchor_ranges(&tx, mined, anchor_search, &roots);
         let shape = shape_with_ranges(&tx, mined, ranges, &ufvks);
-        println!("{}", serde_json::to_string_pretty(&shape)?);
+        if views.is_empty() {
+            println!("{}", serde_json::to_string_pretty(&shape)?);
+        } else {
+            let mut value = serde_json::to_value(&shape)?;
+            value["received"] = serde_json::to_value(cadence_decode::received(&tx, &views))?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
     }
     Ok(())
 }
@@ -166,8 +179,9 @@ async fn main() -> Result<()> {
             txids,
             conn,
             ufvks,
+            views,
             anchor_search,
-        } => decode(conn, txids, ufvks, anchor_search).await,
+        } => decode(conn, txids, ufvks, views, anchor_search).await,
         Command::Scan {
             conn,
             from,

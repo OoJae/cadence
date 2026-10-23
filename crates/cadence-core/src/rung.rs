@@ -11,10 +11,10 @@ use pczt::{
 use rand::{rngs::ChaCha20Rng, SeedableRng};
 use zcash_primitives::transaction::{
     builder::{BundlePadding, DeferredPcztBuilder},
-    fees::zip317::FeeRule,
+    fees::zip317::{FeeRule, GRACE_ACTIONS, P2PKH_STANDARD_INPUT_SIZE, P2PKH_STANDARD_OUTPUT_SIZE},
 };
 use zcash_protocol::{
-    consensus::{BlockHeight, BranchId, Parameters},
+    consensus::{BlockHeight, BranchId, NetworkType, Parameters},
     memo::MemoBytes,
     value::Zatoshis,
 };
@@ -73,6 +73,25 @@ pub enum Error {
     ChangeNote,
 }
 
+/// The ZIP 317 rule a stock wallet applies to a transaction targeting `height`: a
+/// 5,000-zat marginal fee, or 1,000 from the ZIP 2009 switch on mainnet.
+pub fn fee_rule_at<P: Parameters>(params: &P, height: BlockHeight) -> FeeRule {
+    let marginal = if params.network_type() == NetworkType::Main
+        && u32::from(height) >= crate::mandate::MAINNET_FEE_SWITCH
+    {
+        1_000
+    } else {
+        5_000
+    };
+    FeeRule::non_standard(
+        Zatoshis::const_from_u64(marginal),
+        GRACE_ACTIONS,
+        P2PKH_STANDARD_INPUT_SIZE,
+        P2PKH_STANDARD_OUTPUT_SIZE,
+    )
+    .expect("standard sizes are non-zero")
+}
+
 fn build_err<E: core::fmt::Debug>(e: E) -> Error {
     Error::Build(format!("{e:?}"))
 }
@@ -81,7 +100,9 @@ fn build_err<E: core::fmt::Debug>(e: E) -> Error {
 ///
 /// `seed` drives every random choice the builder makes, so calling this with the
 /// same seed at different heights yields byte-identical actions; only the expiry,
-/// the consensus branch and therefore the sighash and signatures differ.
+/// the consensus branch and therefore the sighash and signatures differ. That holds
+/// on either side of the ZIP 2009 fee switch, not across it: the fee, and so the
+/// change, follows the target height ([`fee_rule_at`]).
 pub fn build_rung<P: Parameters + Clone>(
     params: &P,
     target_height: BlockHeight,
@@ -89,7 +110,7 @@ pub fn build_rung<P: Parameters + Clone>(
     inst: &Installment,
     seed: [u8; 32],
 ) -> Result<Rung, Error> {
-    let fee_rule = FeeRule::standard();
+    let fee_rule = fee_rule_at(params, target_height);
     let mut builder = DeferredPcztBuilder::new::<Infallible>(
         params.clone(),
         target_height,

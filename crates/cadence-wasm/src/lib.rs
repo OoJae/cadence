@@ -20,6 +20,8 @@
 //!   fee, back to the payer's own wallet.
 //! - With the `prover` feature, `prove::complete_and_prove` installs the anchor
 //!   and witness, proves and extracts the cancel transaction.
+//! - [`seal_kit`] and [`open_kit`] encrypt and decrypt the payer's cancel key (the
+//!   recovery kit) to a passphrase, so a payer who closes the tab can still cancel.
 
 use core::fmt;
 use std::str::FromStr;
@@ -64,6 +66,7 @@ pub enum Error {
     Mandate(String),
     Seal(String),
     Prove(String),
+    Kit(String),
 }
 
 impl fmt::Display for Error {
@@ -78,6 +81,7 @@ impl fmt::Display for Error {
             Error::Mandate(why) => write!(f, "{why}"),
             Error::Seal(why) => write!(f, "sealing failed: {why}"),
             Error::Prove(why) => write!(f, "proving failed: {why}"),
+            Error::Kit(why) => write!(f, "{why}"),
         }
     }
 }
@@ -244,7 +248,9 @@ pub fn synthetic_note(network_name: &str, seed: &[u8], value_zat: u64) -> Result
 
 // ---------------------------------------------------------------- schedule
 
-/// ZIP 317 fee of one installment (and of the cancel), in zatoshis.
+/// The most one installment (or the cancel) pays, in zatoshis: the ZIP 317 fee before
+/// the ZIP 2009 switch. Funding covers this; from the switch on mainnet, each rung and
+/// the cancel pay the lower fee at their own height.
 pub fn installment_fee() -> u64 {
     mandate::installment_fee().into()
 }
@@ -280,10 +286,10 @@ pub struct ShardTerms {
     pub amount_zat: u64,
     pub count: u32,
     pub merchant_ua: String,
-    /// 16 bytes of hex: the opaque tag in each installment's memo (`tag || k`).
-    /// Defaults to the mandate id, as the CLI does.
+    /// What the merchant's wallet shows for each installment, such as the plan
+    /// name and pocket id (see `cadence_core::mandate::installment_memo`).
     #[serde(default)]
-    pub tag: Option<String>,
+    pub label: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -312,13 +318,6 @@ impl fmt::Debug for ShardOut {
     }
 }
 
-/// The memo of installment `k`: `tag || k (u32 LE)`, as `mandate::presign` writes it.
-fn installment_memo(tag: &[u8; 16], k: u32) -> MemoBytes {
-    let mut memo = [0u8; 20];
-    memo[..16].copy_from_slice(tag);
-    memo[16..].copy_from_slice(&k.to_le_bytes());
-    MemoBytes::from_bytes(&memo).expect("20 bytes fit a memo")
-}
 
 /// Signs installment `k` of mandate `mandate_id`, spending `input_note`, once per
 /// height in `heights`.
@@ -351,11 +350,8 @@ pub fn presign_shard(
     if amount.is_zero() {
         return Err(Error::Input("an installment pays a positive amount".into()));
     }
-    let tag = match &terms.tag {
-        Some(t) => hex_array::<16>(t, "the memo tag")?,
-        None => *mandate_id,
-    };
-    let inst = Installment { input, amount, merchant, memo: installment_memo(&tag, k) };
+    let memo = mandate::installment_memo(&terms.label, k, terms.count);
+    let inst = Installment { input, amount, merchant, memo };
     let rung_seed = seed::rung_seed(&seed::app_secret(&pocket), mandate_id, k, 0);
 
     let mut rungs = Vec::with_capacity(heights.len());
@@ -364,7 +360,7 @@ pub fn presign_shard(
     for &h in heights {
         let rung = build_rung(&params, BlockHeight::from_u32(h), &pocket, &inst, rung_seed)
             .map_err(|e| Error::Rung(format!("installment {k} at height {h}: {e:?}")))?;
-        if rung.fee != mandate::installment_fee() {
+        if rung.fee != mandate::installment_fee_at(&params, BlockHeight::from_u32(h)) {
             return Err(Error::Rung(format!("installment {k} at height {h}: unexpected fee {:?}", rung.fee)));
         }
         spends_nullifier = rung.actions[rung.spend_action].nf;
@@ -485,7 +481,8 @@ pub fn build_cancel(
     if refund == pocket.funding_address() || refund == pocket.change_address() {
         return Err(Error::Address("refund to an address of your own wallet, not to the pocket".into()));
     }
-    let fee = installment_fee();
+    // The fee at the cancel's own height (ZIP 2009 lowers it on mainnet from its switch).
+    let fee = u64::from(mandate::installment_fee_at(&params, BlockHeight::from_u32(target_height)));
     let value = input.value().inner();
     if value <= fee {
         return Err(Error::Mandate("nothing is left in the pocket to refund".into()));
@@ -509,4 +506,29 @@ pub fn build_cancel(
         expiry_height: rung.expiry_height.into(),
         spends_nullifier,
     })
+}
+
+// ---------------------------------------------------------------- recovery kit
+
+/// Encrypts the payer's cancel key (a JSON recovery kit) to `passphrase`, with
+/// age's scrypt recipient at `cadence_seal::KIT_WORK_FACTOR`. That takes a few
+/// seconds in a browser, so the page calls it from a worker.
+///
+/// The kit must be a JSON object; the CLI reads it as a subscription file.
+pub fn seal_kit(plain_json: &str, passphrase: &str) -> Result<Vec<u8>> {
+    match serde_json::from_str::<serde_json::Value>(plain_json) {
+        Ok(serde_json::Value::Object(_)) => {}
+        _ => return Err(Error::Input("a recovery kit is a JSON object".into())),
+    }
+    cadence_seal::seal_kit(plain_json.as_bytes(), passphrase).map_err(|e| Error::Kit(e.to_string()))
+}
+
+/// Decrypts a kit sealed by [`seal_kit`] (or `cadence-seal` natively) and returns
+/// its JSON.
+pub fn open_kit(sealed: &[u8], passphrase: &str) -> Result<String> {
+    if !cadence_seal::is_sealed_kit(sealed) {
+        return Err(Error::Kit("this file is not an encrypted Cadence cancel key".into()));
+    }
+    let plain = cadence_seal::open_kit(sealed, passphrase).map_err(|e| Error::Kit(e.to_string()))?;
+    String::from_utf8(plain).map_err(|_| Error::Kit("the cancel key does not hold text".into()))
 }

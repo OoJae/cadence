@@ -158,7 +158,7 @@ export function deriveSubscription(rec: MockSubRecord, chain: MockChain, now: nu
 
   const states = detail.map((d) => d.state);
   let status: SubscriptionStatus = 'active';
-  if (states.includes('cancelled')) status = 'cancelled';
+  if (states.includes('cancelled')) status = blocked?.kind === 'stop' ? 'stopped' : 'cancelled';
   else if (states.includes('missed')) status = 'stalled';
   else if (states.every((s) => s === 'mined')) status = 'completed';
 
@@ -363,7 +363,7 @@ export class MockRunner {
     const rec = this.subs.get(id);
     if (!rec) throw new HttpError(404, 'no such subscription');
     const current = this.derive(id).subscription;
-    if (current.status === 'completed' || current.status === 'cancelled') throw new HttpError(409, `the subscription is already ${current.status}`);
+    if (current.status === 'completed' || current.status === 'cancelled' || current.status === 'stopped') throw new HttpError(409, `the subscription is already ${current.status}`);
     rec.stopped_at = this.clock();
     return this.derive(id).subscription;
   }

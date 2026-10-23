@@ -28,6 +28,13 @@ const transport: Transport = mock ? mock.transport : new HttpTransport(apiSettin
 export const api = new CadenceClient(transport);
 export const apiLabel = transport.label;
 
+/**
+ * The runner's absolute base URL, as a cancel key records it (the CLI connects to it).
+ * With VITE_API=self (or the mock) that is this page's own origin.
+ */
+export const runnerUrl: string =
+  apiSetting.kind === 'http' && apiSetting.base ? apiSetting.base : typeof location !== 'undefined' ? location.origin : 'http://localhost';
+
 /** The origins this page may talk to (mirrors the CSP connect-src). */
 export const connectTargets: string[] =
   apiSetting.kind === 'mock' ? [] : [apiSetting.origin ?? (typeof location !== 'undefined' ? location.origin : 'same origin')];

@@ -7,6 +7,7 @@
  * 32-byte Uint8Array and never as a string.
  */
 import type { NetworkId } from '../lib/zat';
+import type { KitFields } from './kit';
 
 /** A pocket note (funding note or change note), as cadence-wasm encodes it. Secret. */
 export interface WasmNote {
@@ -35,8 +36,8 @@ export interface ShardTerms {
   amount_zat: number;
   count: number;
   merchant_ua: string;
-  /** 16 bytes hex; cadence-wasm defaults it to the mandate id. */
-  tag?: string;
+  /** What the merchant's wallet shows in each installment's memo (plan name and pocket id). */
+  label?: string;
 }
 
 export interface ShardOut {
@@ -72,6 +73,7 @@ export interface ProvedOut {
 /** Operations a signer worker serves: `in` is the message, `out` the reply. */
 export type SignerOps = {
   pocket: { in: { network: NetworkId }; out: { seed: Uint8Array; ua: string; ufvk: string } };
+  pocketInfo: { in: { network: NetworkId; seed: Uint8Array }; out: { ua: string; ufvk: string } };
   funding: { in: { network: NetworkId; seed: Uint8Array; txHex: string; height: number }; out: WasmNote };
   synthetic: { in: { network: NetworkId; seed: Uint8Array; valueZat: number }; out: WasmNote };
   window: { in: { network: NetworkId; tip: number; now: number; at: number }; out: number[] };
@@ -83,6 +85,10 @@ export type SignerOps = {
   };
   seal: { in: { ladderJson: string; recipient: string; round: number }; out: SealOut };
   cancel: { in: { network: NetworkId; seed: Uint8Array; note: string; refundUa: string; targetHeight: number }; out: CancelOut };
+  /** The cancel key: the worker writes the seed into the kit JSON and encrypts it (age scrypt, seconds). */
+  sealKit: { in: { fields: KitFields; seed: Uint8Array; passphrase: string }; out: Uint8Array };
+  /** Decrypts and checks a cancel key; the seed comes back as bytes. */
+  openKit: { in: { bytes: Uint8Array; passphrase: string }; out: { fields: KitFields; seed: Uint8Array } };
   info: { in: Record<string, never>; out: { build: string; memoryBytes: number } };
 };
 

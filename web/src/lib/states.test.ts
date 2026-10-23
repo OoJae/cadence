@@ -4,15 +4,15 @@ import { transitionLines } from './runnerLog';
 import { INSTALLMENT_STATE_INFO, INSTALLMENT_STATES, installmentStateInfo, isTerminal, SUBSCRIPTION_STATUS_INFO, subscriptionStatusInfo } from './states';
 
 describe('installment state labels', () => {
-  it('covers exactly the six states of docs/api.md', () => {
-    expect([...INSTALLMENT_STATES].sort()).toEqual(['broadcast', 'cancelled', 'due', 'mined', 'missed', 'sealed']);
+  it('covers exactly the seven states of docs/api.md', () => {
+    expect([...INSTALLMENT_STATES].sort()).toEqual(['broadcast', 'cancelled', 'due', 'invalid', 'mined', 'missed', 'sealed']);
     expect(Object.keys(INSTALLMENT_STATE_INFO).sort()).toEqual([...INSTALLMENT_STATES].sort());
   });
 
   it('gives every state a distinct label, a tone and a description', () => {
     const labels = INSTALLMENT_STATES.map((s) => installmentStateInfo(s).label);
     expect(new Set(labels).size).toBe(labels.length);
-    expect(labels).toEqual(['Sealed', 'Due', 'Broadcast', 'Mined', 'Cancelled', 'Missed']);
+    expect(labels).toEqual(['Sealed', 'Due', 'Broadcast', 'Mined', 'Cancelled', 'Missed', 'Invalid']);
     for (const s of INSTALLMENT_STATES) {
       expect(installmentStateInfo(s).description.length).toBeGreaterThan(10);
       expect(installmentStateInfo(s).tone).toBeTruthy();
@@ -22,11 +22,14 @@ describe('installment state labels', () => {
   it('keeps the meanings from the API contract', () => {
     expect(installmentStateInfo('sealed').description).toMatch(/Not even the runner can read it/);
     expect(installmentStateInfo('due').description).toMatch(/anchor depth/);
-    expect(installmentStateInfo('missed').description).toMatch(/re-sign/);
+    expect(installmentStateInfo('missed').description).toMatch(/nothing was broadcast/);
+    expect(installmentStateInfo('invalid').description).toMatch(/did not match the offer/);
+    // No re-sign flow exists: the payer recovers by cancelling or sweeping.
+    for (const s of INSTALLMENT_STATES) expect(installmentStateInfo(s).description).not.toMatch(/\bre-sign/);
   });
 
-  it('uses danger colour only for missed, success only for mined', () => {
-    expect(installmentStateInfo('missed').tone).toBe('red');
+  it('uses danger colour only for missed and invalid, success only for mined', () => {
+    expect(INSTALLMENT_STATES.filter((s) => installmentStateInfo(s).tone === 'red')).toEqual(['missed', 'invalid']);
     expect(installmentStateInfo('mined').tone).toBe('green');
     expect(INSTALLMENT_STATES.filter((s) => installmentStateInfo(s).tone === 'green')).toEqual(['mined']);
   });
@@ -36,12 +39,12 @@ describe('installment state labels', () => {
     expect(subscriptionStatusInfo('paused').label).toBe('Unknown (paused)');
   });
 
-  it('labels the four subscription statuses', () => {
-    expect(Object.keys(SUBSCRIPTION_STATUS_INFO).sort()).toEqual(['active', 'cancelled', 'completed', 'stalled']);
+  it('labels the five subscription statuses', () => {
+    expect(Object.keys(SUBSCRIPTION_STATUS_INFO).sort()).toEqual(['active', 'cancelled', 'completed', 'stalled', 'stopped']);
   });
 
   it('knows which states are terminal', () => {
-    expect(INSTALLMENT_STATES.filter(isTerminal)).toEqual(['mined', 'cancelled', 'missed']);
+    expect(INSTALLMENT_STATES.filter(isTerminal)).toEqual(['mined', 'cancelled', 'missed', 'invalid']);
   });
 });
 

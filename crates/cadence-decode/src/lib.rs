@@ -67,6 +67,49 @@ pub struct Shape {
     pub orchard_zero_ovk_recoverable: Option<usize>,
 }
 
+/// An Ironwood output that a supplied viewing key can decrypt: what that key's
+/// wallet shows for the transaction (for an installment and the merchant's UFVK,
+/// exactly what the merchant learns from it).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Received {
+    /// `external` (a payment to one of the key's addresses) or `internal` (change).
+    pub scope: String,
+    pub value_zat: u64,
+    /// ZIP 302: the text, `(empty)`, or `(binary, N bytes)`.
+    pub memo: String,
+}
+
+/// Decrypts every Ironwood output with the incoming viewing keys of `ufvks`.
+pub fn received(tx: &Transaction, ufvks: &[UnifiedFullViewingKey]) -> Vec<Received> {
+    let Some(bundle) = tx.ironwood_bundle() else { return vec![] };
+    let mut out = vec![];
+    for fvk in ufvks.iter().filter_map(|u| u.orchard()) {
+        for (scope, name) in [(Scope::External, "external"), (Scope::Internal, "internal")] {
+            let ivk = fvk.to_ivk(scope);
+            for (_, _, note, _, memo) in bundle.decrypt_outputs_with_keys(core::slice::from_ref(&ivk)) {
+                out.push(Received {
+                    scope: name.into(),
+                    value_zat: note.value().inner(),
+                    memo: memo_text(&memo),
+                });
+            }
+        }
+    }
+    out
+}
+
+fn memo_text(bytes: &[u8; 512]) -> String {
+    use zcash_protocol::memo::{Memo, MemoBytes};
+    match MemoBytes::from_bytes(bytes).ok().and_then(|m| Memo::try_from(m).ok()) {
+        Some(Memo::Text(text)) => text.to_string(),
+        Some(Memo::Empty) => "(empty)".into(),
+        _ => {
+            let len = bytes.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+            format!("(binary, {len} bytes)")
+        }
+    }
+}
+
 /// For each Orchard-family pool, the heights whose tree root equals that bundle's anchor.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AnchorRanges {

@@ -100,6 +100,7 @@ describe('mock runner state derivation', () => {
     const s = at(T0 + 600);
     expect(s.installments[0]!.state).toBe('mined');
     expect(s.installments.slice(1).map((i) => i.state)).toEqual(['cancelled', 'cancelled']);
+    expect(s.status).toBe('stopped');
   });
 
   it('requires a bearer token for merchant endpoints', () => {

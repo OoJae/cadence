@@ -47,7 +47,9 @@ function lineFor(state: InstallmentState, inst: Installment, sub: Subscription):
     case 'cancelled':
       return { text: `installment ${k}: its input was spent elsewhere; mandate cancelled`, tone: 'err' };
     case 'missed':
-      return { text: `installment ${k}: no rung signed for target ${target ?? 'tip + 1'}; the payer must re-sign`, tone: 'err' };
+      return { text: `installment ${k}: no rung for target ${target ?? 'tip + 1'}: missed`, tone: 'err' };
+    case 'invalid':
+      return { text: `installment ${k}: refusing the package: it does not match the offer`, tone: 'err' };
   }
 }
 

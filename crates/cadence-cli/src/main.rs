@@ -1,9 +1,12 @@
+mod http;
 mod subscribe;
 
 use std::{collections::HashMap, fs, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use cadence_chain::{lwd, Transport};
+use http::Http;
+use zcash_client_backend::tor;
 use cadence_core::{
     build_rung,
     package::{redact_for_runner, InstallmentLadder, Ladder, RungPackage},
@@ -15,7 +18,6 @@ use zcash_keys::address::Address;
 use zcash_primitives::transaction::TxId;
 use zcash_protocol::{
     consensus::{BlockHeight, Network, NetworkConstants, Parameters},
-    memo::MemoBytes,
     value::Zatoshis,
 };
 
@@ -73,11 +75,15 @@ enum Command {
         /// Testnet: ask the runner's sandbox wallet to fund the pocket.
         #[arg(long)]
         sandbox_fund: bool,
+        #[command(flatten)]
+        chain: ChainArgs,
     },
     /// Continue an interrupted subscribe from its file.
     Resume {
         #[arg(long)]
         subscription: PathBuf,
+        #[command(flatten)]
+        chain: ChainArgs,
     },
     /// Dev: send from a pocket whose notes a local wallet DB tracks.
     Send {
@@ -103,6 +109,23 @@ enum Command {
         #[command(flatten)]
         chain: ChainArgs,
     },
+    /// Return everything left in a pocket to your own address, without the runner.
+    Sweep {
+        /// A subscription file, or a pocket file from `pocket new`.
+        #[arg(long)]
+        pocket: PathBuf,
+        /// Your unified address (Orchard receiver).
+        #[arg(long)]
+        to: String,
+        /// Scan from this height [default: the funding height in a subscription file].
+        #[arg(long)]
+        from: Option<u32>,
+        /// Where to keep the local wallet that tracks the pocket.
+        #[arg(long, default_value = ".cadence/sweep")]
+        wallet_dir: PathBuf,
+        #[command(flatten)]
+        chain: ChainArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -124,9 +147,9 @@ enum PocketCommand {
 
 #[derive(Args)]
 struct ChainArgs {
-    /// lightwalletd endpoint.
-    #[arg(long, default_value = "https://testnet.zec.rocks:443")]
-    server: String,
+    /// lightwalletd endpoint [default: https://zec.rocks:443 on main, https://testnet.zec.rocks:443 on test].
+    #[arg(long)]
+    server: Option<String>,
     /// Connect without Tor. Development only: the server sees this machine's IP.
     #[arg(long)]
     direct: bool,
@@ -136,13 +159,43 @@ struct ChainArgs {
 }
 
 impl ChainArgs {
-    async fn connect(&self) -> Result<lwd::Client> {
-        let transport = if self.direct {
-            Transport::Direct
-        } else {
-            Transport::Tor { dir: &self.tor_dir }
+    /// One Tor client per command; lightwalletd and the runner get isolated circuits.
+    async fn tor(&self) -> Result<Option<tor::Client>> {
+        if self.direct {
+            return Ok(None);
+        }
+        fs::create_dir_all(&self.tor_dir)?;
+        let client = tor::Client::create(&self.tor_dir, |_| {})
+            .await
+            .map_err(|e| anyhow!("bootstrapping Tor: {e:?}"))?;
+        Ok(Some(client))
+    }
+
+    async fn lightwalletd(&self, network: &str, tor: Option<&tor::Client>) -> Result<lwd::Client> {
+        let server = self.server.clone().unwrap_or_else(|| match network {
+            "main" => "https://zec.rocks:443".into(),
+            _ => "https://testnet.zec.rocks:443".into(),
+        });
+        let transport = match tor {
+            Some(tor) => Transport::TorClient(tor),
+            None => Transport::Direct,
         };
-        cadence_chain::connect(&self.server, transport).await
+        cadence_chain::connect(&server, transport).await
+    }
+
+    /// How to reach `runner`: over Tor, unless it runs on this machine (which Tor
+    /// cannot reach) or `--direct` was given.
+    async fn runner(&self, runner: &str, tor: Option<&tor::Client>) -> Result<Http> {
+        if http::is_loopback(runner) {
+            return Ok(Http::direct());
+        }
+        Ok(match tor {
+            Some(tor) => Http::tor(tor),
+            None => match self.tor().await? {
+                Some(tor) => Http::tor(&tor),
+                None => Http::direct(),
+            },
+        })
     }
 }
 
@@ -182,7 +235,7 @@ struct PocketFile {
 }
 
 fn load_pocket(path: &PathBuf) -> Result<(Network, &'static str, Pocket)> {
-    let file: PocketFile = serde_json::from_slice(&fs::read(path)?)?;
+    let file: PocketFile = serde_json::from_slice(&subscribe::read_kit(path)?)?;
     let net = match file.network.as_str() {
         "main" => Net::Main,
         "test" => Net::Test,
@@ -229,7 +282,8 @@ async fn presign(args: PresignArgs) -> Result<()> {
     let merchant = merchant_receiver(&params, &args.merchant)?;
     let amount = Zatoshis::from_u64(args.amount).map_err(|_| anyhow!("invalid amount"))?;
 
-    let mut client = args.chain.connect().await?;
+    let tor = args.chain.tor().await?;
+    let mut client = args.chain.lightwalletd(network, tor.as_ref()).await?;
     let tip = lwd::tip(&mut client).await?;
     let txid = parse_txid(&args.funding_txid)?;
     let (tx, mined) = lwd::transaction(&mut client, &params, &txid).await?;
@@ -257,15 +311,11 @@ async fn presign(args: PresignArgs) -> Result<()> {
     let mut input = funding;
     let mut installments = Vec::with_capacity(args.count as usize);
     for k in 1..=args.count {
-        // An opaque tag only the merchant can tie to the subscription.
-        let mut memo = [0u8; 20];
-        memo[..16].copy_from_slice(&mandate_id);
-        memo[16..].copy_from_slice(&k.to_le_bytes());
         let inst = Installment {
             input,
             amount,
             merchant,
-            memo: MemoBytes::from_bytes(&memo)?,
+            memo: cadence_core::mandate::installment_memo("", k, args.count),
         };
         let rung_seed = seed::rung_seed(&secret, &mandate_id, k, 0);
 
@@ -342,20 +392,30 @@ async fn main() -> Result<()> {
             }
         },
         Command::Presign(args) => presign(args).await?,
-        Command::Subscribe { runner, offer, out, first_in, sandbox_fund } => {
-            tokio::task::spawn_blocking(move || subscribe::subscribe(&runner, &offer, &out, first_in, sandbox_fund))
+        Command::Subscribe { runner, offer, out, first_in, sandbox_fund, chain } => {
+            let http = chain.runner(&runner, None).await?;
+            tokio::task::spawn_blocking(move || subscribe::subscribe(&http, &runner, &offer, &out, first_in, sandbox_fund))
                 .await??
         }
-        Command::Resume { subscription } => {
-            tokio::task::spawn_blocking(move || subscribe::resume(&subscription)).await??
+        Command::Resume { subscription, chain } => {
+            let http = chain.runner(&subscribe::runner_of(&subscription)?, None).await?;
+            tokio::task::spawn_blocking(move || subscribe::resume(&http, &subscription)).await??
         }
         Command::Send { pocket, wallet_db, to, amount, chain } => {
-            let client = chain.connect().await?;
+            let tor = chain.tor().await?;
+            let client = chain.lightwalletd(load_pocket(&pocket)?.1, tor.as_ref()).await?;
             subscribe::send(&pocket, &wallet_db, &to, amount, client).await?
         }
         Command::Cancel { subscription, to, chain } => {
-            let client = chain.connect().await?;
-            subscribe::cancel(&subscription, &to, client).await?
+            let tor = chain.tor().await?;
+            let client = chain.lightwalletd(load_pocket(&subscription)?.1, tor.as_ref()).await?;
+            let http = chain.runner(&subscribe::runner_of(&subscription)?, tor.as_ref()).await?;
+            subscribe::cancel(&http, &subscription, &to, client).await?
+        }
+        Command::Sweep { pocket, to, from, wallet_dir, chain } => {
+            let tor = chain.tor().await?;
+            let client = chain.lightwalletd(load_pocket(&pocket)?.1, tor.as_ref()).await?;
+            subscribe::sweep(&pocket, &to, from, &wallet_dir, client).await?
         }
     }
     Ok(())

@@ -42,6 +42,7 @@ export function StateIcon({ state, size = 16 }: { state: InstallmentState; size?
     case 'cancelled':
       return <BanIcon size={size} />;
     case 'missed':
+    case 'invalid':
       return <AlertIcon size={size} />;
   }
 }

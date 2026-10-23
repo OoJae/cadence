@@ -4,8 +4,8 @@
 use cadence_core::{build_rung, mandate, package::InstallmentLadder, seed, Installment, Pocket};
 use cadence_seal::{age::x25519, DrandChain};
 use cadence_wasm::{
-    build_cancel, create_pocket, funding_total, installment_fee, note, pocket_info, presign_shard, round_for,
-    seal_installment, synthetic_note, window, ShardOut, ShardTerms,
+    build_cancel, create_pocket, funding_total, installment_fee, note, open_kit, pocket_info, presign_shard, round_for,
+    seal_installment, seal_kit, synthetic_note, window, ShardOut, ShardTerms,
 };
 use orchard::primitives::redpallas::{Signature, SpendAuth, VerificationKey};
 use pczt::{
@@ -15,7 +15,6 @@ use pczt::{
 use zcash_keys::address::Address;
 use zcash_protocol::{
     consensus::{BlockHeight, Network, NetworkConstants, Parameters},
-    memo::MemoBytes,
     value::Zatoshis,
 };
 
@@ -39,7 +38,7 @@ fn merchant_ua() -> String {
 }
 
 fn terms(count: u32) -> ShardTerms {
-    ShardTerms { amount_zat: AMOUNT, count, merchant_ua: merchant_ua(), tag: None }
+    ShardTerms { amount_zat: AMOUNT, count, merchant_ua: merchant_ua(), label: "Smoke plan (pkt_test)".into() }
 }
 
 fn heights(n: u32) -> Vec<u32> {
@@ -124,7 +123,7 @@ fn sharded_presign_equals_unsharded() {
 }
 
 /// Each shard rung is what `cadence_core::mandate::presign` signs at that height:
-/// the same seed derivation, memo (`tag || k`), redaction and serialization.
+/// the same seed derivation, memo (`installment_memo`), redaction and serialization.
 #[test]
 fn shards_match_cadence_core() {
     let params = params();
@@ -140,14 +139,11 @@ fn shards_match_cadence_core() {
         Some(Address::Unified(ua)) => *ua.orchard().unwrap(),
         _ => unreachable!(),
     };
-    let mut memo = [0u8; 20];
-    memo[..16].copy_from_slice(&MANDATE);
-    memo[16..].copy_from_slice(&k.to_le_bytes());
     let inst = Installment {
         input: note::decode_hex(&funding.note).unwrap(),
         amount: Zatoshis::const_from_u64(AMOUNT),
         merchant,
-        memo: MemoBytes::from_bytes(&memo).unwrap(),
+        memo: mandate::installment_memo(&t.label, k, count),
     };
     let s = seed::rung_seed(&seed::app_secret(&pocket), &MANDATE, k, 0);
     for (h, pkg) in hs.iter().zip(&out.rungs) {
@@ -310,6 +306,26 @@ fn cancel_builds_and_signs() {
     assert_ne!(unsigned(&again.pczt), unsigned(&c.pczt));
 }
 
+/// From mainnet's ZIP 2009 switch, the cancel pays the lower fee at its own height,
+/// so it still spends the whole note and leaves no change.
+#[test]
+fn cancel_pays_the_fee_at_its_height() {
+    use zcash_protocol::consensus::NetworkUpgrade;
+    let main = Network::MainNetwork;
+    let Some(nu7) = main.activation_height(NetworkUpgrade::Nu7) else {
+        return; // No mainnet Ironwood in this build of zcash_protocol.
+    };
+    let h = u32::from(nu7).max(mandate::MAINNET_FEE_SWITCH) + 10;
+    let live = synthetic_note("main", &SEED, 60_000).unwrap();
+    let refund_ua = pocket_info("main", &[3u8; 32]).unwrap().ua;
+    let c = build_cancel("main", &SEED, &live.note, &refund_ua, h).unwrap();
+    assert_eq!(c.fee_zat, 2_000);
+    assert_eq!(c.refunded_zat, 58_000);
+    assert_signed(&c.pczt);
+    // Funding still covers the higher fee.
+    assert_eq!(installment_fee(), 10_000);
+}
+
 #[test]
 fn cancel_refuses_bad_refund_addresses_and_empty_pockets() {
     let p = params();
@@ -330,6 +346,22 @@ fn cancel_refuses_bad_refund_addresses_and_empty_pockets() {
     let refund_ua = pocket_info(NET, &[3u8; 32]).unwrap().ua;
     let err = build_cancel(NET, &SEED, &dust.note, &refund_ua, BASE).unwrap_err();
     assert!(err.to_string().contains("nothing is left"), "{err}");
+}
+
+/// The page's cancel key: an age scrypt file the CLI's `read_kit` opens.
+#[test]
+fn recovery_kit_round_trips_and_refuses_bad_input() {
+    let kit = format!("{{\"network\":\"test\",\"seed_hex\":\"{}\"}}", hex::encode(SEED));
+    let sealed = seal_kit(&kit, "correct horse battery").unwrap();
+    assert!(cadence_seal::is_sealed_kit(&sealed));
+    assert_eq!(open_kit(&sealed, "correct horse battery").unwrap(), kit);
+    // What the CLI does with it.
+    assert_eq!(cadence_seal::open_kit(&sealed, "correct horse battery").unwrap(), kit.as_bytes());
+
+    assert!(open_kit(&sealed, "wrong horse battery").unwrap_err().to_string().contains("wrong passphrase"));
+    assert!(seal_kit(&kit, "short").unwrap_err().to_string().contains("at least 8"));
+    assert!(seal_kit("[1, 2]", "correct horse battery").is_err());
+    assert!(open_kit(kit.as_bytes(), "correct horse battery").unwrap_err().to_string().contains("not an encrypted"));
 }
 
 /// The whole pipeline the page runs (window per installment, shards of uneven
@@ -355,7 +387,7 @@ fn sharded_pipeline_equals_mandate_presign() {
         period_secs: period,
         first_release_at,
         merchant,
-        tag: MANDATE,
+        label: t.label.clone(),
     };
     let reference = mandate::presign(
         &params,

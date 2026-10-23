@@ -53,6 +53,7 @@ export function Header() {
           <Link to="/sandbox">Judge sandbox</Link>
           <Link to="/merchant">Merchant</Link>
           <Link to="/decode">Decoder</Link>
+          <Link to="/manage">Manage</Link>
         </nav>
         <div className="header-tools">
           <RunnerPill />
@@ -112,6 +113,9 @@ export function Footer() {
             </li>
             <li>
               <Link to="/merchant">Merchant dashboard</Link>
+            </li>
+            <li>
+              <Link to="/manage">Cancel with your cancel key</Link>
             </li>
             <li>
               <Link to="/decode/7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790">Decode a real S2 installment</Link>

@@ -9,7 +9,8 @@ by spending your own note.
 |---|---|
 | `/` | The pull-vs-push gap on one screen, how it works, what the runner can and cannot do, honest limits, and what the merchant learns. |
 | `/merchant` | Subscriptions and installments (sealed, due, broadcast, mined, cancelled, missed). Each has a live countdown to its drand round, and each txid links to the decoder. Also a "create offer" form whose share link carries the offer in the URL fragment. |
-| `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "You can close this tab now", then manage or cancel. |
+| `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "save your cancel key" (WASM signer), "You can close this tab now", then manage or cancel. |
+| `/manage` | Cancel after the tab is gone: load the saved cancel key and its passphrase, see the pocket and subscription, cancel and refund to your own address. Shows the `cadence sweep` fallback when the runner cannot help. |
 | `/decode/:txid` | The public shape of a transaction as a table, with a stock-wallet comparison column and red/green badges for what a chain observer can and cannot tell. |
 | `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has three cheat buttons. |
 
@@ -110,20 +111,26 @@ The tlock packaging and the replay probe are not in the runner yet. Once a real 
 ```ts
 export interface Signer {
   readonly implementation: 'mock' | 'wasm';
-  /** 'memory' forgets the pocket key when the tab closes; 'passkey' (planned) keeps it sealed (WebAuthn PRF / passphrase). */
+  /** 'memory' forgets the pocket key when the tab closes (save a cancel key to cancel later); 'passkey' is planned. */
   readonly keyCustody: 'memory' | 'passkey';
 
   /** Fresh single-use pocket: new random seed, non-zero ZIP 32 account, Orchard-only UA and UFVK. */
   createPocket(network: 'main' | 'test'): Promise<PocketInfo>;          // { network, ua, ufvk, birthday_height }
 
-  /** Resolves when a payment of at least expectedZat reaches the pocket (the mempool is enough). */
+  /** Resolves when a payment of at least expectedZat reaches the pocket (WASM: once mined; the mock: the mempool). */
   awaitFunding(expectedZat: number, opts?: { signal?: AbortSignal }): Promise<FundingTx>;  // { txid, value_zat, status, mined_height? }
 
   /** Sign every installment for every candidate height, then redact, compress, seal (age) and time-lock (tlock). */
   presign(offer: Offer, fundingTx: FundingTx, opts?: PresignOptions): Promise<SealedInstallment[]>;  // [{ k, release_round, sealed }]
 
+  /** The cancel key: seed, schedule and notes as the CLI's subscription file, encrypted to a passphrase in a worker. */
+  sealKit(passphrase: string, ctx: KitContext): Promise<SealedKit>;   // { bytes, fileName }
+  /** Decrypt a cancel key in a worker; restore it into a fresh signer. */
+  openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit>;
+  restore(kit: OpenedKit): Promise<PocketInfo>;
+
   /** Spend the pocket's current note to the payer's own UA with OvkPolicy::Discard. */
-  cancel(refundUa: string): Promise<CancelReceipt>;                    // { txid, refunded_zat, fee_zat, target_height }
+  cancel(refundUa: string, opts?: CancelOptions): Promise<CancelReceipt>;  // { txid, refunded_zat, fee_zat, target_height }
 
   /** Zeroise all key material. */
   destroy(): void;
@@ -177,7 +184,9 @@ These sizes are without `wasm-opt`. The script runs it when binaryen is installe
 | `createPocket` | A worker draws 32 random bytes with `crypto.getRandomValues` and derives the Orchard-only UA and UFVK. The seed comes back as a `Uint8Array` and stays in a private field. The UFVK is registered with `POST /api/pockets`. |
 | `awaitFunding` | Polls `GET /api/pockets/:id` every 5 s while the tab is visible. When `funding` appears, a worker decrypts the relayed `tx_hex` with the pocket key (`mandate::decrypt_funding`). The amount is never taken from the runner. |
 | `presign` | For each installment: `round_for(release_at)` and `mandate::window`. The window is cut into chunks across the pool, and every chunk must agree on the spent nullifier, the actions digest and the change note. The ladder is then sealed (zstd, age to the runner, tlock to the round). The flow uploads it with `POST /api/subscriptions`, adding `pocket_id`. |
-| `cancel` | Starts a prover worker and its proving key at once (about 14 s). Finds the live pocket note among the runner's `notes`, by nullifier, among the notes this signer created. Fetches `GET …/witness`, signs the spend (note minus the 10,000-zat fee, to the refund UA's Orchard receiver, no OVK) in the pool, proves and extracts in the prover worker, then `POST /api/broadcast`. It checks that the runner's txid matches. |
+| `sealKit` | A worker writes the seed, the schedule (mandate id, label, terms, first release, funding transaction and height) and every pocket note into the kit JSON and encrypts it with age's scrypt recipient (`cadence_seal::seal_kit`, work factor 17, a few seconds). The page gets the ciphertext only and downloads it as `cadence-cancel-key-<pocket>.age`. |
+| `openKit`, `restore` | A worker decrypts the kit and checks its shape (`src/signer/kit.ts`); the seed comes back as a `Uint8Array`. `restore` re-derives the pocket's UA from the seed and refuses a kit whose UA differs. |
+| `cancel` | Starts a prover worker and its proving key at once (about 14 s). Finds the live pocket note among the runner's `notes`, by nullifier, among the notes this signer created. Fetches `GET …/witness`, signs the spend (note minus the fee at the cancel's height, to the refund UA's Orchard receiver, no OVK) in the pool, proves and extracts in the prover worker, then `POST /api/broadcast`. It checks that the runner's txid matches. `src/signer/cancel.ts` waits for a fresh note to be 3 blocks deep (retrying every 15 s, up to 5 minutes), and if an installment spends the note first it cancels that installment's change instead, once, or reports that nothing is left. |
 | `destroy` | Zeroises the seed and terminates every worker, which drops their wasm memory. |
 
 **The worker pool** (`src/signer/wasmPool.ts`, `wasmWorker.ts`, `wasmEngine.ts`):
@@ -206,8 +215,14 @@ to start a worker at all. WASM-signer builds therefore allow exactly one policy,
 headers, not from the page, so deploy the header CSP with `'wasm-unsafe-eval'` (it is part of the
 policy) on the worker scripts too.
 
-**Key custody** is `'memory'`, as in the mock: closing the tab forgets the pocket key, so a cancel
-must happen from the same tab. Passkey sealing is not built yet.
+**Key custody** is `'memory'`, as in the mock: closing the tab forgets the pocket key. After the
+upload, the payer is asked to save a **cancel key** before "You can close this tab now": the kit,
+encrypted to a passphrase of at least 8 characters. Anyone with the file and the passphrase can
+cancel and take the remaining balance; the runner never sees either. `/manage` loads it into this
+tab's memory (forgotten on reload), and the CLI reads the same file:
+`cadence cancel --subscription <key> --to <UA>`, or `cadence sweep --pocket <key> --to <UA>`, which
+needs no runner. The download is a Blob URL and `<a download>`, which the CSP does not restrict.
+Passkey sealing is not built yet.
 
 **`pnpm verify:wasm`** (`scripts/wasm-smoke.mjs`) builds a harness page (`scripts/wasm-smoke/`)
 with this `vite.config.ts`. It serves the page with the production response headers, plays the
@@ -303,7 +318,7 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 
 ## Tests
 
-`pnpm test` runs 70 vitest tests:
+`pnpm test` runs the vitest tests:
 
 - `src/lib/offer.test.ts`: fragment parsing. Round trip, hostile and damaged links, display-spoofing
   names, wrong networks, non-https runners.
@@ -315,7 +330,11 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 - `src/mock/runner.test.ts`: installment state derivation (chaining, cancel, missed, stop) and the
   three cheats.
 - `src/signer/mock.test.ts`: the `Signer` contract (single-use pockets, fixed-size packages, cancel
-  rules, `destroy`).
+  rules, `destroy`), and the cancel key: save, restore into a fresh signer, cancel.
+- `src/signer/kit.test.ts`: the cancel key's JSON against the CLI's `SubscriptionFile`, read from
+  `crates/cadence-cli/src/subscribe.rs`; parsing and refusals; the runner and network checks.
+- `src/signer/cancel.test.ts`: the cancel loop with fake timers: waiting for anchor depth, giving
+  up, abort, losing the race to an installment (retry once, or nothing left), other refusals.
 - `src/data/s2.test.ts`: the S2 copy matches the evidence file, and every invariant holds.
 - `src/config/csp.test.ts`: the `VITE_API` and `VITE_SIGNER` parsing and the CSP's shape, including
   the one Trusted Types policy of WASM-signer builds.

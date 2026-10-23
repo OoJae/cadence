@@ -14,7 +14,7 @@ use cadence_chain::{
     lwd,
     wallet::{self, Db, ANCHOR_CONFIRMATIONS},
 };
-use cadence_core::package::InstallmentLadder;
+use cadence_core::package::{verify_rung, InstallmentLadder};
 use cadence_seal::{age::x25519, DrandChain};
 use orchard::note::Nullifier;
 use pczt::Pczt;
@@ -55,7 +55,7 @@ pub struct App {
     pub cfg: Config,
     pub funder: Option<Funder>,
     /// Fetches drand beacons over Tor, so the relay learns neither the runner's
-    /// address nor, from it, the release schedule. `None` in `--direct` dev mode.
+    /// address nor, from it, the release schedule. `None` with `--drand-direct`.
     pub tor: Option<zcash_client_backend::tor::Client>,
     pub wallet: tokio::sync::Mutex<Db>,
     pub store: Mutex<Store>,
@@ -115,6 +115,7 @@ async fn tick(app: &App) -> Result<()> {
         wallet::sync(&mut client, &app.cfg.network, &mut db).await?;
     }
     record_fundings(app, &mut client, tip).await?;
+    forget_abandoned(app).await?;
 
     let round_now = cadence_seal::round_at(&app.chain, now());
     let subs = app.store.lock().unwrap().subscriptions(true)?;
@@ -152,6 +153,20 @@ async fn record_fundings(app: &App, client: &mut lwd::Client, tip: BlockHeight) 
     Ok(())
 }
 
+/// Unfunded pockets are forgotten after a day; funded ones whose payer never
+/// uploaded packages after a week. The funds stay the payer's (`cadence sweep`).
+async fn forget_abandoned(app: &App) -> Result<()> {
+    const DAY: u64 = 24 * 60 * 60;
+    let t = now();
+    let pockets = app.store.lock().unwrap().abandoned_pockets(t.saturating_sub(DAY), t.saturating_sub(7 * DAY))?;
+    for pocket in pockets {
+        app.wallet.lock().await.delete_account(parse_account(&pocket.account)?)?;
+        app.store.lock().unwrap().delete_pocket(&pocket.pocket_id)?;
+        println!("pocket {}: abandoned; deleted", pocket.pocket_id);
+    }
+    Ok(())
+}
+
 async fn advance(
     app: &App,
     client: &mut lwd::Client,
@@ -164,7 +179,11 @@ async fn advance(
     };
     let inst = &sub.installments[pos];
     let previous = pos.checked_sub(1).map(|p| &sub.installments[p]);
-    if inst.state == "sealed" && pocket_emptied(app, sub, previous, tip).await? {
+    // A missed or invalid installment waits for the payer, who may sweep instead.
+    if matches!(inst.state.as_str(), "sealed" | "missed" | "invalid")
+        && pocket_emptied(app, sub, previous, tip).await?
+        && payer_cancelled(app, client, sub, inst, previous).await?
+    {
         println!("{} #{}: the pocket was emptied by the payer: cancelled", sub.subscription_id, inst.k);
         return finish(app, sub, "cancelled", Some(inst)).await;
     }
@@ -199,6 +218,34 @@ async fn pocket_emptied(app: &App, sub: &Subscription, previous: Option<&Install
     let account = parse_account(&pocket.account)?;
     let db = app.wallet.lock().await;
     Ok(wallet::unspent_notes(&db, account, tip + 1)?.is_empty())
+}
+
+/// The wallet sees no live note. Before calling that a cancel, rule out the two ways
+/// it happens without the payer: our own broadcast of this installment was mined but
+/// not yet recorded, or a reorg took out the transaction that created the input.
+async fn payer_cancelled(
+    app: &App,
+    client: &mut lwd::Client,
+    sub: &Subscription,
+    inst: &Installment,
+    previous: Option<&Installment>,
+) -> Result<bool> {
+    if let Some(txid) = inst.txid.as_deref() {
+        if let Ok((_, Some(height))) = lwd::raw_transaction(client, &parse_txid(txid)?).await {
+            println!("{} #{}: our broadcast {txid} was mined at {height}", sub.subscription_id, inst.k);
+            record_mined(app, sub, inst, u32::from(height)).await?;
+            return Ok(false);
+        }
+    }
+    let parent = match previous {
+        None => {
+            let pocket = app.store.lock().unwrap().pocket_for_subscription(&sub.subscription_id)?;
+            pocket.funding.map(|f| f.txid)
+        }
+        Some(p) => p.txid.clone(),
+    };
+    let Some(parent) = parent else { return Ok(false) };
+    Ok(matches!(lwd::raw_transaction(client, &parse_txid(&parent)?).await, Ok((_, Some(_)))))
 }
 
 /// The drand signature for `round`, verified against the chain's public key.
@@ -242,9 +289,18 @@ async fn release(
     let account = parse_account(&pocket.account)?;
     let sealed = inst.sealed.as_ref().context("package already shredded")?;
     let beacon = inst.beacon.as_ref().context("no beacon recorded")?;
-    let plain = cadence_seal::open(sealed, &app.identity, &app.chain, beacon)
-        .map_err(|e| anyhow!("opening package: {e:?}"))?;
-    let ladder: InstallmentLadder = serde_json::from_slice(&plain)?;
+    // Opening is deterministic once the beacon is verified, so a failure is final.
+    let plain = match cadence_seal::open(sealed, &app.identity, &app.chain, beacon) {
+        Ok(plain) => plain,
+        Err(e) => return reject(app, sub, inst, &format!("the package does not open: {e:?}")),
+    };
+    let ladder: InstallmentLadder = match serde_json::from_slice(&plain) {
+        Ok(ladder) => ladder,
+        Err(e) => return reject(app, sub, inst, &format!("the package is malformed: {e}")),
+    };
+    if ladder.k != inst.k || ladder.amount_zat != inst.amount_zat {
+        return reject(app, sub, inst, "the package is for a different installment or amount");
+    }
     let nf = parse_nullifier(&ladder.spends_nullifier)?;
 
     // When the input appeared on chain: the funding note for #1, else the change of #k-1.
@@ -261,8 +317,10 @@ async fn release(
         if let Some(h) = input_height {
             if u32::from(tip) >= h + ANCHOR_CONFIRMATIONS {
                 drop(db);
-                println!("{} #{}: input spent by the payer: cancelled", sub.subscription_id, inst.k);
-                return finish(app, sub, "cancelled", Some(inst)).await;
+                if payer_cancelled(app, client, sub, inst, previous).await? {
+                    println!("{} #{}: input spent by the payer: cancelled", sub.subscription_id, inst.k);
+                    return finish(app, sub, "cancelled", Some(inst)).await;
+                }
             }
         }
         return Ok(());
@@ -285,10 +343,25 @@ async fn release(
         return Ok(());
     };
 
+    // Broadcast only what the payer agreed to: the offer's merchant and amount, down
+    // to the note commitment, with the expiry a fresh send would carry now.
+    let pczt = Pczt::parse(&hex::decode(&rung.pczt)?).map_err(|e| anyhow!("{e:?}"))?;
+    let merchant_ua = app
+        .store
+        .lock()
+        .unwrap()
+        .offer(&sub.offer_id)?
+        .context("unknown offer")?
+        .merchant_ua;
+    let merchant = orchard_receiver(&app.cfg.network, &merchant_ua)?;
+    if let Err(why) = verify_rung(&app.cfg.network, &pczt, &merchant, inst.amount_zat, target) {
+        drop(db);
+        return reject(app, sub, inst, &why);
+    }
+
     let (anchor, witness) = wallet::anchor_and_witness(&mut db, input.position, anchor_height)?;
     drop(db);
     wallet::check_anchor(client, &anchor, anchor_height).await?;
-    let pczt = Pczt::parse(&hex::decode(&rung.pczt)?).map_err(|e| anyhow!("{e:?}"))?;
     let tx = tokio::task::spawn_blocking(move || wallet::complete(pczt, anchor, witness)).await??;
     let mut broadcaster = app.broadcast_client.clone();
     let txid = wallet::broadcast(&mut broadcaster, &tx).await?;
@@ -316,18 +389,54 @@ async fn confirm(
     let txid = parse_txid(inst.txid.as_deref().context("broadcast without txid")?)?;
     if let Ok((_, Some(height))) = lwd::raw_transaction(client, &txid).await {
         println!("{} #{}: mined at {height}", sub.subscription_id, inst.k);
-        app.store.lock().unwrap().set_mined(&sub.subscription_id, inst.k, u32::from(height))?;
-        let mut mined = inst.clone();
-        mined.mined_height = Some(u32::from(height));
-        send_webhook(app, Event::confirmed(sub, &mined));
-        if inst.k as usize == sub.installments.len() {
-            finish(app, sub, "completed", None).await?;
-        }
-    } else if inst.expiry_height.is_some_and(|e| u32::from(tip) > e) {
-        // Expired unmined: release again with the rung for the new tip.
+        record_mined(app, sub, inst, u32::from(height)).await?;
+    } else if inst.expiry_height.is_some_and(|e| u32::from(tip) > e) || branch_passed(app, inst, tip) {
+        // Expired unmined, or signed for a branch an upgrade has since replaced:
+        // release again with the rung for the new tip.
         app.store.lock().unwrap().set_state(&sub.subscription_id, inst.k, "due")?;
     }
     Ok(())
+}
+
+/// Whether a network upgrade has activated since the broadcast rung's target, so
+/// that it can never be mined although its expiry has not passed.
+fn branch_passed(app: &App, inst: &Installment, tip: BlockHeight) -> bool {
+    use zcash_protocol::consensus::BranchId;
+    inst.target_height.is_some_and(|t| {
+        BranchId::for_height(&app.cfg.network, BlockHeight::from_u32(t))
+            != BranchId::for_height(&app.cfg.network, tip + 1)
+    })
+}
+
+async fn record_mined(app: &App, sub: &Subscription, inst: &Installment, height: u32) -> Result<()> {
+    app.store.lock().unwrap().set_mined(&sub.subscription_id, inst.k, height)?;
+    let mut mined = inst.clone();
+    mined.mined_height = Some(height);
+    send_webhook(app, Event::confirmed(sub, &mined));
+    if inst.k as usize == sub.installments.len() {
+        finish(app, sub, "completed", None).await?;
+    }
+    Ok(())
+}
+
+/// Refuses an installment whose package is not what the payer agreed to. Nothing is
+/// broadcast; the merchant hears `invoice.expired` and the payer must re-sign.
+fn reject(app: &App, sub: &Subscription, inst: &Installment, why: &str) -> Result<()> {
+    eprintln!("{} #{}: refusing the package: {why}", sub.subscription_id, inst.k);
+    let store = app.store.lock().unwrap();
+    store.set_state(&sub.subscription_id, inst.k, "invalid")?;
+    store.set_status(&sub.subscription_id, "stalled")?;
+    send_webhook(app, Event::expired(sub, inst));
+    Ok(())
+}
+
+pub fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+    match zcash_keys::address::Address::decode(params, ua) {
+        Some(zcash_keys::address::Address::Unified(ua)) => {
+            ua.orchard().copied().context("address has no Orchard receiver")
+        }
+        _ => Err(anyhow!("expected a unified address with an Orchard receiver")),
+    }
 }
 
 /// Ends a subscription and shreds everything that could still open: sealed

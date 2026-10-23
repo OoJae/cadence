@@ -250,7 +250,7 @@ export function Landing() {
                 n: '02',
                 icon: <PenIcon size={18} />,
                 t: 'Pre-sign the schedule',
-                d: 'Once the payment is in the mempool, the browser signs each installment for every candidate block height, strips what the runner does not need, then seals it: age to the runner, tlock to its drand round.',
+                d: 'Once the payment is mined, the browser signs each installment for every candidate block height, strips what the runner does not need, then seals it: age to the runner, tlock to its drand round.',
               },
               {
                 n: '03',
@@ -341,9 +341,9 @@ export function Landing() {
                 <ul className="observer-list small">
                   {[
                     ['Release time rests on drand.', 'Opening a package early would take a threshold of the League of Entropy’s nodes colluding. That is a strong assumption, not a trustless one.'],
-                    ['The runner must be online.', 'If it misses an installment’s signed height window, the installment is marked missed and nothing pays until you re-sign.'],
+                    ['The runner must be online.', 'If it misses an installment’s signed height window, the installment is marked missed, the merchant is notified, and nothing more pays. You can then cancel (or sweep the pocket) and subscribe again.'],
                     ['The runner holds this pocket’s full viewing key.', 'Proving needs it. It is scoped to one single-use pocket with no transparent or Sapling part, and deleted at the end.'],
-                    ['Upgrades need a re-sign.', 'Each signature commits to the consensus branch, so a network upgrade or fee change invalidates later rungs. Cadence re-signs before activation.'],
+                    ['Upgrades need a new signature.', 'Each signature commits to the consensus branch, so Cadence’s signing windows stop short of a network upgrade such as NU7; a schedule that runs past one must be signed again, which is not automatic yet. Fees follow ZIP 2009 at its switch height automatically.'],
                     ['This web page talks to the runner directly.', 'Use Tor Browser, or the CLI, which uses Tor, if your IP address matters.'],
                     ['Timing is public.', 'Installments land on a schedule, like any recurring payment. On-chain they are not linkable to each other.'],
                   ].map(([a, b]) => (

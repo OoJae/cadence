@@ -8,16 +8,22 @@
  *   UAs, but they carry no valid Bech32m checksum, so no real wallet will pay them.
  * - "Sealed" packages are fixed-size random bytes, the same size for every
  *   installment, like the real padded tlock(age(zstd(ladder))) blobs.
+ * - The cancel key is the real kit JSON (./kit.ts), encrypted with WebCrypto
+ *   (PBKDF2 and AES-GCM) rather than age, so only this mock opens it.
  */
 import type { Offer, SealedInstallment } from '../api/types';
 import { BECH32_CHARS, isUnifiedAddress } from '../lib/addresses';
 import { bytesToBase64 } from '../lib/base64url';
-import { planSchedule } from '../lib/schedule';
+import { firstReleaseLead, planSchedule } from '../lib/schedule';
 import { INSTALLMENT_FEE_ZAT, totalPrepaidZat, type NetworkId } from '../lib/zat';
+import { NothingToCancelError } from './cancel';
+import { bytesToHex, hexToBytes, KIT_KIND, kitFileName, kitJson, parseKit, passphraseProblem, type KitFields, type OpenedKit, type SealedKit } from './kit';
 import {
   SignerError,
+  type CancelOptions,
   type CancelReceipt,
   type FundingTx,
+  type KitContext,
   type PocketInfo,
   type PresignOptions,
   type Signer,
@@ -58,6 +64,17 @@ async function deriveChars(seed: Uint8Array, label: string, length: number): Pro
   return out.slice(0, length);
 }
 
+const MOCK_KIT_MAGIC = new TextEncoder().encode('cadence-mock-kit/1\n');
+const MOCK_KIT_ITERATIONS = 100_000;
+
+async function mockKitKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations: MOCK_KIT_ITERATIONS }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+/** The mock's pocket id: the runner never registers mock pockets, so derive one. */
+const mockPocketId = (ufvk: string) => `pkt_mock${ufvk.slice(-10)}`;
+
 function randomPackage(): string {
   const bytes = new Uint8Array(PACKAGE_BYTES);
   // getRandomValues fills at most 65536 bytes per call.
@@ -71,6 +88,7 @@ export class MockSigner implements Signer {
   readonly #ledger: MockLedger;
   #seed: Uint8Array | null = null;
   #pocket: PocketInfo | null = null;
+  #schedule: Omit<KitFields, 'kind' | 'network' | 'runner' | 'pocket_id' | 'subscription_id' | 'birthday_height' | 'pocket_ua' | 'notes'> | null = null;
   #presigned = false;
   #cancelled = false;
   #destroyed = false;
@@ -93,15 +111,15 @@ export class MockSigner implements Signer {
     if (network !== 'test') throw new SignerError('the mock signer only creates testnet pockets');
     const seed = crypto.getRandomValues(new Uint8Array(32));
     this.#seed = seed;
-    const [ua, ufvk] = await Promise.all([deriveChars(seed, 'ua', 104), deriveChars(seed, 'ufvk', 189)]);
+    const keys = await MockSigner.#derive(seed);
     await sleep(300);
-    this.#pocket = {
-      network,
-      ua: `utest1${ua}`,
-      ufvk: `uviewtest1${ufvk}`,
-      birthday_height: this.#ledger.tip(),
-    };
+    this.#pocket = { network, ...keys, birthday_height: this.#ledger.tip() };
     return this.#pocket;
+  }
+
+  static async #derive(seed: Uint8Array): Promise<{ ua: string; ufvk: string }> {
+    const [ua, ufvk] = await Promise.all([deriveChars(seed, 'ua', 104), deriveChars(seed, 'ufvk', 189)]);
+    return { ua: `utest1${ua}`, ufvk: `uviewtest1${ufvk}` };
   }
 
   async awaitFunding(expectedZat: number, opts: { signal?: AbortSignal } = {}): Promise<FundingTx> {
@@ -151,11 +169,90 @@ export class MockSigner implements Signer {
       out.push({ k: inst.k, release_round: inst.release_round, sealed });
       opts.onProgress?.({ ...base, phase: 'done', rungsDone: rungsTotal });
     }
+    const lead = firstReleaseLead(offer.period_secs);
+    this.#schedule = {
+      offer_id: offer.offer_id,
+      mandate_id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))),
+      label: offer.name,
+      amount_zat: offer.amount_zat,
+      count: offer.count,
+      period_secs: offer.period_secs,
+      first_release_at: Math.floor(now) + lead,
+      first_in_secs: lead,
+      merchant_ua: offer.merchant_ua,
+      funding_tx_hex: null,
+      funding_height: fundingTx.mined_height ?? null,
+    };
     this.#presigned = true;
     return out;
   }
 
-  async cancel(refundUa: string): Promise<CancelReceipt> {
+  async sealKit(passphrase: string, ctx: KitContext): Promise<SealedKit> {
+    this.#alive();
+    const pocket = this.#pocket;
+    if (!pocket || !this.#seed) throw new SignerError('create a pocket first');
+    if (!this.#schedule) throw new SignerError('pre-sign the schedule first');
+    const weak = passphraseProblem(passphrase);
+    if (weak) throw new SignerError(weak);
+    const pocketId = mockPocketId(pocket.ufvk);
+    const fields: KitFields = {
+      kind: KIT_KIND,
+      network: pocket.network,
+      runner: ctx.runner,
+      pocket_id: pocketId,
+      subscription_id: ctx.subscriptionId,
+      ...this.#schedule,
+      birthday_height: pocket.birthday_height,
+      pocket_ua: pocket.ua,
+      notes: [],
+    };
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(kitJson(fields, bytesToHex(this.#seed)));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await mockKitKey(passphrase, salt), plain));
+    plain.fill(0);
+    const bytes = new Uint8Array(MOCK_KIT_MAGIC.length + salt.length + iv.length + ct.length);
+    bytes.set(MOCK_KIT_MAGIC);
+    bytes.set(salt, MOCK_KIT_MAGIC.length);
+    bytes.set(iv, MOCK_KIT_MAGIC.length + salt.length);
+    bytes.set(ct, MOCK_KIT_MAGIC.length + salt.length + iv.length);
+    return { bytes, fileName: kitFileName(pocketId, 'mock') };
+  }
+
+  async openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit> {
+    this.#alive();
+    const head = MOCK_KIT_MAGIC.length;
+    if (bytes.length < head + 28 || !MOCK_KIT_MAGIC.every((b, i) => bytes[i] === b)) {
+      throw new SignerError('this file is not a cancel key from this mock build');
+    }
+    let plain: Uint8Array;
+    try {
+      const key = await mockKitKey(passphrase, bytes.slice(head, head + 16));
+      plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(head + 16, head + 28) }, key, bytes.slice(head + 28)));
+    } catch {
+      throw new SignerError('wrong passphrase for this recovery kit');
+    }
+    const { fields, seedHex } = parseKit(JSON.parse(new TextDecoder().decode(plain)));
+    plain.fill(0);
+    return { fields, seed: hexToBytes(seedHex) };
+  }
+
+  async restore(kit: OpenedKit): Promise<PocketInfo> {
+    this.#alive();
+    if (this.#pocket || this.#seed) throw new SignerError('this signer already holds a pocket; open the cancel key in a fresh one');
+    const { fields: f, seed } = kit;
+    const keys = await MockSigner.#derive(seed);
+    if (keys.ua !== f.pocket_ua) throw new SignerError("this cancel key is damaged: its seed does not make its pocket's address");
+    this.#seed = Uint8Array.from(seed);
+    seed.fill(0);
+    this.#pocket = { network: f.network, ...keys, birthday_height: f.birthday_height };
+    const { kind: _k, network: _n, runner: _r, pocket_id: _p, subscription_id: _s, birthday_height: _b, pocket_ua: _u, notes: _notes, ...schedule } = f;
+    this.#schedule = schedule;
+    this.#presigned = true;
+    return this.#pocket;
+  }
+
+  async cancel(refundUa: string, opts: CancelOptions = {}): Promise<CancelReceipt> {
     this.#alive();
     const pocket = this.#pocket;
     if (!pocket || !this.#seed) throw new SignerError('this signer holds no pocket key');
@@ -163,9 +260,12 @@ export class MockSigner implements Signer {
     const ua = refundUa.trim();
     if (!isUnifiedAddress(ua, pocket.network)) throw new SignerError('the refund address must be a testnet unified address (utest1…)');
     if (ua === pocket.ua) throw new SignerError('refund to an address of your own wallet, not to the pocket');
+    opts.onStatus?.({ step: 'finding' });
     const balance = this.#ledger.pocketBalance(pocket.ufvk);
-    if (balance <= INSTALLMENT_FEE_ZAT) throw new SignerError('nothing is left in the pocket to refund: every installment has been paid');
-    await sleep(900);
+    if (balance <= INSTALLMENT_FEE_ZAT) throw new NothingToCancelError('Nothing is left in the pocket to refund: every installment has been paid.');
+    opts.onStatus?.({ step: 'proving', k: 0 });
+    await sleep(900, opts.signal);
+    opts.onStatus?.({ step: 'broadcasting', k: 0 });
     const refunded = balance - INSTALLMENT_FEE_ZAT;
     const tx = this.#ledger.broadcastCancel(pocket.ufvk, ua, refunded);
     this.#cancelled = true;
@@ -175,6 +275,7 @@ export class MockSigner implements Signer {
   destroy(): void {
     this.#seed?.fill(0);
     this.#seed = null;
+    this.#schedule = null;
     this.#destroyed = true;
   }
 }
@@ -193,6 +294,15 @@ export class UnavailableSigner implements Signer {
     this.#fail();
   }
   presign(): Promise<SealedInstallment[]> {
+    this.#fail();
+  }
+  sealKit(): Promise<SealedKit> {
+    this.#fail();
+  }
+  openKit(): Promise<OpenedKit> {
+    return Promise.reject(new SignerError('this build has no in-browser signer (build with VITE_SIGNER=wasm); cancel with the cadence CLI: cadence cancel --subscription <cancel key> --to <your address>'));
+  }
+  restore(): Promise<PocketInfo> {
     this.#fail();
   }
   cancel(): Promise<CancelReceipt> {

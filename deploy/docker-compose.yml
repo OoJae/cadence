@@ -40,20 +40,25 @@ services:
     depends_on: [lightwalletd]
     volumes:
       - /mnt/cadence/runner-main:/cadence/.cadence
+      - ../web/dist:/srv/web:ro
     env_file: .env
     command: >
       serve --network main
-      --server http://lightwalletd:9067 --direct
+      --server ${MAIN_LIGHTWALLETD:-http://lightwalletd:9067} ${MAIN_DIRECT---direct}
       --listen 0.0.0.0:8737 --public-url ${PUBLIC_URL}
       --tor-dir /cadence/.cadence/tor
-    # --direct applies to lightwalletd only (our own node on this host). Remove it to
-    # route everything over Tor instead.
+      --web-dir /srv/web
+    # --direct applies to lightwalletd only (our own node on this host); drand is
+    # fetched over Tor regardless. Until Zebra has synced, set
+    # MAIN_LIGHTWALLETD=https://zec.rocks:443 and MAIN_DIRECT= in .env to sync over
+    # Tor from a public server instead.
 
   runner-sandbox:
     build: { context: .., dockerfile: deploy/Dockerfile.runner }
     restart: unless-stopped
     volumes:
       - /mnt/cadence/runner-sandbox:/cadence/.cadence
+      - ../web/dist:/srv/web:ro
     env_file: .env
     command: >
       serve --network test
@@ -61,6 +66,9 @@ services:
       --listen 0.0.0.0:8738 --public-url ${SANDBOX_URL}
       --tor-dir /cadence/.cadence/tor
       --sandbox-funder /cadence/.cadence/sandbox-funder.json
+      --sandbox-funder-birthday ${SANDBOX_FUNDER_BIRTHDAY}
+      --web-dir /srv/web
+    # The birthday is only read the first time, to import the funder's notes.
 
   caddy:
     image: caddy:2
@@ -73,8 +81,15 @@ services:
     env_file: .env
 
   tor:
-    image: dperson/torproxy
+    build: { context: .., dockerfile: deploy/Dockerfile.tor }
     restart: unless-stopped
+    depends_on: [runner-main]
+    network_mode: "service:runner-main"
     volumes:
       - ./torrc:/etc/tor/torrc:ro
-      - /mnt/cadence/tor:/var/lib/tor
+      - onion:/var/lib/tor
+
+volumes:
+  # A named volume keeps the image's debian-tor ownership, which Tor insists on.
+  # Its hostname (the onion address) is in /var/lib/tor/cadence/hostname.
+  onion:

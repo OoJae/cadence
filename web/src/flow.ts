@@ -1,6 +1,6 @@
 /**
  * The payer's mandate flow, shared by /subscribe and the sandbox:
- * pocket → ZIP 321 funding → pre-sign on mempool sight → upload sealed packages.
+ * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
 import type { Offer, SealedInstallment } from './api/types';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';

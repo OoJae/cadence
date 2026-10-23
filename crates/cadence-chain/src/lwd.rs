@@ -15,6 +15,8 @@ pub type Client = CompactTxStreamerClient<Channel>;
 pub enum Transport<'a> {
     /// Over Tor via the embedded arti client; `dir` holds arti's state.
     Tor { dir: &'a Path },
+    /// Over an existing Tor client, so one bootstrap serves several connections.
+    TorClient(&'a zcash_client_backend::tor::Client),
     /// Plain TLS. Development only: the server learns this process's IP address.
     Direct,
 }
@@ -38,6 +40,10 @@ pub async fn connect(server: &str, transport: Transport<'_>) -> Result<Client> {
                 .await
                 .map_err(|e| anyhow!("connecting to lightwalletd over Tor: {e:?}"))
         }
+        Transport::TorClient(tor) => tor
+            .connect_to_lightwalletd(server.parse()?, false)
+            .await
+            .map_err(|e| anyhow!("connecting to lightwalletd over Tor: {e:?}")),
     }
 }
 

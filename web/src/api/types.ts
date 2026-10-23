@@ -68,8 +68,8 @@ export interface CreateSubscriptionResponse {
   status: 'active';
 }
 
-export type SubscriptionStatus = 'active' | 'completed' | 'cancelled' | 'stalled';
-export type InstallmentState = 'sealed' | 'due' | 'broadcast' | 'mined' | 'cancelled' | 'missed';
+export type SubscriptionStatus = 'active' | 'completed' | 'cancelled' | 'stopped' | 'stalled';
+export type InstallmentState = 'sealed' | 'due' | 'broadcast' | 'mined' | 'cancelled' | 'missed' | 'invalid';
 
 export interface Installment {
   k: number;
@@ -122,10 +122,17 @@ export interface PocketNoteInfo {
   position: number;
 }
 
-/** `GET /api/pockets/:id`. `funding` is null until the funding transaction is mined. */
+/**
+ * `GET /api/pockets/:id`. `funding` is null until the funding transaction is mined.
+ * Once the subscription ends the runner deletes the pocket's data: `funding.tx_hex`
+ * is then "" and `notes` is [].
+ */
 export interface PocketState {
   pocket_id: string;
   tip: number;
+  birthday_height?: number;
+  /** The runner's wallet has not yet scanned the block of the latest mined installment, so that installment's change is not listed yet. */
+  syncing?: boolean;
   funding: PocketFunding | null;
   notes: PocketNoteInfo[];
 }

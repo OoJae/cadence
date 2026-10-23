@@ -662,6 +662,16 @@ main {
   padding: 0;
 }
 
+/* The "save your cancel key" card: the one thing to do before closing the tab. */
+.card.key-card {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 1px var(--accent-line), var(--shadow);
+}
+.card.key-card > .row > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
 .card-head {
   display: flex;
   align-items: flex-start;
@@ -869,6 +879,10 @@ main {
 }
 .input::placeholder {
   color: var(--faint);
+}
+.input[type='file'] {
+  height: auto;
+  padding: 8px 10px;
 }
 
 .input-group {
@@ -1976,7 +1990,8 @@ details.disclosure > .body {
 .tl-item[data-state='mined'] .ico {
   --tone: var(--green);
 }
-.tl-item[data-state='missed'] .ico {
+.tl-item[data-state='missed'] .ico,
+.tl-item[data-state='invalid'] .ico {
   --tone: var(--red);
 }
 .tl-item[data-state='mined'] {
@@ -2079,7 +2094,8 @@ details.disclosure > .body {
 .sub-progress i[data-state='sealed'] {
   background: color-mix(in srgb, var(--sealed) 45%, var(--surface-3));
 }
-.sub-progress i[data-state='missed'] {
+.sub-progress i[data-state='missed'],
+.sub-progress i[data-state='invalid'] {
   background: var(--red);
 }
 .sub-progress i[data-state='cancelled'] {

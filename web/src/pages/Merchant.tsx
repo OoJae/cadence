@@ -22,6 +22,7 @@ const FILTERS: Array<{ id: 'all' | SubscriptionStatus; label: string }> = [
   { id: 'completed', label: 'Completed' },
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'stalled', label: 'Stalled' },
+  { id: 'stopped', label: 'Stopped' },
 ];
 
 const offerCache = new Map<string, Promise<Offer | null>>();
@@ -362,7 +363,7 @@ function Integrate() {
             </tr>
             <tr>
               <td className="mono">invoice.expired</td>
-              <td className="small muted">a window passed with no rung; the payer must re-sign</td>
+              <td className="small muted">an installment was missed (its window passed with no rung) or invalid (its package did not match the offer); nothing was broadcast. The payer can cancel or sweep, and subscribe again</td>
             </tr>
             <tr>
               <td className="mono">invoice.cancelled</td>

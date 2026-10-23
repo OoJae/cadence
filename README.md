@@ -7,7 +7,7 @@ Shielded Zcash can only *push*: a payment happens only while the payer's wallet 
 1. **Fund once.** You fund a single-use *pocket* with one ZIP 321 QR from any Ironwood wallet (Zodl, Zkool, Vizor).
 2. **Pre-sign and close the tab.** Cadence pre-signs every installment and seals each one: to a [drand](https://drand.love) round with tlock, so it cannot be opened before it is due, and to the merchant's runner with age.
 3. **The runner releases each installment when it falls due.** It installs a fresh anchor, proves, and broadcasts. It **can never spend, redirect or enlarge** a payment: it holds no spending key, and every byte it broadcasts was signed by you.
-4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept.
+4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved.
 
 Every installment is an ordinary v6 Ironwood transaction: 2 actions, the ZIP 317 fee, the default expiry, an anchor three blocks back, and nothing recoverable from its outgoing ciphertexts. On mainnet that is **the single most common shielded transaction shape** (see [Evidence](#evidence)).
 
@@ -32,7 +32,7 @@ The runner **cannot**:
 - spend the pocket any other way (it has no spending key);
 - replay after a cancel (the note is gone).
 
-When a subscription ends, the runner deletes the pocket account and its sealed packages.
+It also **checks every package before it broadcasts**: an installment goes out only if it pays the merchant exactly the offer's amount, with the default expiry for its height. When a subscription ends, the runner deletes the pocket's account, viewing key, funding transaction and sealed packages, with SQLite `secure_delete` on.
 
 ## Status (Oct 22, 2026)
 
@@ -72,7 +72,7 @@ web/                   payer flow, merchant dashboard, decoder, judge sandbox (s
 
 ### How a rung ladder works
 
-v6 sighashes exclude anchors but commit to expiry and branch. So each installment is signed once for every candidate broadcast height in its window, and each of these is a *rung*. One keyed seed drives every random choice, so **all rungs of an installment contain byte-identical actions** and produce the same change note. The runner broadcasts only the rung for exactly the next block. If none exists, it fails closed and asks you to re-sign; it never broadcasts a non-default expiry. Windows on mainnet skip the blocks just before NU7 (height 3,543,405) and stop before the ZIP 2009 fee switch (3,590,000).
+v6 sighashes exclude anchors but commit to expiry and branch. So each installment is signed once for every candidate broadcast height in its window, and each of these is a *rung*. One keyed seed drives every random choice, so **all rungs of an installment contain byte-identical actions** and produce the same change note. The runner broadcasts only the rung for exactly the next block. If none exists, it fails closed and asks you to re-sign; it never broadcasts a non-default expiry. Windows on mainnet skip the blocks just before NU7 (height 3,543,405). From the ZIP 2009 fee switch (3,590,000) rungs pay the new 2,000-zat fee, and no installment's window straddles the switch, so its rungs still agree.
 
 ## Run it
 
@@ -83,9 +83,10 @@ cargo build --release
 cadence-runner init --network test
 CADENCE_MERCHANT_TOKEN=… cadence-runner serve --network test
 
-# Payer
+# Payer (runner calls and chain access go over Tor unless the runner is local)
 cadence subscribe --runner http://127.0.0.1:8737 --offer off_… --out my-sub.json
 cadence cancel --subscription my-sub.json --to <your UA>
+cadence sweep  --pocket my-sub.json --to <your UA>    # recover leftovers, no runner needed
 ```
 
 ## Credits and prior art
@@ -109,9 +110,9 @@ As far as a GitHub search on Oct 22, 2026 shows, this is the first Zcash impleme
 ## Honest limits
 
 - **"Not before" rests on drand's threshold assumption.** `tlock_age` 0.0.10 is unaudited. Because age is the inner layer, a tlock failure only lets *the runner* open early; it can never redirect funds.
-- **Network upgrades and the fee switch invalidate rungs.** Cadence re-signs before the boundary.
+- **Unscheduled network upgrades invalidate rungs.** Each signature commits to the consensus branch, so a schedule that runs past an upgrade unknown at signing time must be signed again (cancel, then subscribe again; there is no in-place re-sign yet). Known boundaries are handled: windows skip the last blocks before NU7, and fees follow ZIP 2009 from height 3,590,000, which leaves the 8,000 zats each later installment saves in the pocket for `cadence sweep`.
 - **The pocket is a software key.** Hardware wallets can fund it but cannot sign ladders.
-- **Timing is public.** Short demo cadences are visible as a schedule; monthly cadences with jitter hide in normal traffic.
+- **Timing is public.** Short demo cadences are visible as a schedule. Monthly ones are a few ordinary transactions among thousands a day, but Cadence adds no jitter yet.
 
 Testnet software. Not audited.
 

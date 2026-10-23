@@ -1,12 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Offer } from '../api/types';
 import type { FlowState } from '../flow';
-import { BECH32_CHARS, isUnifiedAddress, shorten } from '../lib/addresses';
+import { BECH32_CHARS, isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundTime } from '../lib/drand';
 import { formatDateTime, formatRelative, nowSecs } from '../lib/time';
-import { formatZec, INSTALLMENT_FEE_ZAT } from '../lib/zat';
+import { formatZec, INSTALLMENT_FEE_ZAT, type NetworkId } from '../lib/zat';
+import { ANCHOR_CONFIRMATIONS, noteName, NothingToCancelError } from '../signer/cancel';
 import { PACKAGE_BYTES } from '../signer/mock';
-import type { CancelReceipt, Signer } from '../signer/types';
+import type { CancelReceipt, CancelStatus, Signer } from '../signer/types';
 import { CheckIcon, LockIcon, TabIcon } from './Icons';
 import { Qr } from './Qr';
 import { Badge, Callout, CopyButton, Countdown, ErrorNote, Spinner, Txid } from './ui';
@@ -152,7 +153,12 @@ export function SigningView({ offer, flow }: { offer: Offer; flow: FlowState }) 
 
 // ---------------------------------------------------------------- the moment
 
-export function DoneMoment({ offer, flow, children }: { offer: Offer; flow: FlowState; children?: ReactNode }) {
+/**
+ * The "you can close this tab" moment. With `closeable` false (the cancel key is not
+ * saved yet) it says what is left to do instead, and `notice` (the save card) sits
+ * right under the headline.
+ */
+export function DoneMoment({ offer, flow, children, closeable = true, notice }: { offer: Offer; flow: FlowState; children?: ReactNode; closeable?: boolean; notice?: ReactNode }) {
   const finished = flow.finished ?? [];
   const first = finished[0];
   const firstAt = first ? roundTime(first.release_round) : null;
@@ -166,7 +172,7 @@ export function DoneMoment({ offer, flow, children }: { offer: Offer; flow: Flow
             <path className="check" d="M28 47.5 41 60l23-27" />
           </svg>
         </div>
-        <h2 className="done-title">You can close this tab now.</h2>
+        <h2 className="done-title">{closeable ? 'You can close this tab now.' : 'Signed and uploaded. One step left.'}</h2>
         <p className="lede done-sub center" style={{ marginInline: 'auto' }}>
           All {offer.count} installments are signed, sealed and with the runner. Each one opens only when drand publishes its round
           {firstAt ? (
@@ -174,9 +180,10 @@ export function DoneMoment({ offer, flow, children }: { offer: Offer; flow: Flow
               ; the first is due <strong className="text-2">{formatRelative(firstAt - nowSecs())}</strong>
             </>
           ) : null}
-          . Nothing on your side needs to keep running.
+          . Nothing on your side needs to keep running{closeable ? '.' : ': save your cancel key below, then close this tab.'}
         </p>
       </div>
+      {notice}
 
       <div className="envelopes" aria-label="Sealed installments">
         {finished.map((f, i) => (
@@ -220,27 +227,73 @@ export function demoRefundUa(): string {
   return `utest1${Array.from(bytes, (b) => BECH32_CHARS[b & 31]).join('')}`;
 }
 
-export function CancelPanel({ signer, disabled, onCancelled, showDemo }: { signer: Signer; disabled?: string; onCancelled: (r: CancelReceipt) => void; showDemo?: boolean }) {
+function cancelStatusText(s: CancelStatus, now: number): string {
+  const inSecs = (at: number) => Math.max(0, Math.ceil(at / 1000 - now));
+  switch (s.step) {
+    case 'finding':
+      return "Asking the runner for the pocket's current note…";
+    case 'waiting':
+      return `The pocket's current note (${noteName(s.k)}) is too new to spend: it needs ${ANCHOR_CONFIRMATIONS} blocks of depth. Waiting for ${s.blocks} more block${s.blocks === 1 ? '' : 's'}; next try in ${inSecs(s.retryAt)} s.`;
+    case 'raced':
+      return `Installment ${s.k} spent the pocket's note before the cancel. Waiting for its change to be mined, then trying once more (next look in ${inSecs(s.retryAt)} s).`;
+    case 'proving':
+      return `Signing and proving the refund of ${noteName(s.k)} in this tab (about half a minute)…`;
+    case 'broadcasting':
+      return 'Broadcasting the cancel…';
+  }
+}
+
+export function CancelPanel({
+  signer,
+  disabled,
+  onCancelled,
+  onNothingLeft,
+  showDemo,
+  network = 'test',
+}: {
+  signer: Signer;
+  disabled?: string;
+  onCancelled: (r: CancelReceipt) => void;
+  /** Every installment was released before the cancel could land. */
+  onNothingLeft?: (message: string) => void;
+  showDemo?: boolean;
+  network?: NetworkId;
+}) {
   const [ua, setUa] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<Error>();
-  const valid = isUnifiedAddress(ua.trim(), 'test');
-  useNow();
+  const [nothing, setNothing] = useState<string>();
+  const [status, setStatus] = useState<CancelStatus>();
+  const abort = useRef<AbortController | null>(null);
+  // Leaving the page stops a cancel that is still waiting; one being proved is not broadcast.
+  useEffect(() => () => abort.current?.abort(), []);
+  const valid = isUnifiedAddress(ua.trim(), network);
+  const now = useNow();
 
   const go = async () => {
+    const ctrl = new AbortController();
+    abort.current = ctrl;
     setBusy(true);
     setError(undefined);
+    setStatus(undefined);
     try {
-      onCancelled(await signer.cancel(ua.trim()));
+      onCancelled(await signer.cancel(ua.trim(), { signal: ctrl.signal, onStatus: setStatus }));
     } catch (e) {
-      setError(e as Error);
+      if (e instanceof NothingToCancelError) {
+        setNothing(e.message);
+        onNothingLeft?.(e.message);
+      } else if (ctrl.signal.aborted) setError(new Error('Stopped. Nothing was broadcast; you can try again.'));
+      else setError(e as Error);
       setConfirm(false);
     } finally {
+      abort.current = null;
       setBusy(false);
+      setStatus(undefined);
     }
   };
 
+  const waiting = status && (status.step === 'waiting' || status.step === 'raced' || status.step === 'finding');
   return (
     <div className="stack" style={{ ['--gap' as string]: '12px' }}>
       <p className="small text-2">
@@ -249,19 +302,42 @@ export function CancelPanel({ signer, disabled, onCancelled, showDemo }: { signe
       </p>
       <div className="field">
         <label htmlFor="refund-ua">Refund to (an address in your own wallet)</label>
-        <input id="refund-ua" className="input mono" value={ua} onChange={(e) => setUa(e.target.value)} placeholder="utest1…" spellCheck={false} autoComplete="off" disabled={!!disabled || busy} />
+        <input
+          id="refund-ua"
+          className="input mono"
+          value={ua}
+          onChange={(e) => setUa(e.target.value)}
+          placeholder={`${uaPrefix(network)}…`}
+          spellCheck={false}
+          autoComplete="off"
+          disabled={!!disabled || busy || !!nothing}
+        />
         {showDemo && (
-          <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setUa(demoRefundUa())} disabled={!!disabled}>
+          <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setUa(demoRefundUa())} disabled={!!disabled || busy}>
             Use a demo refund address
           </button>
         )}
       </div>
       {disabled && <Callout kind="plain">{disabled}</Callout>}
+      {nothing && <Callout kind="info">{nothing}</Callout>}
       {error && <ErrorNote error={error} />}
-      {confirm ? (
+      {status && (
+        <div className="panel row no-wrap" style={{ ['--gap' as string]: '10px' }} aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span className="small text-2" style={{ flex: 1 }}>
+            {cancelStatusText(status, now)}
+          </span>
+          {waiting && (
+            <button type="button" className="btn sm ghost" onClick={() => abort.current?.abort(new Error('stopped'))}>
+              Stop
+            </button>
+          )}
+        </div>
+      )}
+      {nothing ? null : confirm ? (
         <div className="row" style={{ ['--gap' as string]: '8px' }}>
           <button type="button" className="btn danger" onClick={go} disabled={busy}>
-            {busy ? 'Broadcasting the cancel…' : 'Yes, cancel and refund'}
+            {busy ? 'Cancelling…' : `Yes, cancel and refund to ${shorten(ua.trim(), 10, 6)}`}
           </button>
           <button type="button" className="btn ghost" onClick={() => setConfirm(false)} disabled={busy}>
             Keep the subscription
@@ -282,7 +358,8 @@ export function CancelReceiptView({ receipt, network = 'test' }: { receipt: Canc
       <div className="stack" style={{ ['--gap' as string]: '6px' }}>
         <strong>Cancel broadcast.</strong>
         <span className="small">
-          {formatZec(receipt.refunded_zat, network)} returns to your address (fee {formatZec(receipt.fee_zat, network)}), targeting block {receipt.target_height.toLocaleString('en-US')}.
+          {formatZec(receipt.refunded_zat, network)} returns to your address (fee {formatZec(receipt.fee_zat, network)}), targeting block {receipt.target_height.toLocaleString('en-US')}
+          {receipt.spent ? `. It spends ${receipt.spent}` : ''}.
         </span>
         <span className="small row" style={{ ['--gap' as string]: '6px' }}>
           txid <Txid value={receipt.txid} />

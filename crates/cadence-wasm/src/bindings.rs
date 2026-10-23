@@ -65,7 +65,7 @@ pub fn synthetic_note(network: &str, seed: &[u8], value_zat: f64) -> Result<Stri
 
 /// `{ k, rungs: RungPackage[], spends_nullifier, actions_digest, change: { note, value_zat, nullifier } | null }`.
 ///
-/// `terms_json` is `{ amount_zat, count, merchant_ua, tag? }`.
+/// `terms_json` is `{ amount_zat, count, merchant_ua, label? }`.
 #[wasm_bindgen]
 pub fn presign_shard(
     network: &str,
@@ -115,6 +115,19 @@ pub fn funding_total(amount_zat: f64, count: u32) -> Result<f64, JsError> {
 #[wasm_bindgen]
 pub fn build_cancel(network: &str, seed: &[u8], note: &str, refund_ua: &str, target_height: u32) -> Result<String, JsError> {
     js(crate::build_cancel(network, seed, note, refund_ua, target_height))
+}
+
+/// The recovery kit `plain_json`, encrypted to `passphrase` (age scrypt). Slow by
+/// design (seconds): call it from a worker.
+#[wasm_bindgen]
+pub fn seal_kit(plain_json: &str, passphrase: &str) -> Result<Vec<u8>, JsError> {
+    crate::seal_kit(plain_json, passphrase).map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// The JSON inside a kit sealed by `seal_kit`. Slow by design: call it from a worker.
+#[wasm_bindgen]
+pub fn open_kit(bytes: &[u8], passphrase: &str) -> Result<String, JsError> {
+    crate::open_kit(bytes, passphrase).map_err(|e| JsError::new(&e.to_string()))
 }
 
 /// Builds the proving and verifying keys now; returns the milliseconds it took.

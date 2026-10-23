@@ -1,6 +1,7 @@
 // End-to-end privacy check and screenshots, against the production build.
 //
 //   pnpm build && pnpm verify
+//   VERIFY_DIST=/tmp/dist-mock pnpm verify     # a build elsewhere (vite build --outDir …)
 //
 // Serves dist/ with `vite preview`, drives every page and both flows in headless
 // Chromium, and fails if the page makes any request to another origin, triggers a
@@ -19,7 +20,8 @@ const PORT = 4173;
 const ORIGIN = `http://localhost:${PORT}`;
 const S2 = '7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790';
 
-const server = spawn(join(root, 'node_modules/.bin/vite'), ['preview', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+const dist = process.env.VERIFY_DIST ?? 'dist';
+const server = spawn(join(root, 'node_modules/.bin/vite'), ['preview', '--port', String(PORT), '--strictPort', '--outDir', dist], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
 await new Promise((resolve, reject) => {
   server.stdout.on('data', (d) => String(d).includes(String(PORT)) && resolve());
   server.on('exit', (code) => reject(new Error(`vite preview exited with ${code}`)));
@@ -73,6 +75,7 @@ async function shot(page, name, fullPage = true) {
     ['/', '01-landing'],
     ['/merchant', '02-merchant'],
     [`/decode/${S2}`, '03-decoder'],
+    ['/manage', '06-manage'],
   ]) {
     await page.goto(ORIGIN + path, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1200);

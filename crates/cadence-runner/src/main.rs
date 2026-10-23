@@ -93,9 +93,13 @@ enum Command {
         /// lightwalletd used for broadcasts (default: the sync server).
         #[arg(long)]
         broadcast_server: Option<String>,
-        /// Connect without Tor. Development only.
+        /// Reach lightwalletd without Tor: for a node of your own, or development.
         #[arg(long)]
         direct: bool,
+        /// Fetch drand beacons without Tor. Development only: the relay learns this
+        /// runner's address and, from it, when installments fall due.
+        #[arg(long)]
+        drand_direct: bool,
         #[arg(long, default_value = ".cadence/runner-tor")]
         tor_dir: PathBuf,
         #[arg(long, default_value = "127.0.0.1:8737")]
@@ -131,11 +135,25 @@ fn load_identity(path: &PathBuf) -> Result<x25519::Identity> {
     x25519::Identity::from_str(text.trim()).map_err(|e| anyhow!("bad identity: {e}"))
 }
 
+/// Retries for a few minutes: Tor circuits and public servers time out now and then,
+/// and a restarted runner should come back on its own.
 async fn connect(server: &str, direct: bool, tor_dir: PathBuf) -> Result<lwd::Client> {
-    if direct {
-        cadence_chain::connect(server, Transport::Direct).await
-    } else {
-        cadence_chain::connect(server, Transport::Tor { dir: &tor_dir }).await
+    let mut attempt = 1;
+    loop {
+        let result = if direct {
+            cadence_chain::connect(server, Transport::Direct).await
+        } else {
+            cadence_chain::connect(server, Transport::Tor { dir: &tor_dir }).await
+        };
+        match result {
+            Ok(client) => return Ok(client),
+            Err(e) if attempt < 8 => {
+                eprintln!("connecting to {server} (attempt {attempt}): {e:#}; retrying");
+                tokio::time::sleep(Duration::from_secs(5 * attempt)).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
     }
 }
 
@@ -171,6 +189,7 @@ async fn main() -> Result<()> {
             server,
             broadcast_server,
             direct,
+            drand_direct,
             tor_dir,
             listen,
             public_url,
@@ -195,6 +214,7 @@ async fn main() -> Result<()> {
                 tor_dir.join("broadcast"),
             )
             .await?;
+            wallet::compact(&paths.wallet_db)?;
             let mut wallet_db = wallet::open(&paths.wallet_db, paths.network.params())?;
             let store = Store::open(&paths.state_db)?;
             let funder = match sandbox_funder {
@@ -241,7 +261,7 @@ async fn main() -> Result<()> {
                     })
                 }
             };
-            let tor = if direct {
+            let tor = if drand_direct {
                 None
             } else {
                 let dir = tor_dir.join("drand");

@@ -29,3 +29,6 @@ anyhow = { workspace = true }
 cadence-seal = { path = "../cadence-seal" }
 base64 = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }
+bytes = "1"
+http-body-util = "0.1"
+rpassword = "7"

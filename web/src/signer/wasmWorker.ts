@@ -9,6 +9,7 @@
  * (web/src/wasm, built by `pnpm build:wasm`; see vite.config.ts), not bundled, so builds that never
  * use the WASM signer never reference it.
  */
+import { bytesToHex, hexToBytes, kitJson, parseKit } from './kit';
 import { wasmGlueUrl, type SignerOps, type WorkerReply, type WorkerRequest } from './wasmTypes';
 
 interface SignerGlue {
@@ -24,6 +25,8 @@ interface SignerGlue {
   window(network: string, tip: number, now: number, at: number): Uint32Array;
   funding_total(amountZat: number, count: number): number;
   build_cancel(network: string, seed: Uint8Array, note: string, refundUa: string, targetHeight: number): string;
+  seal_kit(plainJson: string, passphrase: string): Uint8Array;
+  open_kit(bytes: Uint8Array, passphrase: string): string;
 }
 
 interface WorkerScope {
@@ -65,7 +68,23 @@ const handlers: Handlers = {
   shard: (w, a) =>
     JSON.parse(w.presign_shard(a.network, a.seed, a.input, JSON.stringify(a.terms), a.k, a.mandateId, Uint32Array.from(a.heights))),
   seal: (w, a) => JSON.parse(w.seal_installment(a.ladderJson, a.recipient, a.round)),
+  pocketInfo: (w, a) => {
+    const { ua, ufvk } = JSON.parse(w.pocket_info(a.network, a.seed)) as { ua: string; ufvk: string };
+    return { ua, ufvk };
+  },
   cancel: (w, a) => JSON.parse(w.build_cancel(a.network, a.seed, a.note, a.refundUa, a.targetHeight)),
+  sealKit: (w, a) => w.seal_kit(kitJson(a.fields, bytesToHex(a.seed)), a.passphrase),
+  openKit: (w, a) => {
+    let json: unknown;
+    try {
+      json = JSON.parse(w.open_kit(a.bytes, a.passphrase));
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new Error('this cancel key does not hold JSON');
+      throw e;
+    }
+    const { fields, seedHex } = parseKit(json);
+    return { fields, seed: hexToBytes(seedHex) };
+  },
   info: (w) => ({ build: w.build_info(), memoryBytes: w.memory_bytes() }),
 };
 
@@ -76,7 +95,12 @@ scope.onmessage = async ({ data }) => {
     const handler = handlers[op as keyof SignerOps] as ((w: SignerGlue, a: unknown) => unknown) | undefined;
     if (!handler) throw new Error(`unknown operation ${op}`);
     const value = handler(w, args);
-    const transfer = op === 'pocket' ? [(value as { seed: Uint8Array }).seed.buffer as ArrayBuffer] : [];
+    const transfer =
+      op === 'pocket' || op === 'openKit'
+        ? [(value as { seed: Uint8Array }).seed.buffer as ArrayBuffer]
+        : op === 'sealKit'
+          ? [(value as Uint8Array).buffer as ArrayBuffer]
+          : [];
     scope.postMessage({ id, ok: true, value }, transfer);
   } catch (e) {
     // A trap (a Rust panic) leaves the instance unusable: ask the pool for a fresh worker.

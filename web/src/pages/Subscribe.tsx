@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Offer } from '../api/types';
+import { SaveCancelKey } from '../components/CancelKey';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView } from '../components/FlowViews';
 import { KeyIcon, ShieldCheckIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
@@ -14,6 +15,7 @@ import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
 import { Link, useLocation } from '../router';
 import { api, apiLabel, apiSetting, createSigner, isMock, mockHooks } from '../runtime';
+import type { SealedKit } from '../signer/kit';
 import type { CancelReceipt, Signer } from '../signer/types';
 
 type Step = 'plan' | 'fund' | 'sign' | 'done' | 'manage';
@@ -32,10 +34,15 @@ interface Session extends FlowState {
   lastStep: Step;
   manage: boolean;
   cancel: CancelReceipt | null;
+  /** The encrypted cancel key, once saved (ciphertext only, for "download again"). */
+  kit: SealedKit | null;
 }
 
 /** In memory only: survives in-app navigation (e.g. to the decoder), never a reload. */
-const session = createStore<Session>(() => ({ hash: '', phase: 'idle', signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null }));
+const session = createStore<Session>(() => ({ hash: '', phase: 'idle', signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null, kit: null }));
+
+/** Only the WASM signer's pocket can be cancelled after the tab closes, so only it asks for a cancel key. */
+const needsCancelKey = (s: Session) => s.signer?.implementation === 'wasm';
 
 function stepOf(s: Session): Step {
   switch (s.phase) {
@@ -68,7 +75,7 @@ function start(offer: Offer) {
   s.signer?.destroy();
   const signer = createSigner();
   const abort = new AbortController();
-  session.set({ signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null });
+  session.set({ signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null, kit: null });
   void runMandate(
     offer,
     signer,
@@ -229,7 +236,7 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
 function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
   const sub = usePoll((signal) => api.getSubscription(s.subscriptionId!, signal), isMock ? 1500 : 10000, [s.subscriptionId]);
   const data = sub.data;
-  const settled = data && (data.status === 'completed' || data.status === 'cancelled');
+  const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
   return (
     <div className="stack" style={{ ['--gap' as string]: '20px' }}>
       <div className="row between">
@@ -241,6 +248,9 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
       </div>
       {sub.error && <ErrorNote error={sub.error} retry={sub.refresh} />}
       {data ? <Timeline installments={data.installments} network={offer.network} /> : <Spinner label="Asking the runner…" />}
+      {needsCancelKey(s) && s.signer && !s.cancel && (
+        <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} saved={s.kit} onSaved={(kit) => session.set({ kit })} />
+      )}
       <hr />
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
         <span className="h4">Cancel</span>
@@ -251,7 +261,14 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
             <CancelPanel
               signer={s.signer}
               showDemo={isMock}
-              disabled={settled ? `This subscription is ${data!.status}; there is nothing left to cancel.` : undefined}
+              network={offer.network}
+              disabled={
+                settled
+                  ? data!.status === 'stopped'
+                    ? 'The merchant stopped this subscription and the runner deleted the pocket. What is left in it is yours: save your cancel key, then run cadence sweep with it.'
+                    : `This subscription is ${data!.status}; there is nothing left to cancel.`
+                  : undefined
+              }
               onCancelled={(r) => session.set({ cancel: r })}
             />
           )
@@ -327,24 +344,41 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
             <div className="stack" style={{ ['--gap' as string]: '18px' }}>
               <div className="stack" style={{ ['--gap' as string]: '4px' }}>
                 <span className="h3">Fund your pocket</span>
-                <span className="small muted">One payment covers every installment. Signing starts the moment it reaches the mempool.</span>
+                <span className="small muted">
+                  One payment covers every installment.{' '}
+                  {s.signer?.implementation === 'wasm' ? 'Signing starts once the payment is mined in a block (the runner only reports mined payments).' : 'Signing starts the moment it reaches the mempool.'}
+                </span>
               </div>
               <FundingView offer={o} flow={s} onSimulate={mockHooks && s.pocket && s.totalZat ? () => mockHooks?.simulateWalletPayment(s.pocket!.ua, s.totalZat!) : undefined} />
             </div>
           )}
           {step === 'sign' && <SigningView offer={o} flow={s} />}
           {step === 'done' && (
-            <DoneMoment offer={o} flow={s}>
-              <div className="row" style={{ justifyContent: 'center' }}>
+            <DoneMoment
+              offer={o}
+              flow={s}
+              closeable={!needsCancelKey(s) || !!s.kit}
+              notice={
+                needsCancelKey(s) && s.signer ? (
+                  <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} saved={s.kit} onSaved={(kit) => session.set({ kit })} />
+                ) : undefined
+              }
+            >
+              <div className="row" style={{ justifyContent: 'center', ['--gap' as string]: '10px' }}>
                 <button type="button" className="btn" onClick={() => session.set({ manage: true })}>
                   Manage or cancel
                 </button>
+                {needsCancelKey(s) && (
+                  <Link to="/manage" className="btn ghost">
+                    Cancel later with your key
+                  </Link>
+                )}
               </div>
-              {s.signer?.keyCustody === 'memory' && (
+              {!needsCancelKey(s) && s.signer?.keyCustody === 'memory' && (
                 <Callout kind="plain" icon={<KeyIcon size={16} />}>
                   <span className="small">
                     Closing this tab is safe: payments continue without you. In this mock build the pocket key lives only in this tab's memory, so closing it also gives up the option to
-                    cancel. The real signer keeps the key sealed to your passkey so you can come back.
+                    cancel. The real signer first has you save an encrypted cancel key, so you can come back and cancel from Manage.
                   </span>
                 </Callout>
               )}
@@ -380,7 +414,8 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
           <div className="card flat stack small" style={{ ['--gap' as string]: '8px' }}>
             <span className="h4">This tab</span>
             <span className="text-2">
-              Signer: <span className="mono">{s.signer?.implementation ?? (isMock ? 'mock' : 'wasm')}</span>, keys in {s.signer?.keyCustody === 'passkey' ? 'a passkey-sealed store' : 'memory only'}.
+              Signer: <span className="mono">{s.signer?.implementation ?? (isMock ? 'mock' : 'wasm')}</span>, keys in {s.signer?.keyCustody === 'passkey' ? 'a passkey-sealed store' : 'memory only'}
+              {s.kit ? ', and in the cancel key you saved' : ''}.
             </span>
             <span className="text-2">
               Talks to: <span className="mono">{isMock ? 'nothing (mock)' : apiLabel}</span>.

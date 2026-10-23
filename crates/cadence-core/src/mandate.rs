@@ -22,13 +22,17 @@ use crate::{
 pub const PRE_NU7_BLOCK_SECS: u64 = 75;
 pub const NU7_BLOCK_SECS: u64 = 25;
 
-/// Wallets switch to the lower ZIP 317 marginal fee at this mainnet height (ZIP 2009).
-/// A pre-signed installment can't know which fee stock wallets will pay after it, so
-/// no mainnet rung targets this height or later; the schedule is re-signed instead.
+/// From this mainnet height wallets pay ZIP 2009's lower marginal fee: 1,000 zats per
+/// action instead of 5,000, so 2,000 for an installment's two actions. Each rung pays
+/// the fee for its own target height ([`crate::rung::fee_rule_at`]), and no
+/// installment's window straddles the switch, so its rungs still share one change
+/// note. Funding still covers the higher fee, and what an installment after the
+/// switch saves stays in the pocket for the payer to sweep.
 pub const MAINNET_FEE_SWITCH: u32 = 3_590_000;
 
-/// Blocks just before NU7 activation are skipped on mainnet, so no rung's expiry
-/// window straddles the upgrade.
+/// No mainnet rung targets the last blocks before NU7. A rung signed for the old
+/// branch is only valid if mined before activation, and these leave it no margin
+/// for a block or two of delay.
 pub const NU7_GUARD_BLOCKS: u32 = 10;
 
 /// What the merchant's offer fixes, plus when the first installment falls due.
@@ -40,8 +44,9 @@ pub struct Terms {
     /// Unix time at which installment 1 becomes releasable.
     pub first_release_at: u64,
     pub merchant: Address,
-    /// Opaque tag the merchant uses to recognise its installments.
-    pub tag: [u8; 16],
+    /// What the merchant's wallet shows for each installment, such as the plan name
+    /// and pocket id (see [`installment_memo`]).
+    pub label: String,
 }
 
 impl Terms {
@@ -60,10 +65,35 @@ pub enum Error {
     EmptyWindow(u32),
 }
 
-/// The ZIP 317 fee of one installment: two actions (payment and change, or
-/// payment and padding).
+/// The memo of installment `k`: ZIP 302 text that the merchant's own wallet shows,
+/// such as "Cadence · Pro plan (pkt_…) · payment 2 of 3". Only the merchant can
+/// decrypt it, and it says nothing the merchant does not already know.
+pub fn installment_memo(label: &str, k: u32, count: u32) -> MemoBytes {
+    const MAX: usize = 512;
+    let suffix = format!("payment {k} of {count}");
+    let clean: String = label.chars().filter(|c| !c.is_control()).collect();
+    let room = MAX - "Cadence ·  · ".len() - suffix.len();
+    let mut end = clean.len().min(room);
+    while !clean.is_char_boundary(end) {
+        end -= 1;
+    }
+    let text = match clean[..end].trim() {
+        "" => format!("Cadence · {suffix}"),
+        label => format!("Cadence · {label} · {suffix}"),
+    };
+    MemoBytes::from_bytes(text.as_bytes()).expect("at most 512 bytes")
+}
+
+/// The most an installment pays: the ZIP 317 fee for two actions (payment and
+/// change, or payment and padding) before the ZIP 2009 switch. Funding covers this.
 pub fn installment_fee() -> Zatoshis {
     Zatoshis::const_from_u64(u64::from(MARGINAL_FEE) * 2)
+}
+
+/// The fee of an installment targeting `height`.
+pub fn installment_fee_at<P: Parameters>(params: &P, height: BlockHeight) -> Zatoshis {
+    let marginal = crate::rung::fee_rule_at(params, height).marginal_fee();
+    Zatoshis::const_from_u64(u64::from(marginal) * 2)
 }
 
 /// The single payment that funds a whole mandate.
@@ -90,12 +120,14 @@ pub fn predict_height<P: Parameters>(params: &P, tip: BlockHeight, now: u64, at:
     BlockHeight::from_u32((height + remaining / NU7_BLOCK_SECS) as u32)
 }
 
+/// Which side of the ZIP 2009 fee switch `h` is on (always `false` off mainnet).
+fn after_fee_switch<P: Parameters>(params: &P, h: u32) -> bool {
+    params.network_type() == NetworkType::Main && h >= MAINNET_FEE_SWITCH
+}
+
 fn excluded<P: Parameters>(params: &P, h: u32) -> bool {
     if params.network_type() != NetworkType::Main {
         return false;
-    }
-    if h >= MAINNET_FEE_SWITCH {
-        return true;
     }
     match params.activation_height(NetworkUpgrade::Nu7) {
         Some(nu7) => {
@@ -111,7 +143,8 @@ fn excluded<P: Parameters>(params: &P, h: u32) -> bool {
 /// The runner can't open the package before `at`, so the window starts a little
 /// below the predicted height (in case blocks come fast) and runs well past it
 /// (late blocks, a slow previous installment, runner downtime). It widens with the
-/// distance to `at`, since block times drift over long horizons.
+/// distance to `at`, since block times drift over long horizons. It keeps to the
+/// predicted height's side of the ZIP 2009 fee switch, so every rung pays one fee.
 pub fn window<P: Parameters>(params: &P, tip: BlockHeight, now: u64, at: u64) -> Vec<BlockHeight> {
     let predicted = u32::from(predict_height(params, tip, now, at));
     let ahead = predicted.saturating_sub(u32::from(tip));
@@ -119,8 +152,9 @@ pub fn window<P: Parameters>(params: &P, tip: BlockHeight, now: u64, at: u64) ->
     let below = 10 + spread as u32 + ahead / 100;
     let above = 150 + spread as u32 + ahead / 50;
     let start = predicted.saturating_sub(below).max(u32::from(tip) + 1);
+    let side = after_fee_switch(params, predicted);
     (start..=predicted + above)
-        .filter(|h| !excluded(params, *h))
+        .filter(|h| after_fee_switch(params, *h) == side && !excluded(params, *h))
         .map(BlockHeight::from_u32)
         .collect()
 }
@@ -142,6 +176,18 @@ pub fn decrypt_funding<P: Parameters>(
         .map(|(_, _, note, _, _)| note)
         .find(|note| note.recipient() == pocket.funding_address())
         .ok_or(Error::NoFundingNote)
+}
+
+/// Every note `pocket` receives in `tx`: its funding (external scope) or an
+/// installment's change (internal scope).
+pub fn pocket_outputs(tx: &Transaction, pocket: &Pocket) -> Vec<Note> {
+    let Some(bundle) = tx.ironwood_bundle() else { return vec![] };
+    let ivks = [pocket.fvk().to_ivk(Scope::External), pocket.fvk().to_ivk(Scope::Internal)];
+    bundle
+        .decrypt_outputs_with_keys(&ivks)
+        .into_iter()
+        .map(|(_, _, note, _, _)| note)
+        .collect()
 }
 
 /// One installment's ladder, ready to be sealed to its release time.
@@ -178,14 +224,11 @@ pub fn presign<P: Parameters + Clone>(
     let mut input = funding;
     let mut out = Vec::with_capacity(terms.count as usize);
     for k in 1..=terms.count {
-        let mut memo = [0u8; 20];
-        memo[..16].copy_from_slice(&terms.tag);
-        memo[16..].copy_from_slice(&k.to_le_bytes());
         let inst = Installment {
             input,
             amount: terms.amount,
             merchant: terms.merchant,
-            memo: MemoBytes::from_bytes(&memo).map_err(|e| Error::Encode(format!("{e:?}")))?,
+            memo: installment_memo(&terms.label, k, terms.count),
         };
         let release_at = terms.release_at(k);
         let heights = window(params, tip, now, release_at);
@@ -199,7 +242,7 @@ pub fn presign<P: Parameters + Clone>(
         let mut spends_nullifier = [0u8; 32];
         for (i, target) in heights.iter().enumerate() {
             let rung = build_rung(params, *target, pocket, &inst, rung_seed).map_err(Error::Rung)?;
-            debug_assert_eq!(rung.fee, installment_fee());
+            debug_assert_eq!(rung.fee, installment_fee_at(params, *target));
             change = rung.change;
             spends_nullifier = rung.actions[rung.spend_action].nf;
             let bytes = redact_for_runner(rung.pczt)
@@ -259,6 +302,19 @@ mod tests {
     }
 
     #[test]
+    fn mainnet_windows_keep_to_one_side_of_the_fee_switch() {
+        // Predicted just past the switch: every rung is after it.
+        let tip = BlockHeight::from_u32(MAINNET_FEE_SWITCH - 20);
+        let w = window(&MainNetwork, tip, 0, 30 * NU7_BLOCK_SECS);
+        assert!(!w.is_empty() && w.iter().all(|h| u32::from(*h) >= MAINNET_FEE_SWITCH));
+        // A monthly schedule from today still has a window for each installment.
+        let today = BlockHeight::from_u32(3_525_000);
+        for k in 0..3u64 {
+            assert!(!window(&MainNetwork, today, 0, k * 30 * 24 * 3600).is_empty(), "installment {k}");
+        }
+    }
+
+    #[test]
     fn funding_covers_every_installment_and_fee() {
         let terms = Terms {
             amount: Zatoshis::const_from_u64(100_000),
@@ -266,8 +322,23 @@ mod tests {
             period_secs: 600,
             first_release_at: 0,
             merchant: Pocket::from_seed(&[1; 32], 133).funding_address(),
-            tag: [0; 16],
+            label: String::new(),
         };
         assert_eq!(u64::from(funding_total(&terms).unwrap()), 330_000);
+    }
+
+    #[test]
+    fn memos_are_zip302_text() {
+        let memo = installment_memo("Pro plan (pkt_1)", 2, 3);
+        let text = std::str::from_utf8(memo.as_slice()).unwrap().trim_end_matches('\0');
+        assert_eq!(text, "Cadence · Pro plan (pkt_1) · payment 2 of 3");
+        assert!(memo.as_slice()[0] <= 0xF4, "ZIP 302: a text memo starts below 0xF5");
+        assert_eq!(
+            std::str::from_utf8(installment_memo("", 1, 1).as_slice()).unwrap().trim_end_matches('\0'),
+            "Cadence · payment 1 of 1"
+        );
+        let long = "é".repeat(400);
+        assert!(std::str::from_utf8(installment_memo(&long, 12, 12).as_slice()).is_ok());
+        assert_eq!(installment_memo("a\nb\u{7}", 1, 1), installment_memo("ab", 1, 1));
     }
 }

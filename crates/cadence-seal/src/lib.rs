@@ -66,6 +66,7 @@
 //!   `default-features = false`.
 
 mod drand;
+mod kit;
 mod seal;
 
 #[cfg(feature = "fetch")]
@@ -75,6 +76,7 @@ pub use drand::{
     DrandChain, DEFAULT_RELAY, QUICKNET_GENESIS_TIME, QUICKNET_HASH, QUICKNET_PERIOD,
     QUICKNET_PUBLIC_KEY,
 };
+pub use kit::{is_sealed_kit, open_kit, seal_kit, KIT_WORK_FACTOR, MIN_PASSPHRASE_CHARS};
 pub use seal::{header_round, open, read_header, seal, SealHeader, BUCKETS, MAX_PLAINTEXT_LEN};
 
 /// Re-exported so callers use the same `age` version as `tlock_age`.
@@ -158,6 +160,15 @@ pub enum SealError {
     /// The relay could not be reached.
     #[error("beacon fetch failed: {0}")]
     BeaconFetch(String),
+    /// A recovery kit's passphrase is too short.
+    #[error("use a passphrase of at least {min} characters")]
+    WeakPassphrase { min: usize },
+    /// The passphrase does not open this recovery kit.
+    #[error("wrong passphrase for this recovery kit")]
+    WrongPassphrase,
+    /// The recovery kit is not a readable age file.
+    #[error("unreadable recovery kit: {0}")]
+    Kit(String),
 }
 
 /// Result type for this crate.

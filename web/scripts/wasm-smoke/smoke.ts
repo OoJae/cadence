@@ -7,13 +7,15 @@
  *       beacon), so the runner side can open it and check every signature.
  *   ?mode=signer&count=2&recipient=age1…[&cancel=1]   the real WasmSigner against
  *       the fake runner: register a pocket, decrypt the funding transaction, presign
- *       every installment over its real window, upload, and optionally cancel
- *       (proving in the browser) to a fresh testnet address. `&pool=N` overrides the
- *       pool size (default: hardwareConcurrency - 1, at most 8).
+ *       every installment over its real window, upload, save the cancel key, destroy
+ *       the signer (the tab closes), restore a fresh one from the key, and optionally
+ *       cancel with it (proving in the browser) to a fresh testnet address. `&pool=N`
+ *       overrides the pool size (default: hardwareConcurrency - 1, at most 8).
  */
 import { CadenceClient } from '../../src/api/client';
 import { HttpTransport } from '../../src/api/http';
 import type { Offer } from '../../src/api/types';
+import { bytesToBase64 } from '../../src/lib/base64url';
 import { QUICKNET } from '../../src/lib/drand';
 import { totalPrepaidZat } from '../../src/lib/zat';
 import type { PresignProgress } from '../../src/signer/types';
@@ -34,6 +36,7 @@ const log = (line: string) => {
 };
 const num = (name: string, fallback: number) => Number(q.get(name) ?? fallback);
 const AMOUNT = 50_000;
+const KIT_PASSPHRASE = 'smoke test passphrase';
 /** Testnet, past NU7: rungs carry the NU7 branch and a 120-block expiry delta. */
 const TIP = 4_600_000;
 
@@ -148,17 +151,38 @@ async function signerFlow() {
     funding_txid: funding.txid,
     installments: sealed,
   });
+  // The cancel key, then the tab closes: a fresh signer restores from the key alone.
+  const tk = performance.now();
+  const kit = await signer.sealKit(KIT_PASSPHRASE, { runner: location.origin, subscriptionId: sub.subscription_id });
+  const sealMs = performance.now() - tk;
+  log(`cancel key ${kit.fileName}: ${kit.bytes.length} bytes in ${sealMs.toFixed(0)} ms`);
+  signer.destroy();
+  const restored = new WasmSigner(api, q.has('pool') ? { poolSize: num('pool', 1) } : {});
+  let wrongPassphrase = '';
+  try {
+    await restored.openKit(kit.bytes, 'not the passphrase');
+  } catch (e) {
+    wrongPassphrase = (e as Error).message;
+  }
+  const to = performance.now();
+  const opened = await restored.openKit(kit.bytes, KIT_PASSPHRASE);
+  const openMs = performance.now() - to;
+  const { notes, ...kitFields } = opened.fields;
+  const back = await restored.restore(opened);
+  log(`restored ${back.pocket_id} from the key in ${openMs.toFixed(0)} ms`);
+
   let cancel: Record<string, unknown> | null = null;
   if (refundUa) {
     const tc = performance.now();
-    const receipt = await signer.cancel(refundUa);
-    cancel = { ...receipt, ms: performance.now() - tc };
+    const steps: string[] = [];
+    const receipt = await restored.cancel(refundUa, { onStatus: (st) => steps.push(st.step) });
+    cancel = { ...receipt, ms: performance.now() - tc, steps };
     log(`cancelled: ${receipt.txid}, refunded ${receipt.refunded_zat}, in ${(performance.now() - tc).toFixed(0)} ms`);
   }
-  signer.destroy();
+  restored.destroy();
   let afterDestroy = '';
   try {
-    await signer.cancel(refundUa ?? merchant.ua);
+    await restored.cancel(refundUa ?? merchant.ua);
   } catch (e) {
     afterDestroy = (e as Error).message;
   }
@@ -174,6 +198,18 @@ async function signerFlow() {
     installments: done.map((p) => ({ k: p.k, rungs: p.rungsTotal, window: p.window, release_round: p.release_round, sealed_bytes: p.sealedBytes })),
     sealed: sealed.map((s) => ({ k: s.k, release_round: s.release_round, bytes: sealedLength(s.sealed), header: sealedHeader(s.sealed) })),
     subscription: sub,
+    kit: {
+      file_name: kit.fileName,
+      bytes: kit.bytes.length,
+      b64: bytesToBase64(kit.bytes),
+      seal_ms: sealMs,
+      open_ms: openMs,
+      wrong_passphrase: wrongPassphrase,
+      fields: kitFields,
+      notes: notes.map((n) => ({ k: n.k, value_zat: n.value_zat, nullifier: n.nullifier })),
+      restored_ua: back.ua,
+      pocket_ua: pocket.ua,
+    },
     cancel,
     after_destroy: afterDestroy,
   };

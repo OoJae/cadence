@@ -50,3 +50,70 @@ pub struct RungPackage {
     pub expiry_height: u32,
     pub pczt: String,
 }
+
+/// Checks a rung before it is ever broadcast: it must pay exactly `amount` to
+/// `merchant`, and carry exactly the branch, expiry and lock time a fresh send
+/// targeting `target` would. A payer could otherwise seal validly signed
+/// installments that pay someone else, or that are fingerprintable.
+pub fn verify_rung<P: zcash_protocol::consensus::Parameters>(
+    params: &P,
+    pczt: &Pczt,
+    merchant: &orchard::Address,
+    amount: u64,
+    target: zcash_protocol::consensus::BlockHeight,
+) -> Result<(), String> {
+    use orchard::note::{ExtractedNoteCommitment, Note, NoteVersion, RandomSeed, Rho};
+    use zcash_primitives::transaction::builder::default_tx_expiry_delta;
+    use zcash_protocol::consensus::BranchId;
+
+    let global = pczt.global();
+    let branch = BranchId::for_height(params, target);
+    if *global.consensus_branch_id() != u32::from(branch) {
+        return Err(format!("signed for branch {:08x}, but height {target} is {:08x}", global.consensus_branch_id(), u32::from(branch)));
+    }
+    let expiry = u32::from(target) + default_tx_expiry_delta(branch);
+    if *global.expiry_height() != expiry {
+        return Err(format!("expiry {} is not the default {expiry} for target {target}", global.expiry_height()));
+    }
+    if global.fallback_lock_time().unwrap_or(0) != 0 {
+        return Err("non-zero lock time".into());
+    }
+    if !pczt.transparent().inputs().is_empty()
+        || !pczt.transparent().outputs().is_empty()
+        || !pczt.sapling().spends().is_empty()
+        || !pczt.sapling().outputs().is_empty()
+        || !pczt.orchard().actions().is_empty()
+    {
+        return Err("an installment must be Ironwood-only".into());
+    }
+
+    let merchant_bytes = merchant.to_raw_address_bytes();
+    let pays = pczt.ironwood().actions().iter().any(|action| {
+        let out = action.output();
+        if out.recipient().as_ref() != Some(&merchant_bytes) || *out.value() != Some(amount) {
+            return false;
+        }
+        // The plaintext fields must be the note the action actually commits to.
+        let note = (|| {
+            let recipient = Option::from(orchard::Address::from_raw_address_bytes(&merchant_bytes))?;
+            let rho = Option::from(Rho::from_bytes(action.spend().nullifier()))?;
+            let rseed = Option::from(RandomSeed::from_bytes((*out.rseed())?, &rho))?;
+            let note: Note = Option::from(Note::from_parts(
+                recipient,
+                orchard::value::NoteValue::from_raw(amount),
+                rho,
+                rseed,
+                NoteVersion::V3,
+            ))?;
+            Some(note)
+        })();
+        match (note, out.cmx()) {
+            (Some(note), Some(cmx)) => ExtractedNoteCommitment::from(note.commitment()).to_bytes() == *cmx,
+            _ => false,
+        }
+    });
+    if !pays {
+        return Err(format!("no output pays {amount} zats to the merchant"));
+    }
+    Ok(())
+}

@@ -9,7 +9,7 @@ export interface StateInfo {
   description: string;
 }
 
-export const INSTALLMENT_STATES: readonly InstallmentState[] = ['sealed', 'due', 'broadcast', 'mined', 'cancelled', 'missed'];
+export const INSTALLMENT_STATES: readonly InstallmentState[] = ['sealed', 'due', 'broadcast', 'mined', 'cancelled', 'missed', 'invalid'];
 
 export const INSTALLMENT_STATE_INFO: Record<InstallmentState, StateInfo> = {
   sealed: {
@@ -40,7 +40,12 @@ export const INSTALLMENT_STATE_INFO: Record<InstallmentState, StateInfo> = {
   missed: {
     label: 'Missed',
     tone: 'red',
-    description: 'No pre-signed rung covers the current height. The payer must re-sign.',
+    description: 'No pre-signed rung covers the current height, so nothing was broadcast. The merchant is notified; the payer can cancel or sweep, and subscribe again.',
+  },
+  invalid: {
+    label: 'Invalid',
+    tone: 'red',
+    description: "The package did not match the offer (wrong amount, recipient or expiry), so nothing was broadcast. The payer can cancel or sweep, and subscribe again.",
   },
 };
 
@@ -48,7 +53,8 @@ export const SUBSCRIPTION_STATUS_INFO: Record<SubscriptionStatus, StateInfo> = {
   active: { label: 'Active', tone: 'blue', description: 'Installments are sealed with the runner and release on schedule.' },
   completed: { label: 'Completed', tone: 'green', description: 'Every installment is mined.' },
   cancelled: { label: 'Cancelled', tone: 'muted', description: 'Stopped before the last installment. Nothing further can be released.' },
-  stalled: { label: 'Stalled', tone: 'red', description: 'An installment missed its window. The payer must re-sign to continue.' },
+  stopped: { label: 'Stopped', tone: 'muted', description: 'The merchant stopped it. The runner shredded the remaining packages; what is left in the pocket is the payer’s to sweep.' },
+  stalled: { label: 'Stalled', tone: 'red', description: 'An installment was missed or invalid, so nothing further pays. The payer can cancel or sweep, and subscribe again.' },
 };
 
 export function installmentStateInfo(state: string): StateInfo {
@@ -73,5 +79,5 @@ export function subscriptionStatusInfo(status: string): StateInfo {
 
 /** Terminal states never change again; the dashboard can stop counting down. */
 export function isTerminal(state: InstallmentState): boolean {
-  return state === 'mined' || state === 'cancelled' || state === 'missed';
+  return state === 'mined' || state === 'cancelled' || state === 'missed' || state === 'invalid';
 }

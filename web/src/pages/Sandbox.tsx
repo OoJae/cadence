@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
+import { SaveCancelKey } from '../components/CancelKey';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView } from '../components/FlowViews';
 import { BanIcon, BoltIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
 import { LogView, useRunnerLog } from '../components/RunnerLog';
@@ -14,6 +15,7 @@ import type { LogLine } from '../lib/runnerLog';
 import { formatZec, totalPrepaidZat } from '../lib/zat';
 import { Link } from '../router';
 import { api, createSigner, isMock, mockHooks } from '../runtime';
+import type { SealedKit } from '../signer/kit';
 import type { CancelReceipt, Signer } from '../signer/types';
 
 type CheatResult = SandboxCheatResponse | { error: string };
@@ -27,6 +29,9 @@ interface SandboxState extends FlowState {
   tabClosedAt: number | null;
   reopened: boolean;
   cancel: CancelReceipt | null;
+  /** The encrypted cancel key, once saved (real mode). */
+  kit: SealedKit | null;
+  keySkipped: boolean;
   decodeTxid: string | null;
   decodedOnce: boolean;
   cheats: Partial<Record<CheatKind, CheatResult>>;
@@ -42,6 +47,8 @@ const store = createStore<SandboxState>(() => ({
   tabClosedAt: null,
   reopened: false,
   cancel: null,
+  kit: null,
+  keySkipped: false,
   decodeTxid: null,
   decodedOnce: false,
   cheats: {},
@@ -51,6 +58,9 @@ const store = createStore<SandboxState>(() => ({
 const note = (text: string, tone?: LogLine['tone']) => store.set((s) => ({ events: [...s.events, { at: Date.now() / 1000, text, tone }] }));
 
 const SANDBOX_TOKEN = 'sandbox-judge';
+
+/** Only the WASM signer's pocket can be cancelled after the tab closes, so only it asks for a cancel key. */
+const needsCancelKey = (s: SandboxState) => s.signer?.implementation === 'wasm';
 
 async function createMandate(cfg: { count: number; period: number; amount: number }) {
   const s = store.get();
@@ -73,7 +83,10 @@ async function createMandate(cfg: { count: number; period: number; amount: numbe
     note(`merchant: created ${offer.offer_id}: ${offer.count} × ${formatZec(offer.amount_zat)} every ${offer.period_secs} s`);
     void runMandate(offer, signer, (patch) => {
       store.set(patch);
-      if (patch.phase === 'signing') note('payer: funding seen in the mempool; pre-signing every installment');
+      if (patch.phase === 'signing' && patch.funding) {
+        const f = patch.funding;
+        note(`payer: funding ${f.status === 'mined' && f.mined_height ? `mined at ${f.mined_height.toLocaleString('en-US')}` : 'seen in the mempool'}; pre-signing every installment`);
+      }
       if (patch.phase === 'done' && patch.subscriptionId) note(`payer: uploaded ${offer.count} sealed packages; subscription ${patch.subscriptionId}`, 'ok');
       if (patch.phase === 'error') note(`payer: ${patch.error}`, 'err');
     }, {
@@ -109,7 +122,12 @@ function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
     { id: 'create', title: 'Create a mandate', desc: 'A merchant offer: N installments, one every few seconds.', done: !!s.offer },
     { id: 'fund', title: 'Auto-fund it', desc: 'The sandbox faucet pays the pocket QR for you.', done: !!s.funding },
     { id: 'sign', title: 'Sign', desc: 'Every installment, every candidate height, sealed.', done: s.phase === 'done' },
-    { id: 'close', title: 'Close the tab', desc: 'The payer goes away. Nothing on their side runs.', done: s.tabClosedAt !== null },
+    {
+      id: 'close',
+      title: 'Close the tab',
+      desc: needsCancelKey(s) ? 'Save the cancel key, then go away. Nothing on the payer side runs.' : 'The payer goes away. Nothing on their side runs.',
+      done: s.tabClosedAt !== null,
+    },
     { id: 'watch', title: 'Watch 3 installments land', desc: 'Sealed → due → broadcast → mined, by the runner alone.', done: mined >= 3 },
     { id: 'decode', title: 'Decode one', desc: 'Compare its shape with a stock wallet send.', done: s.decodedOnce },
     { id: 'cancel', title: 'Cancel', desc: 'Spend the pocket note. The rest can never be valid.', done: !!s.cancel && sub?.status === 'cancelled' },
@@ -291,7 +309,7 @@ function CreateForm() {
 
 function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined }) {
   const closed = s.tabClosedAt !== null && !s.reopened;
-  const settled = sub && (sub.status === 'completed' || sub.status === 'cancelled');
+  const settled = sub && (sub.status === 'completed' || sub.status === 'cancelled' || sub.status === 'stopped');
   return (
     <section className={`pane${closed ? ' closed' : ''}`} aria-label="Payer tab">
       <div className="pane-head">
@@ -309,11 +327,20 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
         {closed ? (
           <div className="stack" style={{ ['--gap' as string]: '16px', alignItems: 'center' }}>
             <PayerOffline since={s.tabClosedAt!} />
-            <button type="button" className="btn" onClick={() => { store.set({ reopened: true }); note('payer: tab reopened; pocket key unlocked (passkey, simulated)'); }}>
+            <button type="button" className="btn" onClick={() => { store.set({ reopened: true }); note(isMock ? 'payer: tab reopened; pocket key unlocked (passkey, simulated)' : 'payer: back in the tab; the pocket key never left its memory'); }}>
               <KeyIcon size={15} /> Reopen and unlock to cancel
             </button>
             <span className="tiny muted" style={{ maxWidth: 360 }}>
-              Simulated: the real signer keeps the pocket key sealed to a passkey. This mock kept it in memory.
+              {isMock ? (
+                'Simulated: this mock kept the pocket key in memory. The real signer has the payer save an encrypted cancel key instead.'
+              ) : s.kit ? (
+                <>
+                  The tab was only hidden, so the pocket key is still in its memory. For the real thing, reload this page (the key is gone), then open <Link to="/manage">Manage</Link> and
+                  load {s.kit.fileName} to cancel.
+                </>
+              ) : (
+                'The tab was only hidden: the pocket key is still in this tab’s memory. Without a saved cancel key, closing the tab for real gives up the option to cancel.'
+              )}
             </span>
           </div>
         ) : s.reopened && s.signer ? (
@@ -324,12 +351,13 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
             ) : (
               <CancelPanel
                 signer={s.signer}
-                showDemo
+                showDemo={isMock}
                 disabled={settled ? `The subscription is ${sub!.status}; nothing is left to cancel. Start over with more installments.` : undefined}
                 onCancelled={(r) => {
                   store.set({ cancel: r });
                   note(`payer: cancel broadcast ${r.txid.slice(0, 16)}…; refund ${formatZec(r.refunded_zat)} to an address of my own`, 'warn');
                 }}
+                onNothingLeft={(msg) => note(`payer: ${msg}`)}
               />
             )}
           </div>
@@ -344,19 +372,42 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
         ) : s.phase === 'signing' || s.phase === 'uploading' ? (
           <SigningView offer={s.offer} flow={s} />
         ) : s.phase === 'done' ? (
-          <DoneMoment offer={s.offer} flow={s}>
-            <div className="row" style={{ justifyContent: 'center' }}>
-              <button
-                type="button"
-                className="btn primary lg"
-                onClick={() => {
-                  store.set({ tabClosedAt: Date.now() / 1000 });
-                  note('payer: tab closed');
-                }}
-              >
-                <TabIcon size={16} /> Close the payer tab
-              </button>
-            </div>
+          <DoneMoment
+            offer={s.offer}
+            flow={s}
+            closeable={!needsCancelKey(s) || !!s.kit || s.keySkipped}
+            notice={
+              needsCancelKey(s) && s.signer && !s.keySkipped ? (
+                <SaveCancelKey
+                  signer={s.signer}
+                  subscriptionId={s.subscriptionId ?? null}
+                  saved={s.kit}
+                  onSaved={(kit) => {
+                    store.set({ kit });
+                    note(`payer: saved the cancel key as ${kit.fileName}, encrypted to a passphrase; it never left this browser`);
+                  }}
+                  onSkip={() => {
+                    store.set({ keySkipped: true });
+                    note('payer: skipped saving a cancel key; only this tab can cancel');
+                  }}
+                />
+              ) : undefined
+            }
+          >
+            {(!needsCancelKey(s) || s.kit || s.keySkipped) && (
+              <div className="row" style={{ justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  className="btn primary lg"
+                  onClick={() => {
+                    store.set({ tabClosedAt: Date.now() / 1000 });
+                    note('payer: tab closed');
+                  }}
+                >
+                  <TabIcon size={16} /> Close the payer tab
+                </button>
+              </div>
+            )}
           </DoneMoment>
         ) : s.phase === 'error' ? (
           <ErrorNote error={new Error(s.error ?? 'failed')} />

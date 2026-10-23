@@ -124,3 +124,44 @@ fn different_seeds_give_different_actions() {
     let b = build_rung(&params, h, &pocket, &inst, seed::rung_seed(&secret, &[1u8; 16], 1, 1)).unwrap();
     assert_ne!(a.actions, b.actions);
 }
+
+#[test]
+fn verify_rung_accepts_the_real_payment_and_rejects_others() {
+    use cadence_core::package::{redact_for_runner, verify_rung};
+    let (params, pocket, inst) = fixture();
+    let s = seed::rung_seed(&seed::app_secret(&pocket), &[1u8; 16], 1, 0);
+    let target = BlockHeight::from_u32(3_530_000);
+    let pczt = redact_for_runner(build_rung(&params, target, &pocket, &inst, s).unwrap().pczt);
+    assert!(verify_rung(&params, &pczt, &inst.merchant, 20_000, target).is_ok());
+    // Wrong amount, wrong payee, or a different target height (so a different expiry).
+    assert!(verify_rung(&params, &pczt, &inst.merchant, 20_001, target).is_err());
+    assert!(verify_rung(&params, &pczt, &pocket.funding_address(), 20_000, target).is_err());
+    assert!(verify_rung(&params, &pczt, &inst.merchant, 20_000, target + 1).is_err());
+}
+
+#[test]
+fn rungs_after_the_fee_switch_pay_the_zip_2009_fee_and_still_agree() {
+    use cadence_core::mandate::{installment_fee_at, MAINNET_FEE_SWITCH};
+    let (params, pocket, inst) = fixture();
+    let s = seed::rung_seed(&seed::app_secret(&pocket), &[1u8; 16], 1, 0);
+
+    let before = build_rung(&params, BlockHeight::from_u32(MAINNET_FEE_SWITCH - 1), &pocket, &inst, s).unwrap();
+    assert_eq!(u64::from(before.fee), 10_000);
+    assert_eq!(before.change.unwrap().value().inner(), 100_000 - 20_000 - 10_000);
+
+    let after: Vec<_> = [MAINNET_FEE_SWITCH, MAINNET_FEE_SWITCH + 1, MAINNET_FEE_SWITCH + 500]
+        .iter()
+        .map(|h| build_rung(&params, BlockHeight::from_u32(*h), &pocket, &inst, s).unwrap())
+        .collect();
+    for r in &after {
+        assert_eq!(u64::from(r.fee), 2_000);
+        assert_eq!(r.fee, installment_fee_at(&params, r.target_height));
+        assert_eq!(r.change.unwrap().value().inner(), 100_000 - 20_000 - 2_000);
+        // On one side of the switch, rungs still share their actions and change.
+        assert_eq!(r.actions, after[0].actions);
+        assert_eq!(
+            ExtractedNoteCommitment::from(r.change.unwrap().commitment()),
+            ExtractedNoteCommitment::from(after[0].change.unwrap().commitment())
+        );
+    }
+}

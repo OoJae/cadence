@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-zcash_primitives = { workspace = true, features = ["std"] }
+zcash_primitives = { workspace = true, features = ["std", "non-standard-fees"] }
 zcash_protocol = { workspace = true }
 zcash_keys = { workspace = true, features = ["orchard", "unstable-frost"] }
 pczt = { workspace = true, features = ["orchard", "zcp-builder", "io-finalizer", "signer"] }

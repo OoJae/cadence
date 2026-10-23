@@ -4,6 +4,8 @@ import { isUfvk, isUnifiedAddress } from '../lib/addresses';
 import { QUICKNET } from '../lib/drand';
 import { seededBech32 } from '../lib/prng';
 import { totalPrepaidZat } from '../lib/zat';
+import { NothingToCancelError } from './cancel';
+import { KIT_KIND } from './kit';
 import { MockSigner, PACKAGE_BYTES, type MockLedger } from './mock';
 
 const offer: Offer = {
@@ -89,5 +91,77 @@ describe('MockSigner', () => {
     expect(signer.keyCustody).toBe('memory');
     signer.destroy();
     await expect(signer.cancel(`utest1${seededBech32('r', 104)}`)).rejects.toThrow(/destroyed/);
+  });
+});
+
+describe('MockSigner cancel key', () => {
+  const ctx = { runner: 'http://localhost:5173', subscriptionId: 'sub_t' };
+  const subscribed = async (l: MockLedger) => {
+    const signer = new MockSigner(l);
+    const pocket = await signer.createPocket('test');
+    const funding = await signer.awaitFunding(totalPrepaidZat(100_000, 2));
+    await signer.presign(offer, funding);
+    return { signer, pocket };
+  };
+
+  it('saves an encrypted key that a fresh signer restores and cancels with', async () => {
+    const { l, cancels } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    const { signer, pocket } = await subscribed(l);
+    await expect(signer.sealKit('short', ctx)).rejects.toThrow(/at least 8/);
+    const kit = await signer.sealKit('correct horse battery', ctx);
+    expect(kit.fileName).toMatch(/^cadence-cancel-key-pkt_mock[a-z0-9]+\.mock$/);
+    // Encrypted: neither the seed nor the schedule is readable in the file.
+    const text = new TextDecoder().decode(kit.bytes);
+    expect(text.startsWith('cadence-mock-kit/1\n')).toBe(true);
+    expect(text).not.toContain('seed_hex');
+    expect(text).not.toContain(offer.merchant_ua);
+    // The tab closes: the key in memory is gone.
+    signer.destroy();
+
+    const fresh = new MockSigner(l);
+    await expect(fresh.openKit(kit.bytes, 'wrong horse battery')).rejects.toThrow(/wrong passphrase/);
+    const opened = await fresh.openKit(kit.bytes, 'correct horse battery');
+    expect(opened.seed).toHaveLength(32);
+    expect(opened.fields).toMatchObject({ kind: KIT_KIND, network: 'test', subscription_id: 'sub_t', offer_id: offer.offer_id, count: 2, amount_zat: 100_000, pocket_ua: pocket.ua });
+    const restored = await fresh.restore(opened);
+    expect(restored.ua).toBe(pocket.ua);
+    expect(restored.ufvk).toBe(pocket.ufvk);
+    // restore() takes the seed over; the caller's copy is zeroised.
+    expect(opened.seed.every((b) => b === 0)).toBe(true);
+
+    const statuses: string[] = [];
+    const refund = `utest1${seededBech32('refund', 104)}`;
+    const r = await fresh.cancel(refund, { onStatus: (s) => statuses.push(s.step) });
+    expect(r.refunded_zat).toBe(120_000 - 10_000);
+    expect(cancels).toEqual([{ refundUa: refund, valueZat: 110_000 }]);
+    expect(statuses).toEqual(['finding', 'proving', 'broadcasting']);
+    // The restored signer can save the key again.
+    expect((await fresh.sealKit('correct horse battery', ctx)).bytes.length).toBeGreaterThan(100);
+  });
+
+  it('refuses to save a key before the schedule is signed, or to restore over a pocket', async () => {
+    const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    const early = new MockSigner(l);
+    await early.createPocket('test');
+    await expect(early.sealKit('correct horse battery', ctx)).rejects.toThrow(/pre-sign/);
+    const { signer } = await subscribed(l);
+    const opened = await signer.openKit((await signer.sealKit('correct horse battery', ctx)).bytes, 'correct horse battery');
+    await expect(early.restore(opened)).rejects.toThrow(/already holds a pocket/);
+    await expect(signer.openKit(new TextEncoder().encode('age-encryption.org/v1\n'), 'correct horse battery')).rejects.toThrow(/not a cancel key from this mock/);
+  });
+
+  it('refuses a key whose seed does not match its pocket', async () => {
+    const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    const { signer } = await subscribed(l);
+    const opened = await signer.openKit((await signer.sealKit('correct horse battery', ctx)).bytes, 'correct horse battery');
+    opened.seed[0] = opened.seed[0]! ^ 1;
+    await expect(new MockSigner(l).restore(opened)).rejects.toThrow(/damaged/);
+  });
+
+  it('reports an empty pocket as nothing to cancel, not as a failure', async () => {
+    const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    l.pocketBalance = () => 0;
+    const { signer } = await subscribed(l);
+    await expect(signer.cancel(`utest1${seededBech32('r', 104)}`)).rejects.toBeInstanceOf(NothingToCancelError);
   });
 });

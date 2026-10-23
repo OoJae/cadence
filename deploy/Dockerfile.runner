@@ -7,7 +7,8 @@ RUN cargo build --release -p cadence-runner -p cadence-cli -p cadence-decode
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN useradd --system --create-home --home-dir /cadence cadence
+# A fixed uid, so the host can chown the bind-mounted data directories to it.
+RUN useradd --system --uid 10001 --create-home --home-dir /cadence cadence
 COPY --from=build /src/target/release/cadence-runner /src/target/release/cadence /src/target/release/cadence-decode /usr/local/bin/
 USER cadence
 WORKDIR /cadence

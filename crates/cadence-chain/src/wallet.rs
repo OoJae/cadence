@@ -43,7 +43,22 @@ pub type Db = WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>;
 pub const ANCHOR_CONFIRMATIONS: u32 = 3;
 
 pub fn open(path: &Path, params: Network) -> Result<Db> {
-    Ok(WalletDb::for_path(path, params, SystemClock, UnwrapErr(SysRng))?)
+    let conn = rusqlite::Connection::open(path)?;
+    rusqlite::vtab::array::load_module(&conn)?;
+    // A deleted pocket's keys and notes are overwritten on disk, not just unlinked.
+    conn.pragma_update(None, "secure_delete", "ON")?;
+    Ok(WalletDb::from_connection(conn, params, SystemClock, UnwrapErr(SysRng)))
+}
+
+/// Rewrites the wallet file so that no free page still holds a deleted pocket's
+/// keys or notes. Call it before [`open`], while nothing else has the file open.
+pub fn compact(path: &Path) -> Result<()> {
+    if path.exists() {
+        let conn = rusqlite::Connection::open(path)?;
+        conn.pragma_update(None, "secure_delete", "ON")?;
+        conn.execute_batch("VACUUM")?;
+    }
+    Ok(())
 }
 
 pub fn init(db: &mut Db) -> Result<()> {
@@ -218,7 +233,7 @@ pub async fn pay(
     let tip = lwd::tip(client).await?;
     let target = tip + 1;
     let anchor_height = target - ANCHOR_CONFIRMATIONS;
-    let needed = u64::from(amount) + u64::from(cadence_core::mandate::installment_fee());
+    let needed = u64::from(amount) + u64::from(cadence_core::mandate::installment_fee_at(params, target));
     let input = unspent_notes(db, account, target)?
         .into_iter()
         .filter(|n| n.mined <= anchor_height && n.note.value().inner() >= needed)
