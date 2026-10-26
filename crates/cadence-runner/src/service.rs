@@ -462,12 +462,10 @@ pub async fn finish(app: &App, sub: &Subscription, status: &str, at: Option<&Ins
     Ok(())
 }
 
+/// Hands the event to its own task, which retries it (`webhook::deliver`); the tick
+/// goes on at once, and no lock is held while the merchant answers.
 fn send_webhook(app: &App, event: Event) {
     if let (Some(url), Some(secret)) = (app.cfg.webhook_url.clone(), app.cfg.webhook_secret.clone()) {
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = webhook::post(&url, secret.as_bytes(), &event, now()) {
-                eprintln!("webhook {}: {e:#}", event.kind);
-            }
-        });
+        tokio::spawn(webhook::deliver(url, secret, event));
     }
 }
