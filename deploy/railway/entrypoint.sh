@@ -36,6 +36,15 @@ if [ -n "${CADENCE_WEBHOOK_URL:-}" ]; then
   set -- "$@" --webhook-url "$CADENCE_WEBHOOK_URL"
 fi
 
+# A web app hosted elsewhere: share links point there, and its origin (and any
+# in CADENCE_CORS_ORIGINS, comma-separated) may call the API.
+if [ -n "${CADENCE_APP_URL:-}" ]; then
+  set -- "$@" --app-url "$CADENCE_APP_URL"
+fi
+if [ -n "${CADENCE_CORS_ORIGINS:-}" ]; then
+  set -- "$@" --cors-origin "$CADENCE_CORS_ORIGINS"
+fi
+
 # Testnet sandbox only: the faucet wallet, from a secret variable.
 if [ -n "${SANDBOX_FUNDER_SEED:-}" ]; then
   [ "$NET" = test ] || { echo "the sandbox funder is testnet only" >&2; exit 1; }

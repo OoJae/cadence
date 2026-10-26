@@ -22,6 +22,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use axum::http::{HeaderValue, Uri};
 use cadence_chain::{lwd, wallet, Transport};
 use cadence_seal::{age::x25519, DrandChain};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -104,9 +105,17 @@ enum Command {
         tor_dir: PathBuf,
         #[arg(long, default_value = "127.0.0.1:8737")]
         listen: String,
-        /// Where payers reach this runner (also the base of share links).
+        /// Where payers reach this runner (also the base of share links, unless --app-url).
         #[arg(long, default_value = "http://127.0.0.1:8737")]
         public_url: String,
+        /// Where the web app is hosted, when not by this runner: share links point
+        /// there, and its origin may call the API.
+        #[arg(long, env = "CADENCE_APP_URL")]
+        app_url: Option<String>,
+        /// Another origin whose pages may call the API, such as https://app.example
+        /// (repeatable, or comma-separated).
+        #[arg(long = "cors-origin", env = "CADENCE_CORS_ORIGINS", value_delimiter = ',')]
+        cors_origins: Vec<String>,
         #[arg(long, env = "CADENCE_MERCHANT_TOKEN")]
         merchant_token: String,
         #[arg(long)]
@@ -193,6 +202,8 @@ async fn main() -> Result<()> {
             tor_dir,
             listen,
             public_url,
+            app_url,
+            cors_origins,
             merchant_token,
             webhook_url,
             webhook_secret,
@@ -205,6 +216,22 @@ async fn main() -> Result<()> {
             if merchant_token.len() < 16 {
                 bail!("use a merchant token of at least 16 characters");
             }
+            let app_url = app_url.map(|u| u.trim().trim_end_matches('/').to_string()).filter(|u| !u.is_empty());
+            let mut origins = cors_origins
+                .iter()
+                .map(|o| o.trim())
+                .filter(|o| !o.is_empty())
+                .map(|o| origin_of(o, true).context("--cors-origin"))
+                .collect::<Result<Vec<_>>>()?;
+            if let Some(url) = &app_url {
+                origins.push(origin_of(url, false).context("--app-url")?);
+            }
+            origins.sort();
+            origins.dedup();
+            let cors = origins
+                .iter()
+                .map(|o| HeaderValue::from_str(o).map_err(|_| anyhow!("{o}: not a header value")))
+                .collect::<Result<Vec<_>>>()?;
             let identity = load_identity(&paths.identity)?;
             let recipient = identity.to_public().to_string();
             let sync_client = connect(&server, direct, tor_dir.join("sync")).await?;
@@ -279,6 +306,7 @@ async fn main() -> Result<()> {
                     network: paths.network.params(),
                     network_name: paths.network.name(),
                     public_url,
+                    app_url,
                     merchant_token,
                     webhook_url,
                     webhook_secret,
@@ -297,8 +325,58 @@ async fn main() -> Result<()> {
             tokio::spawn(service::run(app.clone()));
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             println!("runner listening on {listen}; payers seal to {recipient}");
-            axum::serve(listener, api::router(app, web_dir)).await?;
+            if !origins.is_empty() {
+                println!("the API also answers pages from {}", origins.join(", "));
+            }
+            axum::serve(listener, api::router(app, web_dir, cors)).await?;
         }
     }
     Ok(())
+}
+
+/// The origin a browser sends for pages under `url`: scheme and host in lower case,
+/// the default port left out. With `bare`, `url` must be an origin alone, with no path.
+fn origin_of(url: &str, bare: bool) -> Result<String> {
+    if url == "*" {
+        bail!("give exact origins; * is not allowed");
+    }
+    let uri: Uri = url.parse().map_err(|_| anyhow!("{url}: not a URL"))?;
+    let scheme = uri.scheme_str().unwrap_or_default().to_ascii_lowercase();
+    let default_port = match scheme.as_str() {
+        "https" => 443,
+        "http" => 80,
+        _ => bail!("{url}: expected an http:// or https:// URL"),
+    };
+    let authority = uri.authority().with_context(|| format!("{url}: no host"))?;
+    if authority.as_str().contains('@') {
+        bail!("{url}: must not carry a user name or password");
+    }
+    if bare && !matches!(uri.path_and_query().map(|p| p.as_str()), None | Some("/")) {
+        bail!("{url}: give the origin alone (scheme, host and port), with no path");
+    }
+    if uri.query().is_some() {
+        bail!("{url}: must not carry a query string");
+    }
+    let host = authority.host().to_ascii_lowercase();
+    Ok(match authority.port_u16() {
+        Some(port) if port != default_port => format!("{scheme}://{host}:{port}"),
+        _ => format!("{scheme}://{host}"),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_of;
+
+    #[test]
+    fn origins_are_what_browsers_send() {
+        assert_eq!(origin_of("https://app.example", true).unwrap(), "https://app.example");
+        assert_eq!(origin_of("https://App.Example:443/", true).unwrap(), "https://app.example");
+        assert_eq!(origin_of("http://localhost:5173", true).unwrap(), "http://localhost:5173");
+        assert_eq!(origin_of("https://app.example/cadence", false).unwrap(), "https://app.example");
+        for bad in ["*", "app.example", "https://app.example/cadence", "ftp://app.example", "https://me@app.example", "null"] {
+            assert!(origin_of(bad, true).is_err(), "{bad}");
+        }
+        assert!(origin_of("https://app.example/?from=runner", false).is_err());
+    }
 }

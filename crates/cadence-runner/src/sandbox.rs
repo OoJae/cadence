@@ -1,7 +1,6 @@
 //! Testnet-only endpoints for the judge sandbox: an offer anyone can subscribe to,
-//! a funded pocket, and the runner *genuinely attempting* the three things it must
-//! not be able to do. Each cheat returns the real error from the component that
-//! stops it.
+//! a funded pocket, and the runner *genuinely attempting* things that must not
+//! work. Each cheat returns the real error from the component that stops it.
 
 use std::{convert::Infallible, sync::Arc};
 
@@ -35,7 +34,7 @@ use zcash_protocol::{
 };
 
 use crate::{
-    api::{bad, insert_offer, not_found, ApiError, ApiResult},
+    api::{bad, check_schedule, insert_offer, not_found, ApiError, ApiResult},
     service::{fetch_beacon, now, parse_txid, App, Funder},
     store::{Installment, Subscription},
 };
@@ -182,7 +181,9 @@ pub async fn cheat(State(app): State<Arc<App>>, Json(req): Json<Cheat>) -> ApiRe
     let result = match req.kind.as_str() {
         "open_early" => open_early(&app, &sub, req.k).await,
         "tamper_amount" => tamper_amount(&app, &sub, req.k).await,
-        "replay_after_cancel" => replay(&app, &sub).await,
+        "stretch_schedule" => stretch_schedule(&app, &sub),
+        // The old name: the node refuses the copy whether or not the payer cancelled.
+        "rebroadcast" | "replay_after_cancel" => rebroadcast(&app, &sub, &req.kind).await,
         _ => return Err(bad("unknown cheat")),
     };
     Ok(match result {
@@ -333,8 +334,8 @@ async fn tamper_amount(app: &App, sub: &Subscription, k: u32) -> Result<Json<Val
     }
 }
 
-/// Re-broadcast an installment the runner already released.
-async fn replay(app: &App, sub: &Subscription) -> Result<Json<Value>> {
+/// Broadcast the newest installment the runner already released a second time.
+async fn rebroadcast(app: &App, sub: &Subscription, kind: &str) -> Result<Json<Value>> {
     let inst = sub
         .installments
         .iter()
@@ -345,7 +346,7 @@ async fn replay(app: &App, sub: &Subscription) -> Result<Json<Value>> {
     let mut client = app.sync_client.clone();
     let (bytes, _) = lwd::raw_transaction(&mut client, &parse_txid(txid)?).await?;
     let mut log = vec![format!(
-        "runner: broadcasting installment {} again ({}…), whose pocket note is already spent",
+        "runner: rebroadcasting paid installment {} ({}…), whose pocket note is already spent",
         inst.k,
         &txid[..16]
     )];
@@ -353,8 +354,151 @@ async fn replay(app: &App, sub: &Subscription) -> Result<Json<Value>> {
     match lwd::send(&mut broadcaster, bytes).await {
         Err(e) => {
             log.push(format!("{e:#}"));
-            Ok(verdict("replay_after_cancel", inst.k, "rejected", Some("double-spend"), log))
+            Ok(verdict(kind, inst.k, "rejected", Some("double-spend"), log))
         }
         Ok(()) => bail!("the network accepted a spent note, which must never happen"),
+    }
+}
+
+/// Move one installment of the subscription's own schedule a year later, and put
+/// that copy through the check every upload passes (`POST /api/subscriptions`).
+fn stretch_schedule(app: &App, sub: &Subscription) -> Result<Json<Value>> {
+    const YEAR_SECS: u64 = 365 * 24 * 60 * 60;
+    let (offer, funded) = {
+        let store = app.store.lock().unwrap();
+        let offer = store.offer(&sub.offer_id)?.context("offer gone")?;
+        let pocket = store.pocket_for_subscription(&sub.subscription_id)?;
+        (offer, pocket.funding.map(|f| f.value_zat))
+    };
+    let mut rounds: Vec<(u32, u64)> = sub.installments.iter().map(|i| (i.k, i.release_round)).collect();
+    // Checked as of the upload, which this schedule passed.
+    let uploaded = sub.created_at;
+    check_schedule(&app.chain, &offer, funded, &rounds, uploaded)
+        .map_err(|e| anyhow!("this subscription's own schedule does not pass the check: {e}"))?;
+    let k: u32 = if rounds.len() >= 2 { 2 } else { 1 };
+    let moved = &mut rounds[k as usize - 1].1;
+    *moved += YEAR_SECS.div_ceil(app.chain.period);
+    let at = cadence_seal::time_of(&app.chain, *moved);
+    let mut log = vec![if k == 1 {
+        format!(
+            "runner: copying the schedule with installment 1 sealed for {}, a year later; \
+             the offer says every {} s from subscribing",
+            utc(at),
+            offer.period_secs
+        )
+    } else {
+        let first = cadence_seal::time_of(&app.chain, rounds[0].1);
+        format!(
+            "runner: copying the schedule with installment 2 sealed for {}, {} days after #1; \
+             the offer says every {} s",
+            utc(at),
+            (at - first) / 86_400,
+            offer.period_secs
+        )
+    }];
+    log.push("runner: checking the copy as POST /api/subscriptions checks every upload".into());
+    match check_schedule(&app.chain, &offer, funded, &rounds, uploaded) {
+        Err(e) => {
+            log.push(format!("schedule check: {e}"));
+            Ok(verdict("stretch_schedule", k, "rejected", Some("schedule"), log))
+        }
+        Ok(()) => bail!("a stretched schedule passed the check, which must never happen"),
+    }
+}
+
+/// A UNIX time as `2027-10-26 14:03 UTC`.
+fn utc(unix: u64) -> String {
+    // Howard Hinnant's days-to-civil conversion, for days since 1970-01-01.
+    let z = (unix / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let secs = unix % 86_400;
+    format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", secs / 3_600, secs % 3_600 / 60)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{header, Request, StatusCode},
+    };
+    use serde_json::{json, Value};
+
+    use super::utc;
+    use crate::{
+        api::{
+            router,
+            tests::{offer, prepaid, send, signed_schedule, subscribable, test_app, upload},
+        },
+        service::now,
+    };
+
+    fn cheat(subscription_id: &Value, kind: &str) -> Request<Body> {
+        let body = json!({ "subscription_id": subscription_id, "kind": kind, "k": 1 });
+        Request::post("/api/sandbox/cheat")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn stretched_schedule_is_refused_by_the_upload_check() {
+        for count in [3, 1] {
+            let app = test_app(true, None);
+            let api = router(app.clone(), None, vec![]);
+            let o = offer(count, 90);
+            let (offer_id, pocket_id) = subscribable(&app, count, 90, Some(prepaid(&o)));
+            let rounds = signed_schedule(&app.chain, &o, now(), 60);
+            let (status, _, sub) = send(&api, upload(&app, &offer_id, &pocket_id, &rounds)).await;
+            assert_eq!(status, StatusCode::CREATED, "{sub}");
+
+            let (status, _, verdict) = send(&api, cheat(&sub["subscription_id"], "stretch_schedule")).await;
+            assert_eq!(status, StatusCode::OK);
+            let k = if count == 1 { 1 } else { 2 };
+            assert_eq!(verdict["outcome"], "rejected", "{verdict}");
+            assert_eq!(verdict["stage"], "schedule");
+            assert_eq!(verdict["k"], k);
+            let log: Vec<&str> = verdict["log"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+            assert!(log[0].starts_with(&format!("runner: copying the schedule with installment {k} sealed for ")), "{log:?}");
+            if count > 1 {
+                assert!(log[0].contains(", 365 days after #1; the offer says every 90 s"), "{log:?}");
+            }
+            let last = log.last().unwrap();
+            assert!(last.starts_with(&format!("schedule check: installment {k} releases ")), "{log:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn rebroadcast_keeps_its_old_name() {
+        let app = test_app(true, None);
+        let api = router(app.clone(), None, vec![]);
+        let o = offer(2, 90);
+        let (offer_id, pocket_id) = subscribable(&app, 2, 90, Some(prepaid(&o)));
+        let rounds = signed_schedule(&app.chain, &o, now(), 60);
+        let (_, _, sub) = send(&api, upload(&app, &offer_id, &pocket_id, &rounds)).await;
+        // Nothing is mined yet, so neither name has anything to rebroadcast.
+        for kind in ["rebroadcast", "replay_after_cancel"] {
+            let (status, _, verdict) = send(&api, cheat(&sub["subscription_id"], kind)).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(verdict["kind"], kind);
+            assert_eq!(verdict["outcome"], "not_applicable");
+            assert_eq!(verdict["log"][0], "no installment has been released yet");
+        }
+        let (status, _, _) = send(&api, cheat(&sub["subscription_id"], "replay")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn utc_dates() {
+        assert_eq!(utc(0), "1970-01-01 00:00 UTC");
+        assert_eq!(utc(951_782_400), "2000-02-29 00:00 UTC");
+        assert_eq!(utc(1_700_000_000), "2023-11-14 22:13 UTC");
+        assert_eq!(utc(1_792_677_856), "2026-10-22 14:04 UTC");
     }
 }
