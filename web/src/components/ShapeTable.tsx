@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react';
-import type { Shape } from '../api/types';
+import type { NetworkId, Shape } from '../api/types';
 import type { ShapeProfile } from '../data/stockReference';
 import {
   anchorMatchesStockRule,
   blocksLate,
   BRANCHES,
   defaultExpiry,
+  expectedFee,
+  expiryDeltaFor,
+  feeRuleName,
   impliedTarget,
   proofBytesFor,
   sameOrDiffers,
@@ -16,11 +19,19 @@ import { Badge } from './ui';
 
 const n = (x: number) => x.toLocaleString('en-US');
 const range = (a: number, b: number) => (a === b ? n(a) : `${n(a)}–${n(b)}`);
+const none = <span className="faint mono">—</span>;
+
+/** "target + 40" before NU7, "target + 120" from NU7. */
+function deltaText(s: Shape): string {
+  const delta = expiryDeltaFor(s.branch_id);
+  return delta === null ? 'target + ?' : `target + ${delta}`;
+}
 
 interface Row {
   label: string;
   hint: string;
-  value: (s: Shape) => ReactNode;
+  /** `network` is the one the transaction was decoded from: the fee rule depends on it. */
+  value: (s: Shape, network: NetworkId) => ReactNode;
   /** How this field compares with the reference column. */
   compare: (a: Shape, b: Shape) => Comparison;
   /** Can a chain observer read this field? (Everything in a Shape is public; this says whether it reveals anything about you.) */
@@ -87,7 +98,7 @@ const ROWS: Row[] = [
     hint: 'Spend + output pairs',
     value: (s) => (
       <span className="mono">
-        {s.ironwood_actions} <span className="muted">· flags {s.ironwood_flags} (0b{s.ironwood_flags.toString(2)})</span>
+        {s.ironwood_actions} {s.ironwood_flags != null && <span className="muted">· flags {s.ironwood_flags} (0b{s.ironwood_flags.toString(2)})</span>}
       </span>
     ),
     compare: (a, b) => sameOrDiffers([a.ironwood_actions, a.ironwood_flags], [b.ironwood_actions, b.ironwood_flags]),
@@ -97,56 +108,72 @@ const ROWS: Row[] = [
   {
     label: 'Fee',
     hint: 'Ironwood value balance',
-    value: (s) => (
-      <span className="mono">
-        {n(s.ironwood_value_balance)} zats{' '}
-        <span className="muted">{s.ironwood_value_balance === 5000 * s.ironwood_actions ? '· ZIP 317 for 2 actions' : ''}</span>
-      </span>
-    ),
+    value: (s, network) => {
+      if (s.ironwood_value_balance == null) return none;
+      const target = impliedTarget(s);
+      const standard = target !== null && s.ironwood_actions === 2 && s.ironwood_value_balance === expectedFee(s, network);
+      return (
+        <span className="mono">
+          {n(s.ironwood_value_balance)} zats <span className="muted">{standard ? `· ${feeRuleName(network, target)} for 2 actions` : ''}</span>
+        </span>
+      );
+    },
     compare: (a, b) => sameOrDiffers(a.ironwood_value_balance, b.ironwood_value_balance),
     observer: 'visible',
-    observerNote: 'The only value that leaves the pool is the standard fee. The payment amount stays encrypted.',
+    observerNote: 'The only value that leaves the pool is the standard fee for the target height (ZIP 317; on mainnet from 3,590,000, ZIP 2009). The payment amount stays encrypted.',
   },
   {
     label: 'Expiry delta',
     hint: 'Expiry relative to target height',
-    value: (s) =>
-      s.mined_height ? (
+    value: (s) => {
+      const late = blocksLate(s);
+      return s.mined_height ? (
         <span className="mono">
-          target + 120 <span className="muted">· expiry − mined = {s.expiry_minus_mined} ({blocksLate(s)} late)</span>
+          {deltaText(s)}{' '}
+          <span className="muted">
+            · expiry − mined = {s.expiry_minus_mined}
+            {late !== null && ` (${late} late)`}
+          </span>
         </span>
       ) : (
         <span className="mono">
-          target + 120 <span className="muted">· not mined yet</span>
+          {deltaText(s)} <span className="muted">· not mined yet</span>
         </span>
-      ),
+      );
+    },
     compare: (a, b) => (defaultExpiry(a) === defaultExpiry(b) ? 'same' : 'differs'),
     observer: 'visible',
-    observerNote: 'The NU7 default every stock wallet uses. Rungs are signed per height so the runner never needs a non-default expiry.',
+    observerNote: 'The default every stock wallet uses for its branch: 40 blocks before NU7, 120 from NU7. Rungs are signed per height so the runner never needs a non-default expiry.',
   },
   {
     label: 'Anchor depth range',
     hint: 'How far below the mined block the anchor sits',
-    value: (s) =>
-      s.mined_height ? (
+    value: (s) => {
+      if (!s.anchor_heights) return none;
+      const heights = `${s.anchor_heights[0] === s.anchor_heights[1] ? 'height' : 'heights'} ${range(s.anchor_heights[0], s.anchor_heights[1])}`;
+      return s.mined_height && s.anchor_depths ? (
         <span className="mono">
-          {range(s.anchor_depths[0], s.anchor_depths[1])} blocks <span className="muted">· {s.anchor_heights[0] === s.anchor_heights[1] ? 'height' : 'heights'} {range(s.anchor_heights[0], s.anchor_heights[1])}</span>
+          {range(s.anchor_depths[0], s.anchor_depths[1])} blocks <span className="muted">· {heights}</span>
         </span>
       ) : (
-        <span className="mono">heights {range(s.anchor_heights[0], s.anchor_heights[1])}</span>
-      ),
-    compare: (a, b) => (anchorMatchesStockRule(a) === anchorMatchesStockRule(b) ? 'same' : 'differs'),
+        <span className="mono">{heights}</span>
+      );
+    },
+    compare: (a, b) => (!a.anchor_heights || !b.anchor_heights ? 'n/a' : anchorMatchesStockRule(a) === anchorMatchesStockRule(b) ? 'same' : 'differs'),
     observer: 'visible',
     observerNote: 'Consistent with target − 3, the stock wallet rule. A stale pre-proved anchor would stand out here; Cadence proves at release time instead.',
   },
   {
     label: 'Proof size',
     hint: 'Halo 2, 2720 + 2272 × actions',
-    value: (s) => (
-      <span className="mono">
-        {n(s.ironwood_proof_bytes)} bytes {s.ironwood_proof_bytes === proofBytesFor(s.ironwood_actions) && <span className="muted">· standard</span>}
-      </span>
-    ),
+    value: (s) =>
+      s.ironwood_proof_bytes == null ? (
+        none
+      ) : (
+        <span className="mono">
+          {n(s.ironwood_proof_bytes)} bytes {s.ironwood_proof_bytes === proofBytesFor(s.ironwood_actions) && <span className="muted">· standard</span>}
+        </span>
+      ),
     compare: (a, b) => sameOrDiffers(a.ironwood_proof_bytes, b.ironwood_proof_bytes),
     observer: 'visible',
     observerNote: 'Fixed by the action count.',
@@ -201,10 +228,13 @@ function MatchCell({ c }: { c: Comparison }) {
   return <span className="match na">{c === 'per-tx' ? 'per tx' : 'n/a'}</span>;
 }
 
-export function ShapeTable({ shape, compare }: { shape: Shape; compare?: ShapeProfile | null }) {
+/** `network` is the one the runner decoded both transactions from (testnet, where the judge sandbox runs, if not given). */
+export function ShapeTable({ shape, compare, network = 'test' }: { shape: Shape; compare?: ShapeProfile | null; network?: NetworkId }) {
   const rows = ROWS;
   const comparable = compare ? rows.map((r) => r.compare(shape, compare.shape)).filter((c) => c === 'same' || c === 'differs') : [];
   const same = comparable.filter((c) => c === 'same').length;
+  const target = impliedTarget(shape);
+  const delta = expiryDeltaFor(shape.branch_id);
 
   return (
     <div className="stack" style={{ ['--gap' as string]: '12px' }}>
@@ -234,10 +264,10 @@ export function ShapeTable({ shape, compare }: { shape: Shape; compare?: ShapePr
                   <div className="h4">{r.label}</div>
                   <div className="tiny muted">{r.hint}</div>
                 </td>
-                <td data-label="This transaction">{r.value(shape)}</td>
+                <td data-label="This transaction">{r.value(shape, network)}</td>
                 {compare && (
                   <td data-label={compare.source === 'reference' ? 'Stock send' : 'Compared'}>
-                    {r.label === 'Pocket-OVK recoverable' ? <span className="faint mono">— no pocket key</span> : r.label === 'Mined height' && compare.source === 'reference' ? <span className="faint mono">—</span> : r.value(compare.shape)}
+                    {r.label === 'Pocket-OVK recoverable' ? <span className="faint mono">— no pocket key</span> : r.label === 'Mined height' && compare.source === 'reference' ? <span className="faint mono">—</span> : r.value(compare.shape, network)}
                   </td>
                 )}
                 {compare && (
@@ -267,17 +297,20 @@ export function ShapeTable({ shape, compare }: { shape: Shape; compare?: ShapePr
         </table>
       </div>
       <p className="tiny muted">
-        Implied target height {n(impliedTarget(shape))} (expiry − 120). Every field above is public; the badges say whether it tells an observer anything about the payer, the
-        merchant or the amount.
+        {target !== null && delta !== null
+          ? `Implied target height ${n(target)} (expiry − ${delta}, the ${BRANCHES[shape.branch_id]} default). `
+          : `No implied target height: this app knows no default expiry delta for branch ${shape.branch_id}. `}
+        Every field above is public; the badges say whether it tells an observer anything about the payer, the merchant or the amount.
       </p>
     </div>
   );
 }
 
 /** The two lists judges care about: what a chain observer can and cannot tell. */
-export function ObserverSummary() {
+/** `fee` is the decoded transaction's fee, when there is one to quote. */
+export function ObserverSummary({ fee }: { fee?: number | null }) {
   const can = [
-    ['That it is a v6 Ironwood transaction', 'with 2 actions and the standard 10,000-zat fee, like any one-recipient send.'],
+    ['That it is a v6 Ironwood transaction', `with 2 actions and the standard ${fee ? `${n(fee)}-zat ` : ''}fee for its height, like any one-recipient send.`],
     ['When it was mined', 'and its expiry and anchor heights, so roughly when it was built.'],
     ['That some note was spent and two were created', 'but not which note, or whose.'],
   ];
