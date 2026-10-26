@@ -6,6 +6,7 @@ import { Subscribe } from './pages/Subscribe';
 import { Decode } from './pages/Decode';
 import { Sandbox } from './pages/Sandbox';
 import { Manage } from './pages/Manage';
+import { Status } from './pages/Status';
 import { NotFound } from './pages/NotFound';
 
 function Routes() {
@@ -15,6 +16,7 @@ function Routes() {
   if (pathname === '/subscribe') return <Subscribe />;
   if (pathname === '/sandbox') return <Sandbox />;
   if (pathname === '/manage') return <Manage />;
+  if (pathname === '/status') return <Status />;
   if (pathname === '/decode') return <Decode txid={null} />;
   const decode = matchPath('/decode/:txid', pathname);
   if (decode) return <Decode key={decode.txid} txid={decode.txid ?? null} />;
