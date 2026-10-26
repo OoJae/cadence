@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
-import { SaveCancelKey } from '../components/CancelKey';
+import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView } from '../components/FlowViews';
-import { BanIcon, BoltIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
+import { BanIcon, BoltIcon, ClockIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
 import { LogView, useRunnerLog } from '../components/RunnerLog';
 import { ShapeTable } from '../components/ShapeTable';
 import { Timeline } from '../components/Timeline';
@@ -15,7 +15,6 @@ import type { LogLine } from '../lib/runnerLog';
 import { formatZec, totalPrepaidZat } from '../lib/zat';
 import { Link } from '../router';
 import { api, createSigner, isMock, mockHooks } from '../runtime';
-import type { SealedKit } from '../signer/kit';
 import type { CancelReceipt, Signer } from '../signer/types';
 
 type CheatResult = SandboxCheatResponse | { error: string };
@@ -29,9 +28,8 @@ interface SandboxState extends FlowState {
   tabClosedAt: number | null;
   reopened: boolean;
   cancel: CancelReceipt | null;
-  /** The encrypted cancel key, once saved (real mode). */
-  kit: SealedKit | null;
-  keySkipped: boolean;
+  /** The cancel key (real mode): downloaded, checked, or skipped. */
+  key: CancelKeyState;
   decodeTxid: string | null;
   decodedOnce: boolean;
   cheats: Partial<Record<CheatKind, CheatResult>>;
@@ -47,8 +45,7 @@ const store = createStore<SandboxState>(() => ({
   tabClosedAt: null,
   reopened: false,
   cancel: null,
-  kit: null,
-  keySkipped: false,
+  key: NO_CANCEL_KEY,
   decodeTxid: null,
   decodedOnce: false,
   cheats: {},
@@ -125,7 +122,7 @@ function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
     {
       id: 'close',
       title: 'Close the tab',
-      desc: needsCancelKey(s) ? 'Save the cancel key, then go away. Nothing on the payer side runs.' : 'The payer goes away. Nothing on their side runs.',
+      desc: needsCancelKey(s) ? 'Save the cancel key and check it opens, then go away. Nothing on the payer side runs.' : 'The payer goes away. Nothing on their side runs.',
       done: s.tabClosedAt !== null,
     },
     { id: 'watch', title: 'Watch 3 installments land', desc: 'Sealed → due → broadcast → mined, by the runner alone.', done: mined >= 3 },
@@ -137,11 +134,27 @@ function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
 function pick(sub: Subscription | undefined, kind: CheatKind): Installment | undefined {
   if (!sub) return undefined;
   const list = sub.installments;
-  if (kind === 'open_early') return list.find((i) => i.k === 3 && i.state === 'sealed') ?? list.find((i) => i.state === 'sealed');
-  if (kind === 'tamper_amount') return [...list].reverse().find((i) => i.state === 'due' || i.state === 'broadcast' || i.state === 'mined');
-  return list.find((i) => i.state === 'cancelled');
+  switch (kind) {
+    case 'open_early':
+      return list.find((i) => i.k === 3 && i.state === 'sealed') ?? list.find((i) => i.state === 'sealed');
+    case 'tamper_amount':
+      return [...list].reverse().find((i) => i.state === 'due' || i.state === 'broadcast' || i.state === 'mined');
+    case 'rebroadcast':
+      // The runner rebroadcasts the latest paid installment.
+      return [...list].reverse().find((i) => i.state === 'mined' && i.txid);
+    case 'stretch_schedule':
+      return list.find((i) => i.k === 2);
+  }
 }
 
+const UNAVAILABLE: Record<CheatKind, string> = {
+  open_early: 'No sealed installment left.',
+  tamper_amount: 'Wait for installment 1 to open.',
+  rebroadcast: 'Wait for installment 1 to be mined.',
+  stretch_schedule: 'This plan has no installment 2.',
+};
+
+// The verify script finds the first three cards by position: keep this order.
 const CHEATS: Array<{ kind: CheatKind; title: (k?: number) => string; expect: string; why: string; icon: ReactNode }> = [
   {
     kind: 'open_early',
@@ -158,11 +171,18 @@ const CHEATS: Array<{ kind: CheatKind; title: (k?: number) => string; expect: st
     icon: <PenIcon size={16} />,
   },
   {
-    kind: 'replay_after_cancel',
-    title: (k) => `Replay installment ${k ?? 4} after cancel`,
+    kind: 'rebroadcast',
+    title: () => 'Rebroadcast a paid installment',
     expect: 'fails: double-spend',
-    why: 'Each installment spends one specific pocket note. Once the payer spent it, any transaction revealing that nullifier again is a double-spend.',
+    why: 'Each installment spends one pocket note, and a paid installment has already spent its note, so the node refuses the same transaction again. No cancel is needed.',
     icon: <BanIcon size={16} />,
+  },
+  {
+    kind: 'stretch_schedule',
+    title: () => 'Stretch the plan: payer seals installment 2 a year late',
+    expect: 'fails: schedule',
+    why: "The runner checks every installment's drand round against the offer's period before it accepts a schedule, so one sealed a year late is refused.",
+    icon: <ClockIcon size={16} />,
   },
 ];
 
@@ -174,7 +194,7 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
     try {
       const res = await api.sandboxCheat({ subscription_id: sub.subscription_id, kind, k });
       store.set((st) => ({ cheats: { ...st.cheats, [kind]: res } }));
-      if (res.outcome === 'rejected') note(`cheat: ${kind.replace(/_/g, ' ')} on installment ${k} rejected by ${res.stage}`, 'err');
+      if (res.outcome === 'rejected') note(`cheat: ${kind.replace(/_/g, ' ')} on installment ${res.k} rejected by ${res.stage}`, 'err');
     } catch (e) {
       store.set((st) => ({ cheats: { ...st.cheats, [kind]: { error: (e as Error).message } } }));
     } finally {
@@ -188,27 +208,17 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
         <div className="stack" style={{ ['--gap' as string]: '6px' }}>
           <span className="kicker">Cheat buttons</span>
           <h2 id="cheats" className="h3">
-            Make the runner misbehave
+            Make the runner, or the payer, misbehave
           </h2>
           <p className="small muted">Each attempt goes to the runner, which tries the forbidden action and reports what stopped it.</p>
         </div>
         {isMock && <span className="tag">mock runner · reproduces the real failure path</span>}
       </div>
-      <div className="grid cols-3" style={{ ['--gap' as string]: '12px' }}>
+      <div className="grid cols-2" style={{ ['--gap' as string]: '12px', alignItems: 'start' }}>
         {CHEATS.map((c) => {
           const target = pick(sub, c.kind);
           const result = s.cheats[c.kind];
-          let disabled: string | null = null;
-          if (!sub) disabled = 'Sign a mandate first.';
-          else if (!target)
-            disabled =
-              c.kind === 'open_early'
-                ? 'No sealed installment left.'
-                : c.kind === 'tamper_amount'
-                  ? 'Wait for installment 1 to open.'
-                  : s.cancel
-                    ? 'Waiting for the cancel to be mined…'
-                    : 'Cancel first (step 7).';
+          const disabled = !sub ? 'Sign a mandate first.' : !target ? UNAVAILABLE[c.kind] : null;
           return (
             <div className="cheat" key={c.kind}>
               <div className="row between">
@@ -307,6 +317,20 @@ function CreateForm() {
   );
 }
 
+/** The runner log's payer line for a cancel-key step. */
+function keyNote(key: CancelKeyState): string | null {
+  switch (key.step) {
+    case 'downloaded':
+      return `payer: downloaded the cancel key as ${key.kit.fileName}, encrypted to a passphrase; it never left this browser`;
+    case 'verified':
+      return `payer: picked ${key.kit.fileName} again and opened it with its passphrase; it is this pocket's key`;
+    case 'skipped':
+      return key.kit ? 'payer: skipped checking the cancel key' : 'payer: skipped saving a cancel key; only this tab can cancel';
+    case 'none':
+      return null;
+  }
+}
+
 function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined }) {
   const closed = s.tabClosedAt !== null && !s.reopened;
   const settled = sub && (sub.status === 'completed' || sub.status === 'cancelled' || sub.status === 'stopped');
@@ -333,13 +357,13 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
             <span className="tiny muted" style={{ maxWidth: 360 }}>
               {isMock ? (
                 'Simulated: this mock kept the pocket key in memory. The real signer has the payer save an encrypted cancel key instead.'
-              ) : s.kit ? (
+              ) : s.key.step === 'verified' ? (
                 <>
                   The tab was only hidden, so the pocket key is still in its memory. For the real thing, reload this page (the key is gone), then open <Link to="/manage">Manage</Link> and
-                  load {s.kit.fileName} to cancel.
+                  load {s.key.kit.fileName} to cancel.
                 </>
               ) : (
-                'The tab was only hidden: the pocket key is still in this tab’s memory. Without a saved cancel key, closing the tab for real gives up the option to cancel.'
+                'The tab was only hidden: the pocket key is still in this tab’s memory. Without a cancel key you have checked, closing the tab for real gives up the option to cancel.'
               )}
             </span>
           </div>
@@ -375,26 +399,24 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
           <DoneMoment
             offer={s.offer}
             flow={s}
-            closeable={!needsCancelKey(s) || !!s.kit || s.keySkipped}
+            closeable={!needsCancelKey(s) || cancelKeySettled(s.key)}
             notice={
-              needsCancelKey(s) && s.signer && !s.keySkipped ? (
+              needsCancelKey(s) && s.signer ? (
                 <SaveCancelKey
                   signer={s.signer}
                   subscriptionId={s.subscriptionId ?? null}
-                  saved={s.kit}
-                  onSaved={(kit) => {
-                    store.set({ kit });
-                    note(`payer: saved the cancel key as ${kit.fileName}, encrypted to a passphrase; it never left this browser`);
+                  state={s.key}
+                  onChange={(key) => {
+                    store.set({ key });
+                    const line = keyNote(key);
+                    if (line) note(line);
                   }}
-                  onSkip={() => {
-                    store.set({ keySkipped: true });
-                    note('payer: skipped saving a cancel key; only this tab can cancel');
-                  }}
+                  skip="quick"
                 />
               ) : undefined
             }
           >
-            {(!needsCancelKey(s) || s.kit || s.keySkipped) && (
+            {(!needsCancelKey(s) || cancelKeySettled(s.key)) && (
               <div className="row" style={{ justifyContent: 'center' }}>
                 <button
                   type="button"

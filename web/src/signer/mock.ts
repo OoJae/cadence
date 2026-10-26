@@ -17,7 +17,21 @@ import { bytesToBase64 } from '../lib/base64url';
 import { firstReleaseLead, planSchedule } from '../lib/schedule';
 import { INSTALLMENT_FEE_ZAT, totalPrepaidZat, type NetworkId } from '../lib/zat';
 import { NothingToCancelError } from './cancel';
-import { bytesToHex, hexToBytes, KIT_KIND, kitFileName, kitJson, parseKit, passphraseProblem, type KitFields, type OpenedKit, type SealedKit } from './kit';
+import {
+  bytesToHex,
+  checkKit,
+  hexToBytes,
+  KIT_KIND,
+  kitFileName,
+  kitJson,
+  parseKit,
+  passphraseProblem,
+  WRONG_PASSPHRASE,
+  type KitCheck,
+  type KitFields,
+  type OpenedKit,
+  type SealedKit,
+} from './kit';
 import {
   SignerError,
   type CancelOptions,
@@ -66,6 +80,9 @@ async function deriveChars(seed: Uint8Array, label: string, length: number): Pro
 
 const MOCK_KIT_MAGIC = new TextEncoder().encode('cadence-mock-kit/1\n');
 const MOCK_KIT_ITERATIONS = 100_000;
+
+/** The magic, a 16-byte salt, a 12-byte IV and at least the AES-GCM tag. */
+const isMockKit = (bytes: Uint8Array) => bytes.length >= MOCK_KIT_MAGIC.length + 28 && MOCK_KIT_MAGIC.every((b, i) => bytes[i] === b);
 
 async function mockKitKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
@@ -222,19 +239,30 @@ export class MockSigner implements Signer {
   async openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit> {
     this.#alive();
     const head = MOCK_KIT_MAGIC.length;
-    if (bytes.length < head + 28 || !MOCK_KIT_MAGIC.every((b, i) => bytes[i] === b)) {
-      throw new SignerError('this file is not a cancel key from this mock build');
-    }
+    if (!isMockKit(bytes)) throw new SignerError('this file is not a cancel key from this mock build');
     let plain: Uint8Array;
     try {
       const key = await mockKitKey(passphrase, bytes.slice(head, head + 16));
       plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(head + 16, head + 28) }, key, bytes.slice(head + 28)));
     } catch {
-      throw new SignerError('wrong passphrase for this recovery kit');
+      throw new SignerError(WRONG_PASSPHRASE);
     }
     const { fields, seedHex } = parseKit(JSON.parse(new TextDecoder().decode(plain)));
     plain.fill(0);
     return { fields, seed: hexToBytes(seedHex) };
+  }
+
+  async verifyKit(bytes: Uint8Array, passphrase: string): Promise<KitCheck> {
+    this.#alive();
+    const pocket = this.#pocket;
+    if (!pocket || !this.#seed) throw new SignerError('create a pocket first');
+    const pocketId = mockPocketId(pocket.ufvk);
+    const expected = { network: pocket.network, pocket_id: pocketId, pocket_ua: pocket.ua, fileName: kitFileName(pocketId, 'mock') };
+    return checkKit(bytes, passphrase, expected, {
+      looksLikeKit: isMockKit,
+      open: (b, p) => this.openKit(b, p),
+      addressOf: async (_network, seed) => (await MockSigner.#derive(seed)).ua,
+    });
   }
 
   async restore(kit: OpenedKit): Promise<PocketInfo> {
@@ -301,6 +329,9 @@ export class UnavailableSigner implements Signer {
   }
   openKit(): Promise<OpenedKit> {
     return Promise.reject(new SignerError('this build has no in-browser signer (build with VITE_SIGNER=wasm); cancel with the cadence CLI: cadence cancel --subscription <cancel key> --to <your address>'));
+  }
+  verifyKit(): Promise<KitCheck> {
+    this.#fail();
   }
   restore(): Promise<PocketInfo> {
     this.#fail();

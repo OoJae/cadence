@@ -54,7 +54,8 @@ function load(): Promise<SignerGlue> {
 
 type Handlers = { [K in keyof SignerOps]: (w: SignerGlue, a: SignerOps[K]['in']) => SignerOps[K]['out'] };
 
-const handlers: Handlers = {
+/** Exported for tests, which call them on the wasm module directly. */
+export const handlers: Handlers = {
   pocket: (w, { network }) => {
     const seed = crypto.getRandomValues(new Uint8Array(32));
     const { ua, ufvk } = JSON.parse(w.pocket_info(network, seed)) as { ua: string; ufvk: string };

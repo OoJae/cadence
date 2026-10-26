@@ -4,14 +4,15 @@
  * that implements the same contract with in-memory keys.
  *
  * One Signer instance serves one mandate: createPocket() → awaitFunding() →
- * presign() → sealKit() → (later) cancel(). A signer can instead start from a saved
- * cancel key: openKit() → restore() → cancel(). Key material leaves the signer only
- * encrypted to the payer's passphrase (sealKit); otherwise the app only ever sees
- * the pocket's address, its view-only UFVK and sealed packages.
+ * presign() → sealKit() → verifyKit() → (later) cancel(). A signer can instead
+ * start from a saved cancel key: openKit() → restore() → cancel(). Key material
+ * leaves the signer only encrypted to the payer's passphrase (sealKit); otherwise
+ * the app only ever sees the pocket's address, its view-only UFVK and sealed
+ * packages.
  */
 import type { Offer, SealedInstallment } from '../api/types';
 import type { NetworkId } from '../lib/zat';
-import type { OpenedKit, SealedKit } from './kit';
+import type { KitCheck, OpenedKit, SealedKit } from './kit';
 
 export type { SealedInstallment };
 
@@ -130,6 +131,14 @@ export interface Signer {
 
   /** Decrypts a cancel key saved by sealKit, in a worker, and checks its shape. */
   openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit>;
+
+  /**
+   * Checks a cancel key the payer saved and picked again: it opens with `passphrase`
+   * (as openKit does) and is this pocket's key, with the same pocket id and address
+   * and a seed that makes that address. Resolves with what is wrong rather than
+   * throwing for a wrong file or passphrase. Keeps nothing; needs a pocket.
+   */
+  verifyKit(bytes: Uint8Array, passphrase: string): Promise<KitCheck>;
 
   /** Loads an opened cancel key into this fresh signer, so it can cancel. */
   restore(kit: OpenedKit): Promise<PocketInfo>;

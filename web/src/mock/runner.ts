@@ -6,6 +6,7 @@
  * round passes, waits until its input note is 3 blocks deep (anchor = target − 3),
  * is broadcast for target = tip + 1 only if the payer signed a rung for exactly that
  * height (else "missed"), and is "cancelled" if its input was spent elsewhere first.
+ * An uploaded schedule must follow its offer's period (scheduleProblem).
  */
 import type {
   CheatKind,
@@ -34,6 +35,32 @@ export const EXPIRY_DELTA = 120;
 export const ANCHOR_CONFIRMATIONS = 3;
 /** Poll interval plus sync plus proving: how long after its round the runner acts. */
 export const RUNNER_LATENCY_SECS = 4;
+
+/**
+ * Why a schedule does not match its offer, or null. Installments are numbered 1…N,
+ * their rounds increase, and each releases one period after the one before, to within
+ * one drand round: the signer rounds each release time up to the next round.
+ */
+export function scheduleProblem(offer: Pick<Offer, 'count' | 'period_secs'>, installments: ReadonlyArray<{ k: number; release_round: number }>): string | null {
+  if (installments.length !== offer.count) return `expected ${offer.count} installments, got ${installments.length}`;
+  for (const [i, inst] of installments.entries()) {
+    if (inst.k !== i + 1) return 'installments must be numbered 1…N in order';
+    if (!Number.isSafeInteger(inst.release_round) || inst.release_round < 1) return `installment ${inst.k} has no release round`;
+    if (i === 0) continue;
+    const prev = installments[i - 1]!;
+    if (inst.release_round <= prev.release_round) return 'release rounds must increase';
+    const gap = roundTime(inst.release_round) - roundTime(prev.release_round);
+    if (Math.abs(gap - offer.period_secs) > QUICKNET.period) {
+      return `installment ${inst.k} releases ${gap.toLocaleString('en-US')} s after installment ${prev.k}, but the offer's period is ${offer.period_secs.toLocaleString('en-US')} s`;
+    }
+  }
+  return null;
+}
+
+/** The sandbox cheats, under their current names. `replay_after_cancel` is the old name of `rebroadcast`. */
+const CHEAT_KINDS: readonly CheatKind[] = ['open_early', 'tamper_amount', 'rebroadcast', 'stretch_schedule'];
+
+const YEAR_SECS = 365 * 86_400;
 
 export interface MockInstallmentRecord {
   k: number;
@@ -321,13 +348,12 @@ export class MockRunner {
     const need = totalPrepaidZat(offer.amount_zat, offer.count);
     if (funding.value_zat < need) throw new HttpError(422, `the funding note holds ${funding.value_zat} zats; this offer needs ${need}`);
     const list = Array.isArray(b.installments) ? b.installments : [];
-    if (list.length !== offer.count) throw new HttpError(422, `expected ${offer.count} installments, got ${list.length}`);
-    let lastRound = 0;
-    const installments: MockInstallmentRecord[] = list.map((inst, i) => {
-      if (!inst || inst.k !== i + 1) throw new HttpError(422, 'installments must be numbered 1…N in order');
-      if (!Number.isSafeInteger(inst.release_round) || inst.release_round <= lastRound) throw new HttpError(422, 'release rounds must increase');
+    if (!list.every((inst) => inst && typeof inst === 'object')) throw new HttpError(422, 'installments must be numbered 1…N in order');
+    // The schedule must be the offer's: a payer cannot stretch or squeeze the plan the merchant set.
+    const problem = scheduleProblem(offer, list);
+    if (problem) throw new HttpError(422, problem);
+    const installments: MockInstallmentRecord[] = list.map((inst) => {
       if (typeof inst.sealed !== 'string' || inst.sealed.length < 64) throw new HttpError(422, `installment ${inst.k} has no sealed package`);
-      lastRound = inst.release_round;
       return {
         k: inst.k,
         amount_zat: offer.amount_zat,
@@ -395,8 +421,8 @@ export class MockRunner {
   cheat(body: unknown): SandboxCheatResponse {
     const b = body as { subscription_id?: unknown; kind?: unknown; k?: unknown } | null;
     if (!b || typeof b.subscription_id !== 'string') throw new HttpError(422, 'subscription_id is required');
-    const kind = b.kind as CheatKind;
-    if (kind !== 'open_early' && kind !== 'tamper_amount' && kind !== 'replay_after_cancel') throw new HttpError(422, 'unknown cheat');
+    const kind = (b.kind === 'replay_after_cancel' ? 'rebroadcast' : b.kind) as CheatKind;
+    if (!CHEAT_KINDS.includes(kind)) throw new HttpError(422, 'unknown cheat');
     const rec = this.subs.get(b.subscription_id);
     if (!rec) throw new HttpError(404, 'no such subscription');
     const now = this.clock();
@@ -442,20 +468,40 @@ export class MockRunner {
       };
     }
 
-    // replay_after_cancel
-    const cancelTx = this.chain.pocketSpend(rec.pocket_ufvk);
-    if (!cancelTx || cancelTx.mined_height > this.chain.tipAt(now)) return na('the pocket has not been cancelled on chain yet; cancel first, then replay');
-    if (inst.state !== 'cancelled') return na(`installment ${k} was already ${inst.state} before the cancel; pick a cancelled installment`);
-    const nf = seededHex(`${rec.subscription_id}:nf:${k}`);
+    if (kind === 'stretch_schedule') {
+      // The payer's side of the cheat: the same schedule with installment k and every
+      // later one sealed a year late. The runner runs its upload check on it.
+      if (k < 2) return na(`installment ${k} has no installment before it to keep the period from; pick installment 2 or later`);
+      const shift = Math.round(YEAR_SECS / QUICKNET.period);
+      const stretched = rec.installments.map((i) => ({ k: i.k, release_round: i.k >= k ? i.release_round + shift : i.release_round }));
+      const problem = scheduleProblem(rec.offer, stretched);
+      if (!problem) throw new Error('a stretched schedule matched its offer, which must never happen');
+      const moved = stretched[k - 1]!.release_round;
+      return {
+        kind,
+        k,
+        outcome: 'rejected',
+        stage: 'schedule',
+        log: [
+          `payer: installment ${k} sealed to drand round ${moved} (${new Date(roundTime(moved) * 1000).toISOString().slice(0, 10)}) instead of round ${inst.release_round}, a year late`,
+          `runner: checking the schedule against offer ${rec.offer.offer_id}: ${rec.offer.count} installments, one every ${rec.offer.period_secs} s`,
+          `runner: subscription refused: ${problem}`,
+        ],
+      };
+    }
+
+    // rebroadcast: like the real runner, it sends the latest paid installment again.
+    const paid = [...detail].reverse().find((d) => d.state === 'mined' && d.txid);
+    if (!paid) return na('no installment has been released yet');
+    const nf = seededHex(`${rec.subscription_id}:nf:${paid.k}`);
     return {
       kind,
-      k,
+      k: paid.k,
       outcome: 'rejected',
       stage: 'double-spend',
       log: [
-        `installment ${k}: its input was spent elsewhere; mandate cancelled`,
-        `replaying installment ${k}'s pre-signed bytes to a node directly instead`,
-        `node: transaction rejected: Ironwood double-spend: nullifier ${shorten(nf, 12, 8)} was already revealed by ${shorten(cancelTx.txid, 12, 8)} at height ${cancelTx.mined_height}`,
+        `runner: broadcasting installment ${paid.k} again (${paid.txid!.slice(0, 16)}…), whose pocket note is already spent`,
+        `node: transaction rejected: Ironwood double-spend: nullifier ${shorten(nf, 12, 8)} was already revealed by ${shorten(paid.txid!, 12, 8)} at height ${paid.mined_height}`,
       ],
     };
   }

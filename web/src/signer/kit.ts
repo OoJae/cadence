@@ -193,6 +193,81 @@ export function kitTargetProblem(fields: Pick<KitFields, 'runner' | 'network'>, 
   return null;
 }
 
+/** The largest file worth opening: a kit's plaintext is at most 1 MiB (cadence-seal), plus age's header and tags. */
+export const MAX_KIT_BYTES = (1 << 20) + 64 * 1024;
+
+/** `cadence_seal::SealError::WrongPassphrase`. The mock signer uses the same words. */
+export const WRONG_PASSPHRASE = 'wrong passphrase for this recovery kit';
+
+const AGE_SCRYPT = new TextEncoder().encode('age-encryption.org/v1\n-> scrypt ');
+
+/** Whether `bytes` start as the WASM signer's kits do: an age file encrypted to a passphrase (one scrypt stanza). */
+export function isAgeKit(bytes: Uint8Array): boolean {
+  return bytes.length > AGE_SCRYPT.length && AGE_SCRYPT.every((b, i) => bytes[i] === b);
+}
+
+/** What a re-picked cancel key must be to count as this tab's: the pocket the signer holds, and the file it saved. */
+export interface KitExpectation {
+  network: NetworkId;
+  pocket_id: string;
+  pocket_ua: string;
+  fileName: string;
+}
+
+/**
+ * Why a re-picked cancel key fails: `file`, not a cancel key at all; `passphrase`, it
+ * does not open with the one typed; `pocket`, it opens but is another pocket's key;
+ * `damaged`, it does not open cleanly, or its seed does not make its address.
+ */
+export type KitCheckReason = 'file' | 'passphrase' | 'pocket' | 'damaged';
+
+export type KitCheck = { ok: true } | { ok: false; reason: KitCheckReason; message: string };
+
+/** How a signer opens a kit: its file format, its decryption (in a worker, for WASM), and its address derivation. */
+export interface KitOpener {
+  looksLikeKit(bytes: Uint8Array): boolean;
+  open(bytes: Uint8Array, passphrase: string): Promise<OpenedKit>;
+  addressOf(network: NetworkId, seed: Uint8Array): Promise<string>;
+}
+
+/**
+ * Proves that a cancel key the payer saved, then picked again, works: it opens with
+ * `passphrase` the way /manage opens it, it names this tab's pocket (network, pocket id
+ * and address), and its seed makes that address. The opened seed is zeroised before
+ * this returns, whatever the outcome; nothing is kept or sent anywhere.
+ */
+export async function checkKit(bytes: Uint8Array, passphrase: string, expected: KitExpectation, opener: KitOpener): Promise<KitCheck> {
+  const pick = `Pick ${expected.fileName}, the file you just downloaded.`;
+  if (bytes.length === 0 || bytes.length > MAX_KIT_BYTES || !opener.looksLikeKit(bytes)) {
+    return { ok: false, reason: 'file', message: `Wrong file: this is not a Cadence cancel key. ${pick}` };
+  }
+  let opened: OpenedKit;
+  try {
+    opened = await opener.open(bytes, passphrase);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    if (why.includes(WRONG_PASSPHRASE)) {
+      return { ok: false, reason: 'passphrase', message: 'Wrong passphrase: the file does not open with it. Type the passphrase you chose for this key; it is case-sensitive.' };
+    }
+    return { ok: false, reason: 'damaged', message: `The file did not open: ${why}. Download the key again and pick the new file.` };
+  }
+  const { fields, seed } = opened;
+  try {
+    if (fields.network !== expected.network || fields.pocket_id !== expected.pocket_id) {
+      return { ok: false, reason: 'pocket', message: `Wrong file: this is the cancel key of another pocket (${fields.pocket_id}), not of this one (${expected.pocket_id}). ${pick}` };
+    }
+    if (fields.pocket_ua !== expected.pocket_ua) {
+      return { ok: false, reason: 'pocket', message: `Wrong file: this cancel key names this pocket's id but another address, so it would not open this pocket. ${pick}` };
+    }
+    if ((await opener.addressOf(fields.network, seed)) !== expected.pocket_ua) {
+      return { ok: false, reason: 'damaged', message: "This cancel key is damaged: its seed does not make this pocket's address, so it could not cancel. Download the key again." };
+    }
+    return { ok: true };
+  } finally {
+    seed.fill(0);
+  }
+}
+
 /** `cadence cancel` with the kit: needs the runner (for the live note and its witness), over Tor. */
 export function cliCancelCommand(fileName: string, refundUa?: string): string {
   return `cadence cancel --subscription ${fileName} --to ${refundUa?.trim() || '<your UA>'}`;

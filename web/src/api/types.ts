@@ -231,7 +231,8 @@ export interface SandboxOfferRequest {
   amount_zat: number;
 }
 
-export type CheatKind = 'open_early' | 'tamper_amount' | 'replay_after_cancel';
+/** `rebroadcast` was named `replay_after_cancel`; the runner still accepts the old name. */
+export type CheatKind = 'open_early' | 'tamper_amount' | 'rebroadcast' | 'stretch_schedule';
 
 export interface SandboxCheatRequest {
   subscription_id: string;
@@ -245,7 +246,7 @@ export interface SandboxCheatResponse {
   /** `rejected` is the expected outcome. `not_applicable` means the precondition is not met yet. */
   outcome: 'rejected' | 'not_applicable';
   /** Which defence stopped it. */
-  stage: 'tlock' | 'signature' | 'double-spend' | null;
+  stage: 'tlock' | 'signature' | 'double-spend' | 'schedule' | null;
   /** Error lines, in the order the components print them. */
   log: string[];
 }
