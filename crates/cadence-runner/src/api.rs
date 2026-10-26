@@ -479,8 +479,15 @@ async fn create_subscription(
             store.pocket(&req.pocket_id)?.ok_or_else(|| bad("unknown pocket"))?,
         )
     };
-    if pocket.subscription_id.is_some() {
-        return Err(bad("this pocket already backs a subscription; pockets are single-use"));
+    if let Some(existing) = &pocket.subscription_id {
+        // A payer retrying an upload that landed after its page gave up sends the same
+        // packages again: answer with the subscription they already made.
+        return match app.store.lock().unwrap().subscription(existing)? {
+            Some(sub) if same_packages(&sub, &req.installments) => {
+                Ok((StatusCode::OK, Json(json!({ "subscription_id": sub.subscription_id, "status": sub.status }))))
+            }
+            _ => Err(bad("this pocket already backs a subscription; pockets are single-use")),
+        };
     }
     let rounds: Vec<(u32, u64)> = req.installments.iter().map(|i| (i.k, i.release_round)).collect();
     check_schedule(&app.chain, &offer, pocket.funding.as_ref().map(|f| f.value_zat), &rounds, now())
@@ -514,6 +521,16 @@ async fn create_subscription(
         .unwrap()
         .insert_subscription(&id, &offer.offer_id, &pocket.pocket_id, now(), &installments)?;
     Ok((StatusCode::CREATED, Json(json!({ "subscription_id": id, "status": "active" }))))
+}
+
+/// Whether an upload carries exactly the packages a subscription already holds.
+fn same_packages(sub: &crate::store::Subscription, uploaded: &[NewInstallment]) -> bool {
+    sub.installments.len() == uploaded.len()
+        && sub.installments.iter().zip(uploaded).all(|(have, new)| {
+            have.k == new.k
+                && have.release_round == new.release_round
+                && have.sealed.as_deref().is_some_and(|bytes| STANDARD.decode(&new.sealed).is_ok_and(|b| b == bytes))
+        })
 }
 
 async fn list_subscriptions(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
@@ -951,6 +968,38 @@ pub(crate) mod tests {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .unwrap()
+    }
+
+    fn upload_body(offer_id: &str, pocket_id: &str, body: &Value) -> Request<Body> {
+        let mut body = body.clone();
+        body["offer_id"] = json!(offer_id);
+        body["pocket_id"] = json!(pocket_id);
+        Request::post("/api/subscriptions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_same_upload_again_returns_the_same_subscription() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let o = offer(2, 90);
+        let fair = signed_schedule(&app.chain, &o, now(), 60);
+        let (offer_id, pocket_id) = subscribable(&app, 2, 90, Some(prepaid(&o)));
+        let first = upload(&app, &offer_id, &pocket_id, &fair);
+        let bytes = axum::body::to_bytes(first.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+        let (status, _, made) = send(&api, upload_body(&offer_id, &pocket_id, &body)).await;
+        assert_eq!(status, StatusCode::CREATED, "{made}");
+        let (status, _, again) = send(&api, upload_body(&offer_id, &pocket_id, &body)).await;
+        assert_eq!(status, StatusCode::OK, "{again}");
+        assert_eq!(again["subscription_id"], made["subscription_id"]);
+        // Different packages for the same pocket are still refused.
+        let (status, _, other) = send(&api, upload(&app, &offer_id, &pocket_id, &fair)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{other}");
+        assert!(other["error"].as_str().unwrap().contains("single-use"), "{other}");
     }
 
     #[tokio::test]

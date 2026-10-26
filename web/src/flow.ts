@@ -2,7 +2,7 @@
  * The payer's mandate flow, shared by /subscribe and the sandbox:
  * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
-import type { CadenceClient } from './api/client';
+import { ApiError, type CadenceClient } from './api/client';
 import type { Offer, SealedInstallment } from './api/types';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
 import { buildZip321Uri } from './lib/zip321';
@@ -68,21 +68,69 @@ export async function runMandate(
       },
     });
     update({ sealed, signedAt, phase: 'uploading' });
-
-    const res = await (opts.api ?? api).createSubscription(
-      {
-        offer_id: offer.offer_id,
-        ...(pocket.pocket_id ? { pocket_id: pocket.pocket_id } : {}),
-        pocket_ufvk: pocket.ufvk,
-        birthday_height: pocket.birthday_height,
-        funding_txid: funding.txid,
-        installments: sealed,
-      },
-      opts.signal,
-    );
-    update({ subscriptionId: res.subscription_id, phase: 'done' });
+    const subscriptionId = await uploadSealed(offer, pocket, funding, sealed, opts);
+    update({ subscriptionId, phase: 'done' });
   } catch (e) {
     if (opts.signal?.aborted) return;
     update({ phase: 'error', error: (e as Error).message });
   }
 }
+
+/** Upload attempts, and the wait before each retry. */
+const UPLOAD_RETRY_MS = [3_000, 10_000];
+
+/**
+ * Uploads the sealed packages. A timeout or a 5xx is retried: the runner accepts the
+ * same packages again for the same pocket and answers with the same subscription, so
+ * an upload that landed after the page gave up costs nothing.
+ */
+async function uploadSealed(
+  offer: Offer,
+  pocket: PocketInfo,
+  funding: FundingTx,
+  sealed: SealedInstallment[],
+  opts: { signal?: AbortSignal; api?: CadenceClient; sleep?: (ms: number) => Promise<void> },
+): Promise<string> {
+  const body = {
+    offer_id: offer.offer_id,
+    ...(pocket.pocket_id ? { pocket_id: pocket.pocket_id } : {}),
+    pocket_ufvk: pocket.ufvk,
+    birthday_height: pocket.birthday_height,
+    funding_txid: funding.txid,
+    installments: sealed,
+  };
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await (opts.api ?? api).createSubscription(body, opts.signal)).subscription_id;
+    } catch (e) {
+      const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      if (!retriable || attempt >= UPLOAD_RETRY_MS.length || opts.signal?.aborted) throw e;
+      await sleep(UPLOAD_RETRY_MS[attempt]!);
+    }
+  }
+}
+
+/**
+ * Uploads again after a failed upload, from what the flow already holds: the packages
+ * are sealed and the pocket is funded, so starting over would only strand the pocket.
+ */
+export async function retryUpload(
+  offer: Offer,
+  s: FlowState,
+  update: (patch: Partial<FlowState>) => void,
+  opts: { signal?: AbortSignal; api?: CadenceClient } = {},
+): Promise<void> {
+  if (!s.pocket || !s.funding || !s.sealed) return;
+  try {
+    update({ phase: 'uploading', error: undefined });
+    const subscriptionId = await uploadSealed(offer, s.pocket, s.funding, s.sealed, opts);
+    update({ subscriptionId, phase: 'done' });
+  } catch (e) {
+    if (opts.signal?.aborted) return;
+    update({ phase: 'error', error: (e as Error).message });
+  }
+}
+
+/** Whether a failed flow can upload again rather than start over. */
+export const canRetryUpload = (s: FlowState): boolean => Boolean(s.pocket && s.funding && s.sealed && !s.subscriptionId);

@@ -116,7 +116,7 @@ export function Decode({ txid }: { txid: string | null }) {
     0,
     [compareTxid],
   );
-  // The runner decodes from its own node, so its network is the transaction's: the
+  // The runner decodes through its own lightwalletd, so its network is the transaction's: the
   // fee rule and the stock reference depend on it.
   const status = usePoll((signal) => api.status(signal), 0);
   const evidence = valid && !!findS2Shape(txid!);
@@ -141,7 +141,7 @@ export function Decode({ txid }: { txid: string | null }) {
       <PageHead
         kicker="Evidence"
         title="What the chain sees"
-        lede="The public shape of any transaction, read from the runner's own node: the same fields cadence-decode prints. Compare an installment with a stock wallet send, field by field."
+        lede="The public shape of any transaction, read through the runner's lightwalletd: the same fields cadence-decode prints. Compare an installment with a stock wallet send, on every measured field."
       >
         <TxidForm initial={txid ?? ''} compare={compareTxid} />
       </PageHead>
@@ -164,7 +164,7 @@ export function Decode({ txid }: { txid: string | null }) {
                     ? 'Real decode from evidence/S2-testnet.md (cadence-decode against NU7 testnet).'
                     : isMock
                       ? 'Synthesised by the mock runner with the same rules as the S2 evidence.'
-                      : "Decoded by the runner from its own node's copy of the transaction."}
+                      : "Decoded by the runner from its lightwalletd's copy of the transaction."}
                 </span>
               </div>
               {shape.data && network && (

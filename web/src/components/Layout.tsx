@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { BUILD_INFO_FILE, type BuildInfo } from '../config/buildInfo';
 import { usePoll } from '../hooks';
 import { shorten } from '../lib/addresses';
-import { Link } from '../router';
-import { api, apiLabel, connectTargets, isMock, loadBuildInfo, mockHooks } from '../runtime';
+import { Link, useLocation } from '../router';
+import { api, apiLabel, apiSetting, connectTargets, isMock, loadBuildInfo, mockHooks } from '../runtime';
 import { Logo, MoonIcon, SunIcon } from './Icons';
 import { CopyButton } from './ui';
 
@@ -29,7 +29,25 @@ function ThemeToggle() {
   );
 }
 
+/**
+ * In an app-host build, /subscribe and /manage talk to the runner their offer or
+ * cancel key names. Polling the default runner there would tell it, a different
+ * merchant's runner, that this page is open, so the pill does not poll on them.
+ */
 function RunnerPill() {
+  const { pathname } = useLocation();
+  const ownRunner = apiSetting.kind === 'runners' && (pathname.startsWith('/subscribe') || pathname.startsWith('/manage'));
+  return ownRunner ? (
+    <span className="runner-pill" title="This page talks only to the runner its offer or cancel key names">
+      <span className="status-dot" aria-hidden="true" />
+      <span>the page's own runner</span>
+    </span>
+  ) : (
+    <PolledRunnerPill />
+  );
+}
+
+function PolledRunnerPill() {
   const status = usePoll((signal) => api.status(signal), 5000);
   const ok = !!status.data && !status.error;
   return (

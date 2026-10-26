@@ -21,7 +21,7 @@ export class HttpTransport implements Transport {
     if (req.body !== undefined) headers['Content-Type'] = 'application/json';
     if (req.token) headers.Authorization = `Bearer ${req.token}`;
 
-    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(req.timeoutMs ?? TIMEOUT_MS);
     const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
 
     let res: Response;

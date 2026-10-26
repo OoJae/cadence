@@ -35,7 +35,7 @@ Only one process may use a given sandbox funder seed at a time: stop any local s
 
 ## App host (the web app on an origin of its own)
 
-When a runner serves the web app, the merchant serves the code that holds the payer's pocket key (`docs/threat-model.md`, §6). An app host serves the same app from an origin of its own, and the runners keep only the API. This mode is built and tested (`cd web && pnpm verify:app-host`) but not deployed for the demo.
+When a runner serves the web app, the merchant serves the code that holds the payer's pocket key (`docs/threat-model.md`, §6). An app host serves the same app from an origin of its own, and the runners keep only the API. This mode is built, tested (`cd web && pnpm verify:app-host`) and deployed for the demo at https://app-production-be97.up.railway.app, talking to the sandbox and mainnet runners.
 
 1. Build a `VITE_API=runners` app. It talks to exactly the runners listed, and its CSP `connect-src` is `'self'` plus those origins:
 

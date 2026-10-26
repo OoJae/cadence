@@ -28,6 +28,8 @@ export interface ApiRequest {
   /** Merchant bearer token. Held by the caller in memory only. */
   token?: string;
   signal?: AbortSignal;
+  /** Overrides the transport's default timeout, for large uploads. */
+  timeoutMs?: number;
 }
 
 /** Something that can carry a request to a runner: `fetch`, or the in-memory mock. */
@@ -74,7 +76,7 @@ export class CadenceClient {
 
   /** `POST /api/subscriptions`: upload the sealed, pre-signed ladder (payer). */
   createSubscription(body: CreateSubscriptionRequest, signal?: AbortSignal): Promise<CreateSubscriptionResponse> {
-    return this.transport.request({ method: 'POST', path: '/api/subscriptions', body, signal });
+    return this.transport.request({ method: 'POST', path: '/api/subscriptions', body, signal, timeoutMs: uploadTimeoutMs(body.installments) });
   }
 
   /** `POST /api/pockets`: ask the runner to watch a new pocket (payer, WASM signer). */
@@ -153,4 +155,14 @@ export class CadenceClient {
   sandboxCheat(body: SandboxCheatRequest, signal?: AbortSignal): Promise<SandboxCheatResponse> {
     return this.transport.request({ method: 'POST', path: '/api/sandbox/cheat', body, signal });
   }
+}
+
+/**
+ * A weekly plan's later installments carry thousands of rungs each, so its upload runs
+ * to several megabytes. Allow 30 s plus 30 s per megabyte (a slow 0.3 Mbit/s uplink),
+ * at most 10 minutes.
+ */
+export function uploadTimeoutMs(installments: { sealed: string }[]): number {
+  const mb = installments.reduce((n, i) => n + i.sealed.length, 0) / 1e6;
+  return Math.min(600_000, Math.round(30_000 + 30_000 * mb));
 }

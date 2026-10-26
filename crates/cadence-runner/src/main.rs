@@ -213,6 +213,11 @@ async fn main() -> Result<()> {
             sandbox_funder_birthday,
             web_dir,
         } => {
+            // A sandbox runner is a public demo: it lists every subscription and pays
+            // pockets from a custodial wallet. Never on mainnet.
+            if sandbox_funder.is_some() && matches!(paths.network, Net::Main) {
+                bail!("--sandbox-funder is testnet only");
+            }
             if merchant_token.len() < 16 {
                 bail!("use a merchant token of at least 16 characters");
             }

@@ -72,7 +72,7 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
 | Full service on testnet: offer → subscribe → fund → drand release → mined, cancel, and a run over Tor | ✅ [`evidence/E2E-service-testnet.md`](evidence/E2E-service-testnet.md) |
 | Public sandbox on Railway, signed in the browser with the WASM signer, cheats tried against the live runner | ✅ [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md) |
 | Upload check that refuses a stretched schedule; webhooks with Cadence and CipherPay signatures | ✅ in the code, with unit tests (`cargo test -p cadence-runner`) |
-| Web app on an app host the merchant does not control, with its build identity in the footer | Supported (`VITE_API=runners`, `deploy/railway-app/`), not deployed |
+| Web app on an app host the merchant does not control, with its build identity in the footer | Live at https://app-production-be97.up.railway.app (`VITE_API=runners`, `deploy/railway-app/`) |
 | Mainnet run funded from Zodl | ⏳ |
 
 ## Evidence
@@ -84,7 +84,7 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
   - a 10,000-zat fee and a 7,264-byte proof;
   - unreadable from its outgoing ciphertexts: 0 outputs open with the zero OVK, and 0 with the pocket's own OVKs.
 - **The service, testnet:** [`evidence/E2E-service-testnet.md`](evidence/E2E-service-testnet.md). A subscription runs to completion with the real runner and the CLI; a cancel stops it, and the cancel transaction decodes with 0 outputs recoverable under the pocket's own keys; in a third run the runner's sync, drand fetch and broadcasts all go over Tor.
-- **The public sandbox, testnet:** [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md). Three installments signed in a clean browser and released by the Railway runner; open-early and tamper attempts refused by the live runner. Installments 2 and 3 were mined 5 and 11 blocks after their targets, a timing tell that the evidence explains; the runner has since been changed to release in the tick that opens the package, and that is not yet re-measured.
+- **The public sandbox, testnet:** [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md). Three installments signed in a clean browser and released by the Railway runner; open-early and tamper attempts refused by the live runner. A first run showed a timing tell (installments mined 5 and 11 blocks after their targets); the runner now releases in the tick that opens each package, and the re-run, driven from the independent app host, landed 1 to 3 blocks after target with all four cheats refused.
 - **Fingerprint, mainnet sample:** 200 blocks (3,526,581–3,526,780) in [`evidence/fingerprint-mainnet-sample.json`](evidence/fingerprint-mainnet-sample.json).
   - The class "v6, Ironwood-only, 2 actions" is the most common shielded shape: 168 of 521 Orchard-family transactions.
   - Fee, flags, lock time, proof size and branch are identical across 100% of that class.

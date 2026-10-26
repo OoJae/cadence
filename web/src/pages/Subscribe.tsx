@@ -6,7 +6,7 @@ import { KeyIcon, ShieldCheckIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
 import { Timeline } from '../components/Timeline';
 import { Badge, Callout, CopyButton, ErrorNote, Round, Spinner, StatusBadge } from '../components/ui';
-import { runMandate, type FlowState } from '../flow';
+import { canRetryUpload, retryUpload, runMandate, type FlowState } from '../flow';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
 import { encodeOfferPayload, parseOfferFragment } from '../lib/offer';
@@ -382,15 +382,29 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
           {s.phase === 'error' && s.hash === hash && (
             <div className="stack" style={{ marginTop: 18, ['--gap' as string]: '10px' }}>
               <ErrorNote error={new Error(s.error ?? 'Something went wrong')} />
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  resetSession(hash);
-                }}
-              >
-                Start over
-              </button>
+              {canRetryUpload(s) ? (
+                <>
+                  <span className="small text-2">Your pocket is funded and every installment is signed; only the upload failed. Keep this tab open and try again.</span>
+                  <div className="row" style={{ ['--gap' as string]: '8px' }}>
+                    <button type="button" className="btn" onClick={() => void retryUpload(o, s, (patch) => session.set(patch), { signal: s.abort?.signal, api: s.runner?.api })}>
+                      Retry upload
+                    </button>
+                    <button type="button" className="btn ghost sm" onClick={() => resetSession(hash)}>
+                      Start over (abandons this funded pocket)
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    resetSession(hash);
+                  }}
+                >
+                  Start over
+                </button>
+              )}
             </div>
           )}
           {(step === 'fund' || step === 'sign') && s.phase !== 'error' && (
