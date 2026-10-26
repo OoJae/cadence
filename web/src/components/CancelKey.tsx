@@ -52,12 +52,15 @@ const LOST =
 export function SaveCancelKey({
   signer,
   subscriptionId,
+  runner = runnerUrl,
   state,
   onChange,
   skip,
 }: {
   signer: Signer;
   subscriptionId: string | null;
+  /** The runner that holds the subscription, as the key records it (default: the build's default runner). */
+  runner?: string;
   state: CancelKeyState;
   onChange: (next: CancelKeyState) => void;
   skip: 'quick' | 'confirm';
@@ -70,7 +73,7 @@ export function SaveCancelKey({
     case 'downloaded':
       return <CheckKey signer={signer} kit={state.kit} onChange={onChange} skip={skip} />;
     case 'none':
-      return <MakeKey signer={signer} subscriptionId={subscriptionId} onChange={onChange} skip={skip} />;
+      return <MakeKey signer={signer} subscriptionId={subscriptionId} runner={runner} onChange={onChange} skip={skip} />;
   }
 }
 
@@ -155,7 +158,7 @@ function KeyCardHead({ title, children }: { title: string; children: ReactNode }
   );
 }
 
-function MakeKey({ signer, subscriptionId, onChange, skip }: { signer: Signer; subscriptionId: string | null; onChange: (next: CancelKeyState) => void; skip: 'quick' | 'confirm' }) {
+function MakeKey({ signer, subscriptionId, runner, onChange, skip }: { signer: Signer; subscriptionId: string | null; runner: string; onChange: (next: CancelKeyState) => void; skip: 'quick' | 'confirm' }) {
   const [pass, setPass] = useState('');
   const [again, setAgain] = useState('');
   const [busy, setBusy] = useState(false);
@@ -168,7 +171,7 @@ function MakeKey({ signer, subscriptionId, onChange, skip }: { signer: Signer; s
     setBusy(true);
     setError(undefined);
     try {
-      const kit = await signer.sealKit(pass, { runner: runnerUrl, subscriptionId });
+      const kit = await signer.sealKit(pass, { runner, subscriptionId });
       downloadBytes(kit.bytes, kit.fileName);
       setPass('');
       setAgain('');

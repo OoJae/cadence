@@ -20,7 +20,7 @@ import { createStore, useDocumentTitle, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
 import { formatDateTime, formatPeriod } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT } from '../lib/zat';
-import { api, createSigner, isMock, runnerUrl } from '../runtime';
+import { api, apiFor, apiSetting, createSigner, isMock, laterRunner, pickRunner, runnersText, runnerUrl } from '../runtime';
 import { checkPocketState } from '../signer/cancel';
 import { cliCancelCommand, cliSweepCommand, kitTargetProblem, type KitFields, type KitTargetProblem, type OpenedKit } from '../signer/kit';
 import type { CancelReceipt, Signer } from '../signer/types';
@@ -63,15 +63,20 @@ async function openKit(file: File, passphrase: string) {
   if (store.get().opening) return;
   store.get().signer?.destroy();
   store.set({ opening: true, error: undefined, problem: null, signer: null, kit: null, cancel: null });
-  const signer = createSigner();
+  // The key says which runner it belongs to only once it is decrypted, by this signer.
+  const runner = laterRunner();
+  const signer = createSigner(runner.api);
   let opened: OpenedKit | null = null;
   try {
     if (file.size > MAX_KIT_BYTES) throw new Error('this file is too large to be a cancel key');
     opened = await signer.openKit(new Uint8Array(await file.arrayBuffer()), passphrase);
     const kit = summarize(opened.fields);
-    // The runner's own network; if it cannot be reached, the pocket status says so below.
-    const network = await api.status().then((s) => s.network, () => undefined);
-    const problem = kitTargetProblem(opened.fields, { runner: runnerUrl, network });
+    // The key's runner, if this build may talk to it, and that runner's own network; if it
+    // cannot be reached, the pocket status says so below.
+    const pick = pickRunner(opened.fields.runner, 'cancel key');
+    if (pick.ok) runner.use(pick.runner);
+    const network = pick.ok ? await pick.runner.api.status().then((s) => s.network, () => undefined) : undefined;
+    const problem: KitTargetProblem | null = pick.ok ? kitTargetProblem(opened.fields, { runner: pick.runner.url, network }) : { reason: 'runner', message: pick.message };
     if (problem) {
       opened.seed.fill(0);
       signer.destroy();
@@ -155,9 +160,11 @@ function SweepFallback({ kit, fileName, why, prominent }: { kit: KitSummary; fil
 
 function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; fileName: string }) {
   const s = useStore(store);
+  // The key's runner: openKit() checked that this build knows it.
+  const client = apiFor(kit.runner) ?? api;
   // The mock runner has no pocket endpoints; its subscription status stands in.
-  const pocket = usePoll<PocketState | undefined>((signal) => (isMock ? Promise.resolve(undefined) : api.getPocket(kit.pocket_id, signal).then(checkPocketState)), 15_000, [kit.pocket_id]);
-  const sub = usePoll<Subscription | undefined>((signal) => (kit.subscription_id ? api.getSubscription(kit.subscription_id, signal) : Promise.resolve(undefined)), 10_000, [kit.subscription_id]);
+  const pocket = usePoll<PocketState | undefined>((signal) => (isMock ? Promise.resolve(undefined) : client.getPocket(kit.pocket_id, signal).then(checkPocketState)), 15_000, [kit.pocket_id]);
+  const sub = usePoll<Subscription | undefined>((signal) => (kit.subscription_id ? client.getSubscription(kit.subscription_id, signal) : Promise.resolve(undefined)), 10_000, [kit.subscription_id]);
   const data = sub.data;
   // A stalled subscription (a missed or invalid installment) can still be cancelled.
   const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
@@ -305,7 +312,7 @@ export function Manage() {
         <LoadKey />
       )}
       <p className="tiny muted" style={{ marginTop: 20 }}>
-        The key stays in this tab's memory and is forgotten when you leave or reload the page. This page talks only to {isMock ? 'the in-page mock runner' : runnerUrl}: it asks it for
+        The key stays in this tab's memory and is forgotten when you leave or reload the page. This page talks only to {isMock ? 'the in-page mock runner' : apiSetting.kind === 'runners' ? `the key's runner, if it is ${runnersText}` : runnerUrl}: it asks it for
         the pocket's status and a witness to prove the cancel, and the runner relays the cancel. The merchant learns that you cancelled; it cannot see where the refund goes.
       </p>
     </div>

@@ -1,8 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { BUILD_INFO_FILE, type BuildInfo } from '../config/buildInfo';
 import { usePoll } from '../hooks';
+import { shorten } from '../lib/addresses';
 import { Link } from '../router';
-import { api, apiLabel, connectTargets, isMock, mockHooks } from '../runtime';
+import { api, apiLabel, connectTargets, isMock, loadBuildInfo, mockHooks } from '../runtime';
 import { Logo, MoonIcon, SunIcon } from './Icons';
+import { CopyButton } from './ui';
 
 type Theme = 'dark' | 'light';
 
@@ -71,11 +74,35 @@ export function MockBanner() {
       <div className="container">
         <span className="tag">Mock mode</span>
         <span>
-          An in-page runner, a mock signer and a {mockHooks?.blockSecs ?? 5}-second-block testnet model stand in for the real ones. This page sends no network requests at all. Rows marked{' '}
+          An in-page runner, a mock signer and a {mockHooks?.blockSecs ?? 5}-second-block testnet model stand in for the real ones. This page requests nothing but its own static files. Rows marked{' '}
           <em>evidence</em> use the real S2 testnet txids.
         </span>
       </div>
     </div>
+  );
+}
+
+/** The commit and bundle hash from this origin's build.json; nothing is checked here. */
+function BuildLine() {
+  const [info, setInfo] = useState<BuildInfo | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void loadBuildInfo().then((i) => alive && setInfo(i));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (info === undefined) return null;
+  if (!info) return <li>Build identity: none (this origin serves no {BUILD_INFO_FILE}).</li>;
+  return (
+    <li>
+      Built from commit <span className="mono text-2">{info.commit ?? 'unknown'}</span>
+      {info.dirty ? ' with uncommitted changes' : ''}; bundle sha256{' '}
+      <span className="mono text-2" title={info.bundle_sha256}>
+        {shorten(info.bundle_sha256, 12, 6)}
+      </span>{' '}
+      <CopyButton text={info.bundle_sha256} label="Copy bundle sha256" /> (<a href={`${import.meta.env.BASE_URL}${BUILD_INFO_FILE}`}>{BUILD_INFO_FILE}</a>).
+    </li>
   );
 }
 
@@ -101,8 +128,11 @@ export function Footer() {
             <li>Stores nothing in your browser: no cookies, no localStorage.</li>
             <li>
               Talks to:{' '}
-              <span className="mono text-2">{connectTargets.length ? connectTargets.join(', ') : 'nothing (mock mode)'}</span>
+              <span className="mono text-2" style={{ overflowWrap: 'anywhere' }}>
+                {connectTargets.length ? connectTargets.join(', ') : 'nothing (mock mode)'}
+              </span>
             </li>
+            <BuildLine />
           </ul>
         </div>
         <div>

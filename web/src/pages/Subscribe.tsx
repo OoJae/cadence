@@ -14,7 +14,7 @@ import { planSchedule } from '../lib/schedule';
 import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
 import { Link, useLocation } from '../router';
-import { api, apiLabel, apiSetting, createSigner, isMock, mockHooks } from '../runtime';
+import { apiLabel, createSigner, isMock, mockHooks, pickRunner, type Runner } from '../runtime';
 import type { CancelReceipt, Signer } from '../signer/types';
 
 type Step = 'plan' | 'fund' | 'sign' | 'done' | 'manage';
@@ -28,6 +28,8 @@ const STEPS: Array<{ id: Step; label: string }> = [
 
 interface Session extends FlowState {
   hash: string;
+  /** The runner the offer names, once the payer starts. */
+  runner: Runner | null;
   signer: Signer | null;
   abort: AbortController | null;
   lastStep: Step;
@@ -38,7 +40,7 @@ interface Session extends FlowState {
 }
 
 /** In memory only: survives in-app navigation (e.g. to the decoder), never a reload. */
-const session = createStore<Session>(() => ({ hash: '', phase: 'idle', signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null, key: NO_CANCEL_KEY }));
+const session = createStore<Session>(() => ({ hash: '', phase: 'idle', runner: null, signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null, key: NO_CANCEL_KEY }));
 
 /** Only the WASM signer's pocket can be cancelled after the tab closes, so only it asks for a cancel key. */
 const needsCancelKey = (s: Session) => s.signer?.implementation === 'wasm';
@@ -68,13 +70,13 @@ function resetSession(hash: string) {
   session.set({ hash });
 }
 
-function start(offer: Offer) {
+function start(offer: Offer, runner: Runner) {
   const s = session.get();
   if (s.phase !== 'idle' && s.phase !== 'error') return;
   s.signer?.destroy();
-  const signer = createSigner();
+  const signer = createSigner(runner.api);
   const abort = new AbortController();
-  session.set({ signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null, key: NO_CANCEL_KEY });
+  session.set({ runner, signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null, key: NO_CANCEL_KEY });
   void runMandate(
     offer,
     signer,
@@ -82,40 +84,32 @@ function start(offer: Offer) {
       const step = patch.phase && patch.phase !== 'error' ? stepOf({ ...session.get(), ...patch } as Session) : undefined;
       session.set({ ...patch, ...(step ? { lastStep: step } : {}) });
     },
-    { signal: abort.signal },
+    { signal: abort.signal, api: runner.api },
   );
 }
 
-/** Checks the link's offer against the runner's own copy, and that this build may talk to that runner. */
+/** Checks that this build may talk to the runner the offer names, and the link's offer against that runner's own copy. */
 function useVerifiedOffer(offer: Offer | null) {
-  const [state, setState] = useState<{ status: 'checking' | 'ok' | 'bad'; message?: string }>({ status: 'checking' });
+  const [state, setState] = useState<{ status: 'checking' | 'ok' | 'bad'; message?: string; runner?: Runner }>({ status: 'checking' });
   useEffect(() => {
     if (!offer) return;
     let alive = true;
-    setState({ status: 'checking' });
-    if (apiSetting.kind === 'http') {
-      const expected = apiSetting.origin ?? location.origin;
-      let named = '';
-      try {
-        named = new URL(offer.runner_endpoint).origin;
-      } catch {
-        /* validated already */
-      }
-      if (named !== expected) {
-        setState({ status: 'bad', message: `This offer names the runner ${offer.runner_endpoint}, but this page is built to talk only to ${expected}. Open the link on that runner's own page.` });
-        return;
-      }
-    } else {
-      mockHooks?.adoptOffer(offer);
+    const pick = pickRunner(offer.runner_endpoint, 'offer');
+    if (!pick.ok) {
+      setState({ status: 'bad', message: pick.message });
+      return;
     }
-    api
+    const runner = pick.runner;
+    setState({ status: 'checking', runner });
+    mockHooks?.adoptOffer(offer);
+    runner.api
       .getOffer(offer.offer_id)
       .then((remote) => {
         if (!alive) return;
-        if (encodeOfferPayload(remote) !== encodeOfferPayload(offer)) setState({ status: 'bad', message: "The link's offer does not match the runner's copy. Do not subscribe; ask the merchant for a new link." });
-        else setState({ status: 'ok' });
+        if (encodeOfferPayload(remote) !== encodeOfferPayload(offer)) setState({ status: 'bad', runner, message: "The link's offer does not match the runner's copy. Do not subscribe; ask the merchant for a new link." });
+        else setState({ status: 'ok', runner });
       })
-      .catch((e: Error) => alive && setState({ status: 'bad', message: `The runner could not confirm this offer: ${e.message}` }));
+      .catch((e: Error) => alive && setState({ status: 'bad', runner, message: `The runner could not confirm this offer: ${e.message}` }));
     return () => {
       alive = false;
     };
@@ -219,7 +213,7 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
         <Callout kind="danger">{verified.message}</Callout>
       ) : (
         <div className="stack" style={{ ['--gap' as string]: '10px' }}>
-          <button type="button" className="btn primary lg" onClick={() => start(offer)} disabled={verified.status !== 'ok'}>
+          <button type="button" className="btn primary lg" onClick={() => verified.runner && start(offer, verified.runner)} disabled={verified.status !== 'ok'}>
             Create my pocket and continue
           </button>
           <p className="tiny muted">
@@ -233,7 +227,7 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
 }
 
 function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
-  const sub = usePoll((signal) => api.getSubscription(s.subscriptionId!, signal), isMock ? 1500 : 10000, [s.subscriptionId]);
+  const sub = usePoll((signal) => s.runner!.api.getSubscription(s.subscriptionId!, signal), isMock ? 1500 : 10000, [s.subscriptionId]);
   const data = sub.data;
   const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
   return (
@@ -248,7 +242,7 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
       {sub.error && <ErrorNote error={sub.error} retry={sub.refresh} />}
       {data ? <Timeline installments={data.installments} network={offer.network} /> : <Spinner label="Asking the runner…" />}
       {needsCancelKey(s) && s.signer && !s.cancel && (
-        <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
+        <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} runner={s.runner?.url} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
       )}
       <hr />
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
@@ -359,7 +353,7 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
               closeable={!needsCancelKey(s) || cancelKeySettled(s.key)}
               notice={
                 needsCancelKey(s) && s.signer ? (
-                  <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
+                  <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} runner={s.runner?.url} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
                 ) : undefined
               }
             >
@@ -417,7 +411,7 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
               {s.key.step === 'verified' ? ', and in the cancel key you saved and checked' : ''}.
             </span>
             <span className="text-2">
-              Talks to: <span className="mono">{isMock ? 'nothing (mock)' : apiLabel}</span>.
+              Talks to: <span className="mono">{isMock ? 'nothing (mock)' : (s.runner ?? verified.runner)?.label ?? apiLabel}</span>.
             </span>
             <span className="text-2">The offer was read from the link's # fragment, which your browser never sends to a server.</span>
           </div>
