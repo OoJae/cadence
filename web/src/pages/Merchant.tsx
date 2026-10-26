@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { CreateOfferResponse, Offer, Subscription, SubscriptionStatus } from '../api/types';
+import type { CreateOfferResponse, NetworkId, Offer, Subscription, SubscriptionStatus } from '../api/types';
 import { InstallmentTable } from '../components/InstallmentTable';
 import { LinkIcon, ServerIcon } from '../components/Icons';
 import { Qr } from '../components/Qr';
 import { Badge, Callout, CopyButton, Countdown, ErrorNote, PageHead, Spinner, Stat, StatusBadge, Txid } from '../components/ui';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
-import { isUnifiedAddress, shorten } from '../lib/addresses';
+import { isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundAt } from '../lib/drand';
 import { LIMITS, parseOfferFragment } from '../lib/offer';
 import { formatDate, formatPeriod } from '../lib/time';
@@ -168,7 +168,20 @@ const PERIODS = [
   { secs: 0, label: 'Custom…' },
 ];
 
-function CreateOffer() {
+/**
+ * Why `ua` cannot receive installments from a runner on `network`, or undefined if it
+ * can. The runner checks it again; until its network is known nothing is accepted.
+ */
+export function merchantUaProblem(ua: string, network: NetworkId | undefined): string | undefined {
+  if (!network) return 'Waiting for the runner to say which network it is on.';
+  if (isUnifiedAddress(ua, network)) return undefined;
+  const name = (net: NetworkId) => (net === 'main' ? 'mainnet' : 'testnet');
+  const want = `A ${name(network)} unified address (${uaPrefix(network)}…) with an Orchard receiver`;
+  const other: NetworkId = network === 'main' ? 'test' : 'main';
+  return isUnifiedAddress(ua, other) ? `${want}. This is a ${name(other)} address, and this runner is on ${name(network)}.` : `${want}.`;
+}
+
+function CreateOffer({ network }: { network: NetworkId | undefined }) {
   const { token } = useStore(session);
   const [name, setName] = useState('Shielded Press · monthly');
   const [amount, setAmount] = useState('0.005');
@@ -190,7 +203,8 @@ function CreateOffer() {
   if (amountZat === null || amountZat < 1) problems.amount = 'A positive amount with at most 8 decimals.';
   if (!Number.isSafeInteger(periodSecs) || periodSecs < LIMITS.periodMin || periodSecs > LIMITS.periodMax) problems.period = `Between ${LIMITS.periodMin} seconds and 366 days.`;
   if (!Number.isSafeInteger(countN) || countN < LIMITS.countMin || countN > LIMITS.countMax) problems.count = `Between ${LIMITS.countMin} and ${LIMITS.countMax}.`;
-  if (!isUnifiedAddress(ua.trim(), 'test')) problems.ua = 'A testnet unified address (utest1…) with an Orchard receiver.';
+  const uaProblem = merchantUaProblem(ua.trim(), network);
+  if (uaProblem) problems.ua = uaProblem;
   const valid = Object.keys(problems).length === 0;
   const show = (k: string) => (touched ? problems[k] : undefined);
 
@@ -264,7 +278,7 @@ function CreateOffer() {
         </div>
         <div className="field">
           <label htmlFor="o-ua">Your receiving address</label>
-          <input id="o-ua" className="input mono" value={ua} onChange={(e) => setUa(e.target.value)} placeholder="utest1…" spellCheck={false} autoComplete="off" aria-invalid={!!show('ua')} />
+          <input id="o-ua" className="input mono" value={ua} onChange={(e) => setUa(e.target.value)} placeholder={network ? `${uaPrefix(network)}…` : undefined} spellCheck={false} autoComplete="off" aria-invalid={!!show('ua')} />
           <span className="hint">Orchard-only unified address. Installments pay here with no outgoing-viewing record.</span>
           {show('ua') && <span className="error-text">{show('ua')}</span>}
         </div>
@@ -443,7 +457,7 @@ export function Merchant() {
           )}
         </div>
         <div className="stack" style={{ ['--gap' as string]: '16px' }}>
-          <CreateOffer />
+          <CreateOffer network={status.data?.network} />
           <Integrate />
         </div>
       </div>

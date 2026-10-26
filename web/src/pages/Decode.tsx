@@ -1,11 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import type { NetworkId, Shape } from '../api/types';
 import { CheckIcon, SearchIcon, XIcon } from '../components/Icons';
 import { ObserverSummary, ShapeTable } from '../components/ShapeTable';
 import { Badge, Callout, CopyButton, ErrorNote, PageHead, Spinner } from '../components/ui';
 import { S2_RUN, findS2Shape } from '../data/s2';
 import { STOCK_SEND_REFERENCE, type ShapeProfile } from '../data/stockReference';
 import { useDocumentTitle, usePoll } from '../hooks';
-import { cadenceChecks } from '../lib/shape';
+import { cadenceChecks, impliedTarget, stockShapeAt } from '../lib/shape';
 import { Link, navigate, useLocation } from '../router';
 import { api, isMock } from '../runtime';
 
@@ -94,28 +95,46 @@ function Examples() {
   );
 }
 
+/** A runner on another network cannot find the S2 testnet txids; their decodes ship with the app. */
+function decodeOrEvidence(txid: string, signal: AbortSignal): Promise<Shape> {
+  return api.decode(txid, signal).catch((e: unknown) => {
+    const s2 = findS2Shape(txid);
+    if (s2 && !signal.aborted) return s2;
+    throw e;
+  });
+}
+
 export function Decode({ txid }: { txid: string | null }) {
   const { search } = useLocation();
   const compareTxid = search.get('compare');
   const valid = txid !== null && HEX64.test(txid);
   useDocumentTitle(txid ? `Decode ${txid.slice(0, 8)}…` : 'Decoder');
 
-  const shape = usePoll((signal) => (valid ? api.decode(txid!, signal) : Promise.reject(new Error('not a txid'))), 0, [txid]);
+  const shape = usePoll((signal) => (valid ? decodeOrEvidence(txid!, signal) : Promise.reject(new Error('not a txid'))), 0, [txid]);
   const compare = usePoll(
     (signal) => (compareTxid && HEX64.test(compareTxid) ? api.decode(compareTxid, signal) : Promise.resolve(null)),
     0,
     [compareTxid],
   );
+  // The runner decodes from its own node, so its network is the transaction's: the
+  // fee rule and the stock reference depend on it.
+  const status = usePoll((signal) => api.status(signal), 0);
+  const evidence = valid && !!findS2Shape(txid!);
+  const network: NetworkId | undefined = evidence ? 'test' : status.data?.network;
 
   const profile: ShapeProfile | null = useMemo(() => {
-    if (!compareTxid) return STOCK_SEND_REFERENCE;
+    if (!compareTxid) {
+      // The reference moved to this transaction's target height, with that height's branch, expiry delta and fee.
+      const target = shape.data ? impliedTarget(shape.data) : null;
+      if (!network || target === null) return STOCK_SEND_REFERENCE;
+      return { ...STOCK_SEND_REFERENCE, shape: stockShapeAt(STOCK_SEND_REFERENCE.shape, network, target) };
+    }
     if (!compare.data) return null;
     return { shape: compare.data, title: `Transaction ${compareTxid.slice(0, 10)}…`, source: 'decoded', note: `Decoded by the runner from ${compareTxid}` };
-  }, [compareTxid, compare.data]);
+  }, [compareTxid, compare.data, shape.data, network]);
 
-  const checks = shape.data ? cadenceChecks(shape.data) : [];
+  const checks = shape.data && network ? cadenceChecks(shape.data, network) : [];
   const passing = checks.filter((c) => c.pass).length;
-  const evidence = valid && !!findS2Shape(txid!);
 
   return (
     <div className="page container">
@@ -148,17 +167,18 @@ export function Decode({ txid }: { txid: string | null }) {
                       : "Decoded by the runner from its own node's copy of the transaction."}
                 </span>
               </div>
-              {shape.data && (
+              {shape.data && network && (
                 <Badge tone={passing === checks.length ? 'green' : 'red'} lg dot>
                   {passing} / {checks.length} Cadence invariants hold
                 </Badge>
               )}
             </div>
 
-            {shape.loading && <Spinner label="Decoding…" />}
+            {(shape.loading || (shape.data && !network && !status.error)) && <Spinner label="Decoding…" />}
             {shape.error && <ErrorNote error={shape.error} retry={shape.refresh} />}
+            {shape.data && !network && status.error && <ErrorNote error={new Error(`Could not ask the runner which network it is on: ${status.error.message}`)} retry={status.refresh} />}
 
-            {shape.data && (
+            {shape.data && network && (
               <div className="stack" style={{ ['--gap' as string]: '20px' }}>
                 <div className="row" style={{ ['--gap' as string]: '6px' }}>
                   {checks.map((c) => (
@@ -174,7 +194,7 @@ export function Decode({ txid }: { txid: string | null }) {
                     {profile.note}
                   </p>
                 )}
-                <ShapeTable shape={shape.data} compare={profile} />
+                <ShapeTable shape={shape.data} compare={profile} network={network} />
                 <details className="disclosure">
                   <summary>Raw shape JSON</summary>
                   <div className="body">
@@ -190,7 +210,7 @@ export function Decode({ txid }: { txid: string | null }) {
               <span className="kicker">Chain observer</span>
               <h2 className="h3">What anyone watching the chain can and cannot tell</h2>
             </div>
-            <ObserverSummary />
+            <ObserverSummary fee={shape.data?.ironwood_value_balance} />
           </div>
 
           {!evidence && <Examples />}
