@@ -2,14 +2,15 @@
 
 **Subscribe once. Close the tab.** Pre-authorized shielded payments on Zcash's Ironwood pool.
 
-**Live on Zcash testnet:** [judge sandbox](https://sandbox-production-1e16.up.railway.app/sandbox) · [decoder](https://sandbox-production-1e16.up.railway.app/decode) · [cancel with a saved key](https://sandbox-production-1e16.up.railway.app/manage)
+**Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is the independent app host, which shows its commit and bundle hash in the footer. The same app is also served by the runner at [sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox).
 
 **The 60-second judge path.** Starting takes a minute; the run then finishes on its own in several minutes of testnet blocks.
 
-1. Open the [sandbox](https://sandbox-production-1e16.up.railway.app/sandbox) and press **Create mandate and auto-fund**. The faucet pays a fresh pocket, and once that payment is mined your browser signs and seals all three installments and uploads them.
+1. Open the [sandbox](https://app-production-be97.up.railway.app/sandbox) and press **Create mandate and auto-fund**. The faucet pays a fresh pocket, and once that payment is mined your browser signs and seals all three installments and uploads them.
 2. Save the cancel key (or skip it), then press **Close the payer tab**. From here only the runner acts: installments fall due 90 s apart.
-3. While they land, press **Try it** on the cheat cards. The runner really attempts each one, and shows the error of the component that stops it.
-4. Decode a mined installment from the timeline, or one from the last public run: [`9fcf2017…`](https://sandbox-production-1e16.up.railway.app/decode/9fcf20177a4f763a9e2f0d54fc2957d75b4a243b969742cca993e52758315fc4).
+3. While they land, press **Try it** on the four cheat cards: open a package early, raise an amount, rebroadcast a paid installment, stretch the plan. The runner really attempts each one and shows the error of the layer that stops it: drand, the payer's signature, the node, or the runner's schedule check.
+4. Decode a mined installment from the timeline, or one from the last public run: [`70646526…`](https://app-production-be97.up.railway.app/decode/706465269dd006492028d65987d9972b0bc9303d47cfbc72b5cb87a6d527d3e4).
+5. Optional: before the last installment lands, open **Manage** with your saved cancel key and cancel. Once the cancel is mined you get a cancellation certificate: the note it spent, that note's nullifier on chain, and the installments that can now never be valid.
 
 **Why it doesn't leak:**
 
@@ -26,7 +27,7 @@
 | Cheat buttons | Real: the runner tries each one |
 | Faucet | Testnet only, and custodial: the sandbox's own wallet funds your pocket, and is also the merchant, so payments flow back to it |
 | Network path | The plain web build is clearnet: Railway and the runner see your IP. Tor Browser or the CLI avoid that. |
-| Who serves the app | The runner, from its own origin. A build for an independent app host is supported (see [Honest limits](#honest-limits)). |
+| Who serves the app | Both: the independent [app host](https://app-production-be97.up.railway.app), with its build identity in the footer, and the runner on its own origin (see [Honest limits](#honest-limits)). |
 | `pnpm dev` and the default web build | A mock runner and signer, labelled as such on every page |
 
 ---
@@ -36,7 +37,16 @@ Shielded Zcash can only *push*: a payment happens only while the payer's wallet 
 1. **Fund once.** You fund a single-use *pocket* with one ZIP 321 QR from any Ironwood wallet (Zodl, Zkool, Vizor).
 2. **Pre-sign and close the tab.** Cadence pre-signs every installment and seals each one: to a [drand](https://drand.love) round with tlock, so it cannot be opened before it is due, and to the merchant's runner with age.
 3. **The runner releases each installment when it falls due.** It installs a fresh anchor, proves, and broadcasts. The runner software **can never spend, redirect or enlarge** a payment: it holds no spending key, and every byte it broadcasts was signed by you. (Whoever serves the web app serves the code that holds the pocket key; see [Honest limits](#honest-limits).)
-4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved.
+4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept, and the payer gets a certificate saying so. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved.
+
+The payee needs only a Zcash address. A runner (the merchant's own, or a hosted one) releases each payment, and it arrives in the payee's wallet with a memo such as "Cadence · Pro plan · payment 2 of 4". That suits stipends, donations and salaries as well as subscriptions.
+
+| | Card or bank mandate | Pull payments on Ethereum or Bitcoin Cash | Zcash today (CipherPay, BLINK) | Cadence |
+|---|---|---|---|---|
+| Payer online every period | No | No | Yes: an invoice or request each period | No |
+| Cancelling | A request to the merchant: Apple warns ["charges might still occur"](https://support.apple.com/en-us/118261) | A transaction that revokes the permission | Stop paying | A self-spend; consensus then refuses every later installment |
+| What the merchant or executor can change | The charge, then the payer disputes it | Bounded by the contract or permission | Nothing | Nothing: the payer's signature covers amount and recipient |
+| What the public sees | Nothing; the bank and the processor see everything | Payer, payee, amount and schedule | Each payment as a shielded send | An ordinary 2-action shielded send |
 
 Every installment is an ordinary v6 Ironwood transaction: 2 actions, the ZIP 317 fee, the default expiry, an anchor three blocks back, and nothing recoverable from its outgoing ciphertexts. In a 200-block mainnet sample, taken before NU7, that was **the single most common shielded transaction shape** (see [Evidence](#evidence)).
 
@@ -133,14 +143,20 @@ Cadence builds on the following, and does not claim to have invented the primiti
 - `DeferredPcztBuilder` in zcash_primitives 0.31.
 - [tlock](https://eprint.iacr.org/2023/189), using drand quicknet and `tlock_age`, and [age](https://age-encryption.org).
 
-Cadence's contribution is a **third-party executor with no spend authority**, built from:
+The closest prior art is on transparent chains, and on Zcash:
 
-- drand "not before";
-- v6 expiry "not after";
+- **Pre-signed payment chains on Bitcoin Cash.** A [March 2026 design](https://bitcoincashresearch.org/t/recurring-payments-on-bitcoin-cash-two-working-approaches-no-covenants-no-op-return/1774) pre-signs a chain of `nLockTime`-dated transactions, each spending the previous one's change. The receiver broadcasts each when due, and the payer cancels by spending the change. Cadence uses the same shape. On BCH every amount and address is public. [Mecenas](https://cashscript.org/docs/language/examples) covenants let a recipient pull a fixed pledge each period, also in public view.
+- **Ethereum.** Subscriptions (ERC-1337), streams (Superfluid), allowances (Safe) and periodic permissions (ERC-7715) all run on a public ledger.
+- **Zcash today.** Subscriptions are push: [CipherPay](https://cipherpay.app/en/docs/subscriptions) issues an invoice each period that the customer must pay, and [BLINK](https://github.com/itzebe/blink-zcash) sends a fresh request because it "cannot move funds on the payer's behalf". [Zandglass](https://github.com/0xBadSign/zandglass), another ZECATHON entry, schedules payments as separate vaults, each sealed with drand to the payee and its due time.
+
+Cadence's contribution is that pattern on the shielded pool, with a **third-party executor that holds no spending key**. Shielded transactions have no transparent inputs, so `nLockTime` cannot date them. Cadence therefore builds:
+
+- "not before" from drand;
+- "not after" from the v6 expiry;
 - cancellation by self-spend;
 - per-height rung ladders that match ordinary sends on every measured field.
 
-As far as a GitHub search on Oct 22, 2026 shows, this is the first Zcash implementation of pre-authorized, payee-executed shielded payments with the payer offline.
+The runner only ever broadcasts transactions the payer already signed.
 
 ## Honest limits
 

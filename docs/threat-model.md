@@ -34,7 +34,7 @@ Cadence lets a payer pre-authorize a schedule of shielded Ironwood payments that
 - 0 transparent inputs and outputs;
 - no Sapling or Orchard-pool parts;
 - 2 Ironwood actions (payment plus change or padding) with flags 7;
-- the ZIP 317 fee (10,000 zats; 2,000 from ZIP 2009's mainnet switch at height 3,590,000, as ZIP 2009 tells wallets to pay);
+- the ZIP 317 fee (10,000 zats; 2,000 from the mainnet switch at height 3,590,000 that draft ZIP 2009 asks wallets to adopt);
 - `lock_time = 0`;
 - the default expiry for its target height (+40 before NU7, +120 from NU7);
 - an anchor 3 blocks behind the target;
@@ -142,7 +142,7 @@ This is a statement about the runner. When the same merchant also serves the pay
 - "The merchant cannot take your funds" when the merchant also serves your web app (§6). The runner software cannot; a web host can serve other code.
 - Reproducible builds. The build identity lets anyone compare what a host serves with a build they made or trust; we have not shown that two machines produce the same bundle.
 - Guaranteed webhook delivery. Each webhook gets at most 3 attempts, from memory, with no outbox.
-- "First pull payments on any chain." We claim only the first Zcash implementation we could find (GitHub search, Oct 22 2026).
+- "First" anything. Pre-signed, time-locked payment chains already work on Bitcoin Cash in the clear, and other Zcash projects schedule payments (README, "Credits and prior art"). Cadence's claim is narrower: a payer-offline schedule on the shielded pool, released by a runner that holds no spending key.
 - Post-quantum privacy. ZIP 2005 is about recoverability, not privacy.
 
 ## Checklist (what a judge can verify)

@@ -558,6 +558,8 @@ Webhooks are sent as `POST`s. Each carries `X-Cadence-Signature: t=<unix>,v1=<he
 
 ## Lineage
 
+On transparent chains the shape is not new. A March 2026 Bitcoin Cash design pre-signs a chain of `nLockTime`-dated transactions, each spending the previous change: the receiver broadcasts each when due, and the payer cancels by spending the change [^bch-recurring]. A shielded transaction has no transparent inputs, so `nLockTime` cannot date it, and every amount and address on BCH is public. This ZIP takes "not before" from drand instead.
+
 ZIP 318 [^zip-0318] and librustzcash's `zcash_pool_migration` [^pool-migration] already pre-sign height-scheduled v6 transfers as PCZTs with deferred anchors. The user's own wallet stores them and broadcasts them later. `DeferredPcztBuilder` [^zcash-primitives] provides the signing-before-witness primitive. This ZIP adopts both and changes four things.
 
 | | ZIP 318 / `zcash_pool_migration` | This ZIP |
@@ -801,7 +803,9 @@ Known differences between this draft and the reference implementation, also mark
 
 [^zip-2005]: [ZIP 2005: Ironwood Quantum Recoverability](https://zips.z.cash/zip-2005)
 
-[^zip-2009]: [ZIP 2009: Reduce Marginal Fee to 1000 Zatoshis and Raise the Weight Ratio Cap to 10](https://zips.z.cash/zip-2009)
+[^zip-2009]: [ZIP 2009: Reduce Marginal Fee to 1000 Zatoshis and Raise the Weight Ratio Cap to 10](https://zips.z.cash/zip-2009) (Draft)
+
+[^bch-recurring]: [Recurring Payments on Bitcoin Cash: Two Working Approaches (No Covenants, No OP_RETURN)](https://bitcoincashresearch.org/t/recurring-payments-on-bitcoin-cash-two-working-approaches-no-covenants-no-op-return/1774), 2026-03-18
 
 [^pool-migration]: [`zcash_pool_migration` 0.2.0 (librustzcash)](https://crates.io/crates/zcash_pool_migration)
 

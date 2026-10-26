@@ -95,3 +95,21 @@ All four cheats were tried against the live runner during this run:
 
 The decoder at `/decode/706465269dd0…` on the app host shows 11 of 11 Cadence invariants holding.
 
+
+## Webhooks and the CLI over Tor, live (2026-10-27)
+
+A payer CLI subscribed to the public sandbox runner through Tor (`cadence subscribe --runner https://sandbox-production-1e16.up.railway.app …`). That was subscription `sub_312b987910f4597d3023`: 2 × 0.0002 TAZ, one every 90 s, with both installments mined (4,545,584 and 4,545,605). The sandbox posts its webhooks to `scripts/webhook-echo.py`, which runs as a Railway service on the project's private network with no public domain. The echo's log:
+
+```
+cadence_signature_ok=true cipherpay_signature_ok=true delivery_id="0cfa3da1-…" event={"type":"invoice.confirmed","event":"confirmed","offer_id":"off_690580b046b23da8e5ac","subscription_id":"sub_312b987910f4597d3023","k":1,…}
+cadence_signature_ok=true cipherpay_signature_ok=true delivery_id="622df06a-…" event={"type":"invoice.confirmed","event":"confirmed",…,"k":2,…}
+```
+
+The runner's log for the same deliveries:
+
+```
+sub_312b987910f4597d3023 #1: webhook invoice.confirmed (0cfa3da1-b95d-4c51-8981-6d5542fde91e): delivered on attempt 1
+sub_312b987910f4597d3023 #2: webhook invoice.confirmed (622df06a-2901-4b5e-8237-2d2628615962): delivered on attempt 1
+```
+
+Each delivery carried both signatures: Cadence's `X-Cadence-Signature` and CipherPay's headers, computed as CipherPay documents. The echo verified both.

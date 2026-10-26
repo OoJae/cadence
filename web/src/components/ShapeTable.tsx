@@ -46,7 +46,7 @@ const ROWS: Row[] = [
     value: (s) => <span className="mono">{s.version}</span>,
     compare: (a, b) => sameOrDiffers(a.version, b.version),
     observer: 'visible',
-    observerNote: 'Every new shielded send since Orchard was sealed is v6.',
+    observerNote: 'Every new shielded send since NU6.3 closed Orchard to new value is v6.',
   },
   {
     label: 'Consensus branch',
@@ -87,11 +87,11 @@ const ROWS: Row[] = [
   },
   {
     label: 'Orchard-pool actions',
-    hint: 'Sealed pool (ZIP 258)',
+    hint: 'Closed to new value since NU6.3 (ZIP 258)',
     value: (s) => <span className="mono">{s.orchard_actions}</span>,
     compare: (a, b) => sameOrDiffers(a.orchard_actions, b.orchard_actions),
     observer: 'hidden',
-    observerNote: 'Nothing moves through the sealed Orchard pool.',
+    observerNote: 'Nothing moves through the Orchard pool, which takes no new value since NU6.3.',
   },
   {
     label: 'Ironwood actions',
@@ -120,7 +120,7 @@ const ROWS: Row[] = [
     },
     compare: (a, b) => sameOrDiffers(a.ironwood_value_balance, b.ironwood_value_balance),
     observer: 'visible',
-    observerNote: 'The only value that leaves the pool is the standard fee for the target height (ZIP 317; on mainnet from 3,590,000, ZIP 2009). The payment amount stays encrypted.',
+    observerNote: 'The only value that leaves the pool is the standard fee for the target height (ZIP 317; on mainnet from 3,590,000, draft ZIP 2009). The payment amount stays encrypted.',
   },
   {
     label: 'Expiry delta',

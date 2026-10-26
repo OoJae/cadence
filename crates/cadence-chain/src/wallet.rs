@@ -233,6 +233,11 @@ pub async fn pay(
     let tip = lwd::tip(client).await?;
     let target = tip + 1;
     let anchor_height = target - ANCHOR_CONFIRMATIONS;
+    // The anchor must be a root this wallet has scanned. If the chain moved since the
+    // last sync, catch up first, or the root would be an older one and fail the check.
+    if db.block_fully_scanned()?.is_none_or(|b| b.block_height() < anchor_height) {
+        sync(client, params, db).await?;
+    }
     let needed = u64::from(amount) + u64::from(cadence_core::mandate::installment_fee_at(params, target));
     let input = unspent_notes(db, account, target)?
         .into_iter()
