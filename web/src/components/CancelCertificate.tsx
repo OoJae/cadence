@@ -50,7 +50,7 @@ export function CancelCertificate({
             ? 'No installment was left to pay.'
             : voids.length === 1
               ? `Installment ${voids[0]} spends exactly that note, so no node will accept it.`
-              : `Installment ${voids[0]} spends exactly that note, so no node will accept it, and installments ${installmentRange(voids.slice(1))} would spend change that installment ${voids[0]} can now never make. Installments ${installmentRange(voids)} can never be valid.`}
+              : `Installment ${voids[0]} spends exactly that note, so no node will accept it, and ${voids.length === 2 ? 'installment' : 'installments'} ${installmentRange(voids.slice(1))} would spend change that installment ${voids[0]} can now never make. Installments ${installmentRange(voids)} can never be valid.`}
         </span>
         <span className="small">
           {formatZec(cert.returned_zat, network)} returned to your address (fee {formatZec(cert.fee_zat, network)}). Seen mined {formatDateTime(cert.confirmed_at)}.
