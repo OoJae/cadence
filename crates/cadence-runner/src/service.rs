@@ -195,7 +195,16 @@ async fn advance(
             let beacon = fetch_beacon(app, round).await?;
             app.store.lock().unwrap().set_beacon(&sub.subscription_id, inst.k, &beacon)?;
             println!("{} #{}: round {round} passed, package opened", sub.subscription_id, inst.k);
-            Ok(())
+            // Release in this tick: waiting for the next one costs a block or more, and
+            // a send mined late reads as one in the expiry its rung carries.
+            let sub = app
+                .store
+                .lock()
+                .unwrap()
+                .subscription(&sub.subscription_id)?
+                .context("subscription vanished")?;
+            let previous = pos.checked_sub(1).map(|p| &sub.installments[p]);
+            release(app, client, &sub, &sub.installments[pos], previous, tip).await
         }
         "due" => release(app, client, sub, inst, previous, tip).await,
         "broadcast" => confirm(app, client, sub, inst, tip).await,
@@ -309,6 +318,18 @@ async fn release(
     let input_height = match previous {
         None => pocket.funding.as_ref().map(|f| f.mined_height),
         Some(p) => p.mined_height,
+    };
+    // Target the block after the tip as it is now, not as it was when this tick
+    // began: the sync, the beacon fetch and earlier subscriptions take seconds over
+    // Tor. If the chain moved, catch the wallet up so the anchor below is scanned.
+    let fresh = lwd::tip(client).await?;
+    let tip = if fresh > tip {
+        let mut db = app.wallet.lock().await;
+        wallet::sync(client, &app.cfg.network, &mut db).await?;
+        app.tip.store(u32::from(fresh), Ordering::Relaxed);
+        fresh
+    } else {
+        tip
     };
     let target = tip + 1;
     let anchor_height = target - ANCHOR_CONFIRMATIONS;

@@ -27,6 +27,7 @@ fi
 # shellcheck disable=SC2086
 set -- serve $PATHS \
   --server "${CADENCE_LIGHTWALLETD:-$DEFAULT_LWD}" \
+  --broadcast-server "${CADENCE_BROADCAST_LIGHTWALLETD:-${CADENCE_LIGHTWALLETD:-$DEFAULT_LWD}}" \
   --tor-dir "$DATA/tor" \
   --listen "0.0.0.0:${PORT:-8737}" \
   --public-url "https://$RAILWAY_PUBLIC_DOMAIN" \
