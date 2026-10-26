@@ -2229,3 +2229,9 @@ details.disclosure > .body {
     stroke-dashoffset: 0;
   }
 }
+
+/* Decoder: the nullifier a cancellation certificate points at. */
+.nf-match {
+  color: var(--green);
+  font-weight: 600;
+}

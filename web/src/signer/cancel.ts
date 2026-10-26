@@ -196,6 +196,14 @@ export async function runCancel(steps: CancelSteps, opts: CancelLoopOptions = {}
     if (!res || res.txid !== tx.txid) {
       throw new SignerError(`the runner reported txid ${res?.txid ?? '(none)'} for the cancel, whose txid is ${tx.txid}`);
     }
-    return { txid: tx.txid, refunded_zat: tx.refunded_zat, fee_zat: tx.fee_zat, target_height: tx.target_height, spent: noteName(note.k) };
+    return {
+      txid: tx.txid,
+      refunded_zat: tx.refunded_zat,
+      fee_zat: tx.fee_zat,
+      target_height: tx.target_height,
+      spent: noteName(note.k),
+      spent_k: note.k,
+      spent_nullifier: note.nullifier,
+    };
   }
 }

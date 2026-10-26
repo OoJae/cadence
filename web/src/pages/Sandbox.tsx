@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
+import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView } from '../components/FlowViews';
 import { BanIcon, BoltIcon, ClockIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
 import { LogView, useRunnerLog } from '../components/RunnerLog';
@@ -371,7 +372,10 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
           <div className="stack" style={{ ['--gap' as string]: '12px' }}>
             <span className="h3">Cancel your subscription</span>
             {s.cancel ? (
-              <CancelReceiptView receipt={s.cancel} />
+              <>
+                <CancelReceiptView receipt={s.cancel} />
+                {s.offer && <CancelCertificate receipt={s.cancel} client={api} network="test" subscriptionId={s.subscriptionId ?? null} count={s.offer.count} />}
+              </>
             ) : (
               <CancelPanel
                 signer={s.signer}

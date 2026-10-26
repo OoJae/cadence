@@ -74,6 +74,9 @@ export interface CancelReceipt {
   target_height: number;
   /** Which pocket note it spent, in words ("the change from installment 2"). */
   spent?: string;
+  /** That note's installment (0: the funding note) and nullifier, for the cancellation certificate. */
+  spent_k?: number;
+  spent_nullifier?: string;
 }
 
 /** Where a cancel is, for the page to show. `k` is the pocket note's installment (0: the funding note). */

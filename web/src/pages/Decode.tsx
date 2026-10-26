@@ -195,6 +195,7 @@ export function Decode({ txid }: { txid: string | null }) {
                   </p>
                 )}
                 <ShapeTable shape={shape.data} compare={profile} network={network} />
+                {shape.data.ironwood_nullifiers && <Nullifiers revealed={shape.data.ironwood_nullifiers} expected={search.get('nf')} />}
                 <details className="disclosure">
                   <summary>Raw shape JSON</summary>
                   <div className="body">
@@ -219,3 +220,30 @@ export function Decode({ txid }: { txid: string | null }) {
     </div>
   );
 }
+
+/** The nullifiers the transaction reveals; with ?nf=, whether a cancellation certificate's note is among them. */
+function Nullifiers({ revealed, expected }: { revealed: string[]; expected: string | null }) {
+  const want = expected?.toLowerCase() ?? null;
+  const found = want !== null && revealed.includes(want);
+  return (
+    <div className="stack" style={{ ['--gap' as string]: '6px' }}>
+      <span className="h4">Nullifiers this transaction reveals</span>
+      {want !== null && (
+        <Callout kind={found ? 'ok' : 'danger'}>
+          {found
+            ? 'It reveals the nullifier from your cancellation certificate: that pocket note is spent, so no installment that spends it can ever be valid.'
+            : 'It does not reveal the nullifier in your link. This is not the transaction that spent that note.'}
+        </Callout>
+      )}
+      <ul className="stack mono tiny" style={{ ['--gap' as string]: '2px', listStyle: 'none', padding: 0, margin: 0 }}>
+        {revealed.map((nf) => (
+          <li key={nf} className={nf === want ? 'nf-match' : 'muted'}>
+            {nf}
+          </li>
+        ))}
+      </ul>
+      <span className="tiny muted">Every Ironwood action reveals one nullifier; a note can be spent only once, so a nullifier can appear on chain only once.</span>
+    </div>
+  );
+}
+

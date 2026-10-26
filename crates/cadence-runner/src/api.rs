@@ -591,7 +591,13 @@ async fn decode(State(app): State<Arc<App>>, Path(txid): Path<String>) -> ApiRes
         }
     }
     let range = matching.iter().min().zip(matching.iter().max()).map(|(a, b)| (*a, *b));
-    let shape = serde_json::to_value(cadence_decode::shape(&tx, mined, range, &[])).map_err(|e| anyhow!(e))?;
+    let mut shape = serde_json::to_value(cadence_decode::shape(&tx, mined, range, &[])).map_err(|e| anyhow!(e))?;
+    // The nullifiers an Ironwood bundle reveals are public; a payer's cancellation
+    // certificate checks that its spent note's nullifier is among them.
+    if let Some(bundle) = tx.ironwood_bundle() {
+        let nullifiers: Vec<String> = bundle.actions().iter().map(|a| hex::encode(a.nullifier().to_bytes())).collect();
+        shape["ironwood_nullifiers"] = json!(nullifiers);
+    }
     let tip = app.tip.load(Ordering::Relaxed);
     if mined.is_some_and(|h| u32::from(h).saturating_add(DECODE_CACHE_DEPTH) <= tip) {
         let mut cache = DECODED.lock().unwrap();

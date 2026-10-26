@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { ApiError } from '../api/client';
 import type { PocketState, Subscription } from '../api/types';
 import { Command } from '../components/CancelKey';
+import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView } from '../components/FlowViews';
 import { KeyIcon } from '../components/Icons';
 import { Timeline } from '../components/Timeline';
@@ -239,7 +240,10 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
           Cancel
         </h2>
         {s.cancel ? (
-          <CancelReceiptView receipt={s.cancel} network={kit.network} />
+          <>
+            <CancelReceiptView receipt={s.cancel} network={kit.network} />
+            <CancelCertificate receipt={s.cancel} client={client} network={kit.network} subscriptionId={kit.subscription_id} count={kit.count} />
+          </>
         ) : fallback ? (
           <SweepFallback kit={kit} fileName={fileName} {...fallback} />
         ) : (

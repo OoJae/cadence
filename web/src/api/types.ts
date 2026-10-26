@@ -162,6 +162,8 @@ export interface BroadcastResponse {
 /** `GET /api/decode/:txid`: the public shape of a transaction (same fields as cadence-decode). */
 export interface Shape {
   txid: string;
+  /** Hex, one per Ironwood action: the nullifiers the transaction reveals (decode endpoint only). */
+  ironwood_nullifiers?: string[];
   version: string;
   branch_id: string;
   lock_time: number;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Offer } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
+import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView } from '../components/FlowViews';
 import { KeyIcon, ShieldCheckIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
@@ -248,7 +249,10 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
         <span className="h4">Cancel</span>
         {s.cancel ? (
-          <CancelReceiptView receipt={s.cancel} network={offer.network} />
+          <>
+            <CancelReceiptView receipt={s.cancel} network={offer.network} />
+            {s.runner && <CancelCertificate receipt={s.cancel} client={s.runner.api} network={offer.network} subscriptionId={s.subscriptionId ?? null} count={offer.count} />}
+          </>
         ) : (
           s.signer && (
             <CancelPanel
