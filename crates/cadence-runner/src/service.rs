@@ -32,6 +32,8 @@ pub struct Config {
     pub network: Network,
     pub network_name: &'static str,
     pub public_url: String,
+    /// Where the web app is hosted when this runner does not serve it.
+    pub app_url: Option<String>,
     pub merchant_token: String,
     pub webhook_url: Option<String>,
     pub webhook_secret: Option<String>,

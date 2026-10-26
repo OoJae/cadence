@@ -963,6 +963,7 @@ dependencies = [
  "shardtree",
  "tokio",
  "tonic",
+ "tower",
  "tower-http",
  "ureq",
  "uuid",
