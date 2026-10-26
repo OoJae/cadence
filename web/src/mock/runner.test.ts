@@ -144,7 +144,8 @@ describe('mock runner state derivation', () => {
     expect(res.log[0]).toBe(`runner: broadcasting installment ${paid.k} again (${paid.txid!.slice(0, 16)}…), whose pocket note is already spent`);
     expect(res.log.at(-1)).toMatch(/^node: transaction rejected: Ironwood double-spend: nullifier .* already revealed by .* at height \d+$/);
     // The old name is an alias, answered under the new one.
-    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'replay_after_cancel', k: paid.k })).toEqual(res);
+    // The old name still works and, like the real runner, is echoed back.
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'replay_after_cancel', k: paid.k })).toEqual({ ...res, kind: 'replay_after_cancel' });
     expect(() => runner.cheat({ subscription_id: 'sub_t', kind: 'replay', k: 1 })).toThrow(/unknown cheat/);
   });
 

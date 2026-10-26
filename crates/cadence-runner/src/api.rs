@@ -182,6 +182,16 @@ async fn status(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Js
     if app.funder.is_some() || is_merchant(&app, &headers) {
         status["subscriptions"] = json!(app.store.lock().unwrap().count_subscriptions()?);
     }
+    // The sandbox's faucet is a public demo wallet: show what it can still give away,
+    // so anyone can see it is not running dry.
+    if let Some(funder) = &app.funder {
+        let tip = BlockHeight::from_u32(app.tip.load(Ordering::Relaxed));
+        let db = app.wallet.lock().await;
+        if let Ok(notes) = wallet::unspent_notes(&db, funder.account, tip + 1) {
+            let balance: u64 = notes.iter().map(|n| n.note.value().inner()).sum();
+            status["faucet"] = json!({ "balance_zat": balance, "notes": notes.len() });
+        }
+    }
     Ok(Json(status))
 }
 

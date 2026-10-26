@@ -421,8 +421,10 @@ export class MockRunner {
   cheat(body: unknown): SandboxCheatResponse {
     const b = body as { subscription_id?: unknown; kind?: unknown; k?: unknown } | null;
     if (!b || typeof b.subscription_id !== 'string') throw new HttpError(422, 'subscription_id is required');
+    // Like the real runner: the old name still works, and the answer echoes the name sent.
+    const asked = b.kind as CheatKind;
     const kind = (b.kind === 'replay_after_cancel' ? 'rebroadcast' : b.kind) as CheatKind;
-    if (!CHEAT_KINDS.includes(kind)) throw new HttpError(422, 'unknown cheat');
+    if (!CHEAT_KINDS.includes(kind)) throw new HttpError(400, 'unknown cheat');
     const rec = this.subs.get(b.subscription_id);
     if (!rec) throw new HttpError(404, 'no such subscription');
     const now = this.clock();
@@ -430,14 +432,14 @@ export class MockRunner {
     const inst = detail.find((d) => d.k === b.k);
     if (!inst) throw new HttpError(422, 'no such installment');
     const k = inst.k;
-    const na = (line: string): SandboxCheatResponse => ({ kind, k, outcome: 'not_applicable', stage: null, log: [line] });
+    const na = (line: string): SandboxCheatResponse => ({ kind: asked, k, outcome: 'not_applicable', stage: null, log: [line] });
 
     if (kind === 'open_early') {
       if (inst.state !== 'sealed') return na(`installment ${k}: drand round ${inst.release_round} has already been published, so its package opens normally; pick a sealed installment`);
       const latest = roundAt(now);
       const ahead = inst.release_round - latest;
       return {
-        kind,
+        kind: asked,
         k,
         outcome: 'rejected',
         stage: 'tlock',
@@ -455,7 +457,7 @@ export class MockRunner {
       if (inst.state === 'cancelled' || inst.state === 'missed') return na(`installment ${k} is ${inst.state}; pick a due, broadcast or mined installment`);
       const bumped = inst.amount_zat * 10;
       return {
-        kind,
+        kind: asked,
         k,
         outcome: 'rejected',
         stage: 'signature',
@@ -478,7 +480,7 @@ export class MockRunner {
       if (!problem) throw new Error('a stretched schedule matched its offer, which must never happen');
       const moved = stretched[k - 1]!.release_round;
       return {
-        kind,
+        kind: asked,
         k,
         outcome: 'rejected',
         stage: 'schedule',
@@ -495,7 +497,7 @@ export class MockRunner {
     if (!paid) return na('no installment has been released yet');
     const nf = seededHex(`${rec.subscription_id}:nf:${paid.k}`);
     return {
-      kind,
+      kind: asked,
       k: paid.k,
       outcome: 'rejected',
       stage: 'double-spend',

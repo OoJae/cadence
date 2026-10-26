@@ -157,7 +157,7 @@ async function shot(page, name, fullPage = true) {
   await page.getByText('Cancel broadcast.').waitFor();
   await page.waitForFunction(() => document.querySelectorAll('.pane .tl-item[data-state="cancelled"]').length >= 1, null, { timeout: 60000 });
 
-  // Cheat 3: replay after cancel.
+  // Cheat 3: rebroadcast a paid installment.
   await cheats.nth(2).getByRole('button', { name: /Try it/ }).click();
   await cheats.nth(2).getByText(/Rejected · double-spend/).waitFor();
   await page.waitForTimeout(800);

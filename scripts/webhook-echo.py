@@ -9,7 +9,7 @@ prints which passed:
 Either fails if its timestamp is more than 5 minutes off. Answers 200 when both
 pass, else 401. Usage: CADENCE_WEBHOOK_SECRET=... python3 scripts/webhook-echo.py [port]
 """
-import hashlib, hmac, http.server, json, os, re, sys, time
+import hashlib, socket, hmac, http.server, json, os, re, sys, time
 from datetime import datetime, timezone
 
 SECRET = os.environ.get("CADENCE_WEBHOOK_SECRET", "").encode()
@@ -66,4 +66,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 if not SECRET:
     sys.exit("set CADENCE_WEBHOOK_SECRET")
-http.server.HTTPServer(("127.0.0.1", int(sys.argv[1]) if len(sys.argv) > 1 else 8799), Handler).serve_forever()
+# Local by default. ECHO_HOST=:: listens on every IPv6 and IPv4 address, as a
+# container on a private network needs.
+class Server(http.server.HTTPServer):
+    address_family = socket.AF_INET6 if ":" in os.environ.get("ECHO_HOST", "") else socket.AF_INET
+
+
+port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", "8799"))
+Server((os.environ.get("ECHO_HOST", "127.0.0.1"), port), Handler).serve_forever()
