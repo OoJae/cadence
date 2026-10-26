@@ -74,6 +74,7 @@ The runner **must** hold the pocket's Orchard full viewing key. ZIP 374's Prover
 - **Spend the pocket.** It never has `ask`.
 - **Release early.** It needs the round's drand signature (see §3 for the trust assumption).
 - **Rebroadcast a paid installment, or replay one after a cancel.** Its input note's nullifier is already spent, so nodes reject the double-spend. No cancel is needed for that.
+- **Charge after a cancel.** Once the cancel is mined, the next installment spends a note whose nullifier is on chain, and each later one spends change that can now never exist. The payer can show it: /manage (and the in-tab cancel) gives a cancellation certificate with the cancel's txid and height, the spent note's nullifier and the installments that can never be valid, and the decoder confirms the nullifier is on chain. The certificate leaves out the refund address.
 
 This is a statement about the runner. When the same merchant also serves the payer's web app, it serves the code that holds the pocket seed, which is a different trust (§6).
 
@@ -154,6 +155,7 @@ This is a statement about the runner. When the same merchant also serves the pay
 | Rungs are deterministic (same actions at every height, across NU7) | `cargo test -p cadence-core` |
 | Sealing works as described: wrong round, wrong identity and tampering all fail | `cargo test -p cadence-seal` |
 | Cancel stops the schedule | `evidence/E2E-service-testnet.md`, run 2 |
+| A cancel provably ends the plan | the cancellation certificate on /manage, and the decoder's nullifier check (`/decode/<cancel txid>?nf=<nullifier>`) |
 | Funds are recoverable without the runner | `cadence sweep --pocket <file> --to <your UA>` |
 | The runner refuses packages that don't match the offer | `cargo test -p cadence-core` (`verify_rung`) |
 | The runner refuses a schedule that doesn't follow the offer | `cargo test -p cadence-runner` (`check_schedule`), or the sandbox's "Stretch the plan" card |
