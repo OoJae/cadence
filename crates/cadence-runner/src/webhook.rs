@@ -4,11 +4,15 @@
 //! Cadence's `X-Cadence-Signature`, and CipherPay's `X-CipherPay-Signature` with
 //! `X-CipherPay-Timestamp` and `X-CipherPay-Delivery-Id`, computed as CipherPay
 //! computes them, so CipherPay's verification code accepts these unchanged. The
-//! body's `event` is CipherPay's name for each event. The rest of the body is
-//! Cadence's: an installment is `subscription_id` and `k`, not an `invoice_id`.
+//! body's `event` is CipherPay's name for each event, so a switch on it carries over
+//! too. Nothing else does: the rest of the body is Cadence's, an installment is
+//! `subscription_id` and `k`, and none of CipherPay's `invoice_id`, `timestamp`,
+//! `price_zec`, `received_zec`, `overpaid`, `price_id` or `immediate` are sent.
 //!
 //! Each event is delivered in its own task: up to three attempts, each with a hard
-//! timeout. Pending retries live in memory only, so a restart drops them.
+//! timeout. There is no outbox: pending retries live in memory only, so a restart
+//! drops them, and an event whose attempts all fail is dropped. The runner's store is
+//! the durable record (`docs/api.md`, "Webhooks").
 
 use std::{sync::Arc, time::Duration};
 
@@ -30,7 +34,7 @@ pub const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Serialize)]
 pub struct Event {
-    /// Cadence's name for the event, unchanged for existing handlers.
+    /// Cadence's name for the event, as Cadence has always sent it.
     #[serde(rename = "type")]
     pub kind: &'static str,
     /// CipherPay's name for the same event.

@@ -317,7 +317,7 @@ export function ObserverSummary({ fee }: { fee?: number | null }) {
   const cannot = [
     ['Who paid, or who was paid', 'There are no transparent parts, and Ironwood notes carry no sender.'],
     ['The amount', 'Only the fee leaves the pool. The payment value is inside encrypted notes.'],
-    ['That this is a subscription installment', 'Its shape matches a stock send field for field (see the comparison).'],
+    ['That this is a subscription installment', 'Its shape matches a stock send on every field in the comparison.'],
     ['Which installments belong together', 'Nullifiers and note commitments are unlinkable across transactions.'],
     ['The memo, or where change went', '0 outputs decrypt with the all-zero OVK, and 0 with the pocket keys the runner holds.'],
   ];

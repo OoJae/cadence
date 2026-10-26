@@ -200,7 +200,11 @@ export interface RunnerStatus {
 
 export type WebhookEventType = 'invoice.confirmed' | 'invoice.expired' | 'invoice.cancelled';
 
-/** Body the runner POSTs to the merchant, signed with `X-Cadence-Signature: t=…,v1=…`. */
+/**
+ * Part of the body the runner POSTs to the merchant. Unused by the app, which never
+ * receives webhooks; docs/api.md ("Webhooks") has every field (`event`, `delivery_id`,
+ * `offer_id`, `mined_height`, a nullable `txid`) and both signature headers.
+ */
 export interface WebhookEvent {
   type: WebhookEventType;
   subscription_id: string;
@@ -209,11 +213,11 @@ export interface WebhookEvent {
   amount_zat: number;
 }
 
-// ---------------------------------------------------------------- sandbox (not in api.md v0)
+// ---------------------------------------------------------------- sandbox (docs/api.md, "Testnet sandbox")
 
 /**
- * Judge-sandbox endpoints. These are a proposed testnet-only extension: the mock
- * runner implements them; a production runner must not.
+ * Judge-sandbox endpoints, testnet only. The real runner serves them only when started
+ * with --sandbox-funder on testnet; the mock runner implements them too.
  */
 export interface SandboxFundRequest {
   ua: string;

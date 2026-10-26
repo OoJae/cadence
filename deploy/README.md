@@ -9,7 +9,19 @@ The live demo runs on Railway, one service per runner, each serving the web app 
 | `sandbox` | testnet | `CADENCE_NETWORK=test`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN`, `SANDBOX_FUNDER_SEED`, `SANDBOX_FUNDER_BIRTHDAY` |
 | `main` | mainnet | `CADENCE_NETWORK=main`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN` |
 
-Each service has a volume at `/data` (wallet, records, age identity, Tor state) and a generated `*.up.railway.app` domain on port 8080. `deploy/railway/entrypoint.sh` initialises the runner on first boot. Without a node, both runners reach public lightwalletd servers and drand over Tor; set `CADENCE_LIGHTWALLETD` to point a runner elsewhere.
+Each service has a volume at `/data` (wallet, records, age identity, Tor state) and a generated `*.up.railway.app` domain on port 8080. `deploy/railway/entrypoint.sh` initialises the runner on first boot. Without a node, both runners reach public lightwalletd servers and drand over Tor.
+
+Optional variables, read by the entrypoint:
+
+| Variable | Effect |
+|---|---|
+| `CADENCE_LIGHTWALLETD` | The lightwalletd to sync from (default `zec.rocks`, or `testnet.zec.rocks`). |
+| `CADENCE_BROADCAST_LIGHTWALLETD` | A second lightwalletd for broadcasts (default: the sync server). Broadcasts use their own Tor state either way. |
+| `CADENCE_WEBHOOK_URL`, `CADENCE_WEBHOOK_SECRET` | Where to POST signed webhooks (`docs/api.md`, "Webhooks"). Both are needed. |
+| `CADENCE_APP_URL` | Where the web app is hosted, when not by this runner: share links point there, and its origin may call the API. |
+| `CADENCE_CORS_ORIGINS` | Further origins that may call the API, comma-separated, exact (no `*`, no path). |
+
+Railway terminates TLS in front of each service, so it sees the IP address and request paths of every visitor (`docs/threat-model.md`, §5).
 
 Deploy from a checkout with the web app built:
 
@@ -20,6 +32,32 @@ railway up /tmp/cadence-stage --path-as-root --service main --detach
 ```
 
 Only one process may use a given sandbox funder seed at a time: stop any local sandbox runner first.
+
+## App host (the web app on an origin of its own)
+
+When a runner serves the web app, the merchant serves the code that holds the payer's pocket key (`docs/threat-model.md`, §6). An app host serves the same app from an origin of its own, and the runners keep only the API. This mode is built and tested (`cd web && pnpm verify:app-host`) but not deployed for the demo.
+
+1. Build a `VITE_API=runners` app. It talks to exactly the runners listed, and its CSP `connect-src` is `'self'` plus those origins:
+
+   ```sh
+   cd web && pnpm build:wasm
+   VITE_SIGNER=wasm VITE_API=runners \
+     VITE_RUNNERS="https://<sandbox domain>,https://<main domain>" \
+     VITE_DEFAULT_RUNNER="https://<sandbox domain>" pnpm build && cd ..
+   ```
+
+2. Stage and deploy it on a Railway service of its own, with a generated domain and no volume:
+
+   ```sh
+   deploy/railway-app/stage.sh /tmp/cadence-app-stage        # web/dist, the Dockerfile and the Caddyfile only
+   railway up /tmp/cadence-app-stage --path-as-root --service app --detach
+   ```
+
+   `stage.sh` builds nothing, and refuses a dist that is not a `runners` build. The image is `caddy:2.11.4-alpine` running as uid 10001, with no access log and no admin endpoint. It sends the build's own CSP from `dist/csp.txt`, and the same COOP, COEP, CORP, Referrer-Policy and Permissions-Policy headers as `deploy/Caddyfile`.
+
+3. Set `CADENCE_APP_URL=https://<app domain>` on each runner and redeploy it. Share links then point at the app host, and the runners answer its origin's requests (`docs/api.md`, "CORS"). Without this, the browser blocks the app's API calls.
+
+4. Check what the host serves against a build you made or trust: `web/README.md`, "Build identity". The footer shows the commit and the bundle's sha256 from the host's `build.json`, which is only the host's claim until you compare it.
 
 ## A server with our own node
 

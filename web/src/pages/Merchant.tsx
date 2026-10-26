@@ -9,7 +9,7 @@ import { isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundAt } from '../lib/drand';
 import { LIMITS, parseOfferFragment } from '../lib/offer';
 import { formatDate, formatPeriod } from '../lib/time';
-import { formatZec, parseZecToZat, totalPrepaidZat, INSTALLMENT_FEE_ZAT } from '../lib/zat';
+import { formatZec, parseZecToZat, totalPrepaidZat, unitFor, INSTALLMENT_FEE_ZAT } from '../lib/zat';
 import { Link } from '../router';
 import { api, isMock, mockHooks } from '../runtime';
 
@@ -249,7 +249,7 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
             <label htmlFor="o-amount">Amount per installment</label>
             <div className="input-group">
               <input id="o-amount" className="input mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!!show('amount')} />
-              <span className="suffix">TAZ</span>
+              <span className="suffix">{unitFor(network ?? 'test')}</span>
             </div>
             {show('amount') && <span className="error-text">{show('amount')}</span>}
           </div>
@@ -299,7 +299,7 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
           <div className="panel small text-2">
             Each payer prepays{' '}
             <strong className="mono">
-              {countN} × ({formatZec(amountZat)} + {formatZec(INSTALLMENT_FEE_ZAT)} fee) = {formatZec(totalPrepaidZat(amountZat, countN))}
+              {countN} × ({formatZec(amountZat, network)} + {formatZec(INSTALLMENT_FEE_ZAT, network)} fee) = {formatZec(totalPrepaidZat(amountZat, countN), network)}
             </strong>{' '}
             into a pocket only they can spend.
           </div>
@@ -347,7 +347,7 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
               </p>
               {decoded?.ok && (
                 <p className="tiny muted" style={{ marginTop: 8 }}>
-                  Decoded: {decoded.offer.name}, {formatZec(decoded.offer.amount_zat)} {formatPeriod(decoded.offer.period_secs)} × {decoded.offer.count}, runner key{' '}
+                  Decoded: {decoded.offer.name}, {formatZec(decoded.offer.amount_zat, decoded.offer.network)} {formatPeriod(decoded.offer.period_secs)} × {decoded.offer.count}, runner key{' '}
                   {shorten(decoded.offer.runner_age_recipient, 8, 4)}.
                 </p>
               )}
@@ -365,26 +365,35 @@ function Integrate() {
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
         <span className="kicker">Integrate</span>
         <h2 id="integrate" className="h3">
-          Webhooks, CipherPay-shaped
+          Webhooks, with CipherPay's signature
         </h2>
-        <p className="small text-2">Existing CipherPay handlers work unchanged. The runner signs each POST:</p>
+        <p className="small text-2">
+          The runner signs each POST twice with your webhook secret: its own header, and CipherPay's three headers computed as CipherPay computes them, so CipherPay's verification code
+          accepts them. The body's <code>event</code> carries CipherPay's event name. The rest of the body is Cadence's: an installment is <code>subscription_id</code> and <code>k</code>,
+          with no <code>invoice_id</code>.
+        </p>
         <div className="code-block tiny">X-Cadence-Signature: t=&lt;unix&gt;,v1=&lt;hex HMAC-SHA256(secret, "&lt;t&gt;.&lt;body&gt;")&gt;</div>
+        <div className="code-block tiny">X-CipherPay-Signature: &lt;hex HMAC-SHA256(secret, "&lt;X-CipherPay-Timestamp&gt;.&lt;body&gt;")&gt;</div>
         <table className="data">
           <tbody>
             <tr>
-              <td className="mono">invoice.confirmed</td>
+              <td className="mono">invoice.confirmed · confirmed</td>
               <td className="small muted">an installment is mined</td>
             </tr>
             <tr>
-              <td className="mono">invoice.expired</td>
+              <td className="mono">invoice.expired · expired</td>
               <td className="small muted">an installment was missed (its window passed with no rung) or invalid (its package did not match the offer); nothing was broadcast. The payer can cancel or sweep, and subscribe again</td>
             </tr>
             <tr>
-              <td className="mono">invoice.cancelled</td>
+              <td className="mono">invoice.cancelled · subscription.canceled</td>
               <td className="small muted">the payer spent the pocket</td>
             </tr>
           </tbody>
         </table>
+        <p className="tiny muted">
+          At most 3 attempts (at once, then 30 s and 2 min after each failure), from the runner's memory: there is no outbox, so reconcile from the subscription API. Dedupe on <code>delivery_id</code>.
+          Details in docs/api.md.
+        </p>
       </div>
     </section>
   );
@@ -418,7 +427,7 @@ export function Merchant() {
 
       <div className="stat-strip" style={{ marginBottom: 24 }}>
         <Stat label="Network" value={status.data ? (status.data.network === 'main' ? 'Mainnet' : 'Testnet') : '…'} sub={isMock ? 'mock runner' : 'runner'} />
-        <Stat label="Chain tip" value={status.data ? status.data.tip.toLocaleString('en-US') : '…'} sub={isMock ? `mock · ${mockHooks?.blockSecs} s blocks` : 'from the runner’s node'} />
+        <Stat label="Chain tip" value={status.data ? status.data.tip.toLocaleString('en-US') : '…'} sub={isMock ? `mock · ${mockHooks?.blockSecs} s blocks` : 'as the runner sees it'} />
         <Stat label="drand round" value={roundAt(now).toLocaleString('en-US')} sub="quicknet · every 3 s" />
         <Stat label="Next release" value={nextAt ? <Countdown at={nextAt} /> : '—'} sub={`${counts.active ?? 0} active · ${list.length} total`} />
       </div>

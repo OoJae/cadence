@@ -116,7 +116,7 @@ interface StepDef {
 function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
   const mined = sub?.installments.filter((i) => i.state === 'mined').length ?? 0;
   return [
-    { id: 'create', title: 'Create a mandate', desc: 'A merchant offer: N installments, one every few seconds.', done: !!s.offer },
+    { id: 'create', title: 'Create a mandate', desc: 'A merchant offer: N installments, a short period apart.', done: !!s.offer },
     { id: 'fund', title: 'Auto-fund it', desc: 'The sandbox faucet pays the pocket QR for you.', done: !!s.funding },
     { id: 'sign', title: 'Sign', desc: 'Every installment, every candidate height, sealed.', done: s.phase === 'done' },
     {
@@ -276,7 +276,7 @@ function CreateForm() {
     <div className="stack" style={{ ['--gap' as string]: '16px' }}>
       <div className="stack" style={{ ['--gap' as string]: '4px' }}>
         <span className="h3">A standing order, sped up</span>
-        <span className="small muted">Real cadences are days or weeks. Here installments are seconds apart so you can watch them land.</span>
+        <span className="small muted">Real cadences are days or weeks. Here installments are seconds or minutes apart so you can watch them land.</span>
       </div>
       <div className="grid cols-3" style={{ ['--gap' as string]: '12px' }}>
         <div className="field">
@@ -321,7 +321,7 @@ function CreateForm() {
 function keyNote(key: CancelKeyState): string | null {
   switch (key.step) {
     case 'downloaded':
-      return `payer: downloaded the cancel key as ${key.kit.fileName}, encrypted to a passphrase; it never left this browser`;
+      return `payer: downloaded the cancel key as ${key.kit.fileName}, encrypted to a passphrase; it went to no server`;
     case 'verified':
       return `payer: picked ${key.kit.fileName} again and opened it with its passphrase; it is this pocket's key`;
     case 'skipped':
@@ -474,7 +474,7 @@ function RunnerPane({ sub, s }: { sub: Subscription | undefined; s: SandboxState
           <p className="small muted">Holding nothing yet. Once the payer uploads, sealed packages appear here.</p>
         )}
         <LogView lines={lines} label="Runner log" empty="runner idle" />
-        <span className="tiny faint">Runner lines use the exact message formats of crates/cadence-runner.</span>
+        <span className="tiny faint">Runner lines are written by this page from the runner's API answers, in the style of its log. Cheat output is what the runner returns.</span>
       </div>
     </section>
   );

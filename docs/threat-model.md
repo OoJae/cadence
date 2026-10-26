@@ -21,7 +21,9 @@ Cadence lets a payer pre-authorize a schedule of shielded Ironwood payments that
 | drand relays | Serve public randomness beacons |
 | lightwalletd / node operators | Serve compact blocks and accept broadcasts |
 | Network observer | ISP, Wi-Fi, or a global passive adversary |
-| Web host | Serves the payer app (if the payer uses the web build) |
+| Hosting edge | The TLS proxy or platform in front of a runner or app host (Caddy on our own server; Railway for the live demo) |
+| Web host | Serves the payer app (if the payer uses the web build): the merchant's runner, or an app host |
+| Anyone on the API | Whoever can reach the runner's unauthenticated endpoints |
 
 ---
 
@@ -49,6 +51,7 @@ Cadence lets a payer pre-authorize a schedule of shielded Ironwood payments that
 
 - **Timing is public.** A mandate with a 2-minute cadence on a quiet chain is visible as a periodic series. Real mandates are monthly. Cadence adds no jitter yet: each installment goes out at the first block after its drand round in which its input is 3 blocks deep. A monthly series is still a handful of 2-action transactions among thousands a day, but an observer who guesses the schedule can test it.
 - **Retry tells.** If an installment expires unmined, its retry rung carries byte-identical actions. A mempool recorder could link the two broadcasts. This is rare and disclosed.
+- **Late release.** A rung's expiry is fixed at its target height, so an installment mined some blocks after its target shows `expiry − mined` below the full delta, as a slow send would. In the public sandbox run, installments 2 and 3 showed 115 and 109 instead of 120 (`evidence/railway-sandbox.md`): the runner opened each package on one tick and released it on the next, against a tip read before its sync. It now releases in the tick that opens the package and reads the tip again just before choosing the rung (`service.rs::advance`, `release`). That fix has not been re-measured on a public run yet.
 
 ## 2. Runner (the merchant)
 
@@ -65,14 +68,16 @@ The runner **must** hold the pocket's Orchard full viewing key. ZIP 374's Prover
 - **Derivation metadata.** PCZTs pass the Redactor before upload, which removes ZIP 32 derivations (seed fingerprint), outgoing cipher keys, user-address strings and proprietary fields (`cadence-core/src/package.rs`).
 - **The RNG seed.** Rung randomness comes from a keyed BLAKE2b PRF over a secret only the payer app holds (`cadence-core/src/seed.rs`).
 
-**Cannot:**
+**Cannot**, as the runner software:
 
 - **Redirect or enlarge a payment.** Amount and recipient are under the spend-authorization signature; `apply_signature` and the Transaction Extractor reject any change.
 - **Spend the pocket.** It never has `ask`.
 - **Release early.** It needs the round's drand signature (see §3 for the trust assumption).
-- **Replay after a cancel.** The note's nullifier is spent, so nodes reject the double-spend.
+- **Rebroadcast a paid installment, or replay one after a cancel.** Its input note's nullifier is already spent, so nodes reject the double-spend. No cancel is needed for that.
 
-**The merchant is protected too.** The runner checks every opened rung against the offer before it broadcasts: the installment index and amount, an output to the merchant's Orchard receiver whose note commitment matches that amount, the branch, `lock_time = 0` and the default expiry (`cadence-core::package::verify_rung`). A package that fails is marked `invalid` and nothing is sent. The runner does not check that the payment's ciphertext decrypts for the merchant: a payer who corrupts it loses that installment, but the merchant's wallet will not show it, so a merchant that needs proof of receipt should check its own wallet. Before calling a subscription cancelled, the runner rules out its own missed confirmation and a reorg, by checking with lightwalletd that its last broadcast is not mined and that the input's parent still is.
+This is a statement about the runner. When the same merchant also serves the payer's web app, it serves the code that holds the pocket seed, which is a different trust (§6).
+
+**The merchant is protected too.** The runner checks every schedule it is given before it accepts it (`api.rs::check_schedule`): exactly `count` installments numbered from 1, a pocket it has seen funded with `count` × (amount + 10,000) zats, installment 1 due no later than one period plus 600 s after the upload, and each later one a period after the one before, give or take half a period. So a payer cannot stretch a plan, for instance by sealing installment 2 a year late, and have the merchant accept it as the offer; the sandbox's "Stretch the plan" card runs this check on a stretched copy. The runner also checks every opened rung against the offer before it broadcasts: the installment index and amount, an output to the merchant's Orchard receiver whose note commitment matches that amount, the branch, `lock_time = 0` and the default expiry (`cadence-core::package::verify_rung`). A package that fails is marked `invalid` and nothing is sent. The runner does not check that the payment's ciphertext decrypts for the merchant: a payer who corrupts it loses that installment, but the merchant's wallet will not show it, so a merchant that needs proof of receipt should check its own wallet. Before calling a subscription cancelled, the runner rules out its own missed confirmation and a reorg, by checking with lightwalletd that its last broadcast is not mined and that the input's parent still is.
 
 **Residual:**
 
@@ -101,17 +106,29 @@ The runner **must** hold the pocket's Orchard full viewing key. ZIP 374's Prover
 | Runner with its own node | Nothing: it syncs from its own Zebra 7 node (the deployment target) |
 | Runner with a public server (dev and sandbox) | Over Tor, it sees a compact-block client with no IP. Broadcasts use a separate Tor client (`--broadcast-server`, separate arti state). |
 | Payer CLI | Over Tor, it checks the runner-supplied anchor against an independent tree state and broadcasts a cancel. `cadence sweep` scans the pocket's history from its funding height, as any light wallet does, to recover funds without the runner. |
+| The decoder (`GET /api/decode/:txid`) | The runner fetches the transaction and up to 12 tree states through its own sync connection, so that server sees which txids visitors decode, from the runner (over Tor unless `--direct`), not from the visitor. Shapes of transactions at least 10 blocks deep are kept in the runner's memory (256 at most) and served again without asking it. |
 
 ## 5. Network observer
 
 - **CLI.** Every chain contact goes over Tor (arti, embedded), and so does every request to the runner, on circuits isolated from the chain traffic. The one exception is a runner on the same machine, which Tor cannot reach. `--direct` turns Tor off for development. Contact with the runner happens only during subscribe and cancel.
-- **Web build.** A normal browser cannot speak Tor. The web payer talks to the runner's origin over HTTPS, and this is disclosed in the UI and in the README. Tor Browser plus the onion address is the private web path. The page makes no other requests: fonts are self-hosted, there is no analytics, and the CSP pins `connect-src` to the runner. `pnpm verify` fails the build on any off-origin request.
+- **Web build.** A normal browser cannot speak Tor. The web payer talks to the runner's origin over HTTPS, and this is disclosed in the UI and in the README. Tor Browser plus the onion address is the private web path. The page makes no other requests: fonts are self-hosted, there is no analytics, and the CSP pins `connect-src` to the runner (in an app-host build, to the runners it lists). `pnpm verify` fails the build on any off-origin request.
+- **Hosting edge.** Whatever terminates TLS in front of a runner or an app host sees each client's IP address, the request paths and their timing. On the live demo that is Railway, for the sandbox runner and the web app it serves. Paths include ids such as `/api/subscriptions/sub_…` and `/api/pockets/pkt_…`; offers stay in the fragment, which is never sent. The CLI over Tor, or Tor Browser, keeps the client's IP from the edge as well as from the runner.
 
 ## 6. Web host
 
+- **The web host serves the code that holds the pocket seed.** The signer runs in the page, so whoever serves the page decides what that code does. With `VITE_API=self`, as on the live demo, the web host is the merchant's runner: a dishonest merchant could serve code that sends the seed home and spends the pocket, which the runner software itself cannot do (§2). The mitigations:
+  - **An app host the merchant does not control.** A `VITE_API=runners` build is served from its own origin (`deploy/railway-app/`) and talks only to the runners it lists. Its footer shows the commit and the bundle's sha256 from its `build.json`, and anyone can hash the files the host serves and compare them with a build of their own (`web/README.md`, "Build identity"). This is a check against a build you trust, not a reproducible-build claim. The mode is built and tested but not deployed for the demo yet.
+  - **The CLI.** `cadence subscribe` signs on the payer's machine, and talks to the runner only over its HTTP API (over Tor).
 - **Offer data never reaches the host.** It travels in the URL fragment.
-- **Keys stay in the browser.** The signer runs in WebAssembly workers, and keys stay in memory. Nothing is written to browser storage; `pnpm verify` asserts zero storage writes. So that a payer can close the tab and still cancel, the app offers a **cancel key**: the pocket seed and schedule, encrypted in a worker to a passphrase with age's scrypt recipient, saved as a file the payer downloads. The browser's Manage page and `cadence cancel` / `cadence sweep` all open it. Anyone with the file and the passphrase can cancel and take the remainder; the merchant and the runner never see it.
+- **Keys stay in the browser.** The signer runs in WebAssembly workers, and keys stay in memory. Nothing is written to browser storage; `pnpm verify` asserts zero storage writes. So that a payer can close the tab and still cancel, the app offers a **cancel key**: the pocket seed and schedule, encrypted in a worker to a passphrase with age's scrypt recipient, saved as a file the payer downloads. The browser's Manage page and `cadence cancel` / `cadence sweep` all open it. Anyone with the file and the passphrase can cancel and take the remainder; the honest app never sends it anywhere.
+- **The cancel key is checked before the tab may close.** After the download, the payer picks the file again and retypes the passphrase; the page opens it in a worker and checks that its network, pocket id and address match this tab's pocket and that its seed derives that address (`src/signer/kit.ts::checkKit`). Only then does it say the tab can be closed. On `/subscribe` a payer can instead go without a key, or skip the check, each behind a confirmation that says what it costs: without the key there is no cancelling, and no recovering what is left after a merchant stop, a missed installment or overfunding, since `cadence sweep` needs the key too. The sandbox, which spends faucet money, skips with one click.
 - **The CSP is strict.** No inline script, no eval except `wasm-unsafe-eval`, and Trusted Types are required.
+
+## 7. Anyone on the API
+
+- **Ids are capabilities.** `GET /api/pockets/:id` and `GET /api/subscriptions/:id` need no token. Their 80-bit random ids expose funding data, notes, the schedule and txids to whoever holds them; the payer's app and the demo's `/status#sub=…` page poll them.
+- **The customer list is the merchant's.** `GET /api/subscriptions` needs the merchant's bearer token, and `GET /api/status` includes the subscription count only with that token. The testnet sandbox is the exception: its merchant is its own demo wallet, so both are public there.
+- **The decoder shows only public data.** `GET /api/decode/:txid` returns what anyone reading the chain can compute.
 
 ---
 
@@ -120,7 +137,10 @@ The runner **must** hold the pocket's Orchard full viewing key. ZIP 374's Prover
 - "No viewing keys on any server." The runner holds one pocket's Orchard FVK, scoped as above.
 - "Trustless timing." "Not before" is a drand threshold assumption.
 - "Indistinguishable" beyond the fields we measure and publish. We say "matches stock sends on every measured field".
-- "Tor everywhere" for the plain web build.
+- "Tor everywhere" for the plain web build, or for webhooks, which go straight to the merchant's URL.
+- "The merchant cannot take your funds" when the merchant also serves your web app (§6). The runner software cannot; a web host can serve other code.
+- Reproducible builds. The build identity lets anyone compare what a host serves with a build they made or trust; we have not shown that two machines produce the same bundle.
+- Guaranteed webhook delivery. Each webhook gets at most 3 attempts, from memory, with no outbox.
 - "First pull payments on any chain." We claim only the first Zcash implementation we could find (GitHub search, Oct 22 2026).
 - Post-quantum privacy. ZIP 2005 is about recoverability, not privacy.
 
@@ -136,3 +156,7 @@ The runner **must** hold the pocket's Orchard full viewing key. ZIP 374's Prover
 | Cancel stops the schedule | `evidence/E2E-service-testnet.md`, run 2 |
 | Funds are recoverable without the runner | `cadence sweep --pocket <file> --to <your UA>` |
 | The runner refuses packages that don't match the offer | `cargo test -p cadence-core` (`verify_rung`) |
+| The runner refuses a schedule that doesn't follow the offer | `cargo test -p cadence-runner` (`check_schedule`), or the sandbox's "Stretch the plan" card |
+| A paid installment cannot be sent again | the sandbox's "Rebroadcast a paid installment" card, which shows the node's refusal |
+| A web host serves a given build | `web/README.md`, "Build identity" |
+| Webhooks carry both signature formats | `scripts/webhook-echo.py` |

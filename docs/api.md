@@ -1,6 +1,6 @@
 # Cadence runner HTTP API (v0)
 
-The runner serves JSON over HTTPS, and can also be published as a Tor onion service (`deploy/torrc`). The payer CLI reaches it over Tor unless it runs on the same machine. Amounts are zatoshis (integers). Heights are block heights. Times are unix seconds. A drand `round` is a drand quicknet round number.
+The runner serves JSON over HTTP behind a TLS proxy (Caddy, or Railway's edge), and can also be published as a Tor onion service (`deploy/torrc`). The payer CLI reaches it over Tor unless the runner is on a loopback address or `--direct` is given. Amounts are zatoshis (integers). Heights are block heights. Times are unix seconds. A drand `round` is a drand quicknet round number. Errors are `{ "error": "…" }` with a 4xx or 5xx status.
 
 ## Merchant: offers (plans)
 
@@ -11,11 +11,13 @@ The runner serves JSON over HTTPS, and can also be published as a Tor onion serv
   "count": 3, "merchant_ua": "u1…" }
 ```
 
-The response is `201`. The share URL carries the offer in its **fragment**, so it never reaches a server:
+`count` is 1–12, `amount_zat` and `period_secs` must be positive, and `merchant_ua` must be a unified address with an Orchard receiver on the runner's network. The response is `201`. The share URL carries the offer in its **fragment**, so it never reaches a server:
 
 ```json
 { "offer_id": "off_…", "share_url": "https://pay.example/subscribe#offer=<base64url(offer json)>" }
 ```
+
+The share URL's base is `--app-url` when the runner was started with one, and `--public-url` otherwise. `runner_endpoint` in the offer is always `--public-url`.
 
 `GET /api/offers/:id` returns the offer the payer app signs against:
 
@@ -43,12 +45,12 @@ The response is `201`. The runner refuses a UFVK with any transparent or Sapling
 
 A pocket that is never funded is forgotten after a day. One that is funded but never given packages is forgotten after a week; its funds stay the payer's (`cadence sweep`).
 
-`GET /api/pockets/:id` returns `funding` as `null` until the funding transaction is mined. `tx_hex` is the raw transaction; the app decrypts the note itself with `mandate::decrypt_funding`. `notes` lists the pocket's mined, unspent notes.
+`GET /api/pockets/:id` returns `funding` as `null` until the funding transaction is mined. `tx_hex` is the raw transaction; the app decrypts the note itself with `mandate::decrypt_funding`. `notes` lists the pocket's mined, unspent notes, each with the txid that created it. `syncing` is `true` while the runner's wallet has not yet scanned the block of the latest mined installment, so the change it left is not listed yet.
 
 ```json
-{ "pocket_id": "pkt_…", "tip": 3529010, "birthday_height": 3529002,
+{ "pocket_id": "pkt_…", "tip": 3529010, "syncing": false, "birthday_height": 3529002,
   "funding": { "txid": "…", "tx_hex": "…", "mined_height": 3529004, "value_zat": 330000 },
-  "notes": [ { "nullifier": "…", "value_zat": 220000, "mined_height": 3529009, "position": 123456 } ] }
+  "notes": [ { "nullifier": "…", "value_zat": 220000, "txid": "…", "mined_height": 3529009, "position": 123456 } ] }
 ```
 
 Once the subscription ends, the runner deletes the pocket's account, viewing key and funding transaction: `notes` is then empty and `tx_hex` is `""`, whatever the pocket still holds.
@@ -83,16 +85,26 @@ These exist only when the runner was started with `--sandbox-funder` on testnet 
 { "pocket_id": "pkt_…", "amount_zat": 330000 }
 ```
 
-The response is `{ "txid": "…" }`.
+The response is `{ "txid": "…", "mined_height": null }`: the runner answers while the payment is still in the mempool.
 
-`POST /api/sandbox/cheat` makes the runner attempt a real violation against one installment, and reports which check stopped it. `kind` is one of:
+`POST /api/sandbox/cheat` makes the runner attempt a real violation against one subscription, and reports which check stopped it. `kind` is one of:
 
-- `open_early`: open the package before its drand round. tlock refuses: `InvalidBeacon`.
-- `tamper_amount`: rebuild the installment for 1 zat more and reuse the payer's signature. The transaction extractor refuses: `InvalidExternalSignature`.
-- `replay`: rebroadcast an installment that is already mined. The node refuses the double-spend.
+- `open_early`: open installment `k`'s package, which must still be sealed, with the newest drand beacon instead of its own round's. tlock refuses: `InvalidBeacon`. Stage `tlock`.
+- `tamper_amount`: rebuild installment `k`, which must have opened, for 1 zat more and attach the payer's spend authorization from the package. The PCZT signer refuses: `InvalidExternalSignature`. Stage `signature`.
+- `rebroadcast`: broadcast the newest mined installment again, whose pocket note is already spent. The node refuses it; the log carries the node's error. Stage `double-spend`. No cancel is needed. The old name `replay_after_cancel` is still accepted. `k` is ignored.
+- `stretch_schedule`: copy the subscription's own schedule with installment 2 (installment 1 if `count` is 1) a year later, and run the upload check of `POST /api/subscriptions` on the copy, as of the subscription's `created_at`. Stage `schedule`. `k` is ignored.
 
 ```json
 { "subscription_id": "sub_…", "kind": "tamper_amount", "k": 2 }
+```
+
+The response is `200` with a verdict. `outcome` is `rejected` when the check stopped it, and `not_applicable` when there was nothing to try yet (for example, no installment mined for `rebroadcast`); the log then says why. An unknown `kind` is `400`.
+
+```json
+{ "kind": "stretch_schedule", "k": 2, "outcome": "rejected", "stage": "schedule",
+  "log": [ "runner: copying the schedule with installment 2 sealed for 2027-10-26 20:39 UTC, 365 days after #1; the offer says every 90 s",
+           "runner: checking the copy as POST /api/subscriptions checks every upload",
+           "schedule check: installment 2 releases 31536090 s after installment 1; the offer says every 90 s, give or take 45 s" ] }
 ```
 
 ## Payer: subscribing
@@ -113,6 +125,16 @@ The response is `201`:
 { "subscription_id": "sub_…", "status": "active" }
 ```
 
+The runner cannot read a package before its round, so it checks the schedule it is given against the offer (`api.rs::check_schedule`):
+
+- exactly `count` installments, numbered `k` = 1…`count` in order;
+- a pocket that backs no other subscription, and whose funding the runner has seen mined, worth at least `count` × (`amount_zat` + 10,000) zats;
+- installment 1 releasing no later than `period_secs` + 600 s after the upload;
+- each later installment releasing `period_secs` after the one before, give or take `period_secs` / 2 (rounded down);
+- each package's tlock header naming its `release_round`.
+
+A failure is `400`, for example `{ "error": "installment 2 releases 31536090 s after installment 1; the offer says every 90 s, give or take 45 s" }`. The CLI's default `--first-in 60` and the web app's schedule pass. A larger `--first-in` is refused if it puts installment 1 more than `period_secs` + 600 s after the upload reaches the runner. There is no lower bound: an installment already due is released at once.
+
 ## Dashboard: subscriptions
 
 `GET /api/subscriptions` lists every subscription; it needs the merchant's bearer token, except on a testnet sandbox runner, whose merchant is its own demo wallet. `GET /api/subscriptions/:id` returns one, and like `GET /api/pockets/:id` needs no token: the ids are random, and the payer's app polls them.
@@ -123,9 +145,11 @@ The response is `201`:
   "installments": [
     { "k": 1, "amount_zat": 100000, "release_round": 23456789, "release_at": 1792680000,
       "state": "sealed | due | broadcast | mined | cancelled | missed | invalid",
-      "txid": "…", "target_height": 4529247, "mined_height": 4529248 }
+      "txid": "…", "target_height": 4529247, "expiry_height": 4529367, "mined_height": 4529248 }
   ] }
 ```
+
+`funding` is `null` when the runner has no funding record for the pocket. `txid`, `target_height`, `expiry_height` and `mined_height` are `null` until they apply.
 
 Installment states:
 
@@ -145,7 +169,7 @@ Before broadcasting, the runner checks each opened rung against the offer: the i
 
 ## Evidence
 
-`GET /api/decode/:txid` returns the public shape of any transaction, read through the runner's lightwalletd. The fields are the same as `cadence-decode`:
+`GET /api/decode/:txid` returns the public shape of any transaction. The runner reads it, and up to 12 tree states to place the anchor, through its own sync connection to lightwalletd, so that server sees which transactions are decoded (over Tor, unless the runner runs with `--direct`). The shapes of up to 256 transactions mined at least 10 blocks below the tip are kept in memory, oldest dropped first, and served without asking lightwalletd again. The fields are the same as `cadence-decode`. Fields that do not apply are `null`: `mined_height` and `expiry_minus_mined` for an unmined transaction, and the Ironwood fields when there is no Ironwood bundle. The Orchard-pool fields (`orchard_flags` and so on) appear only when there is an Orchard-pool bundle.
 
 ```json
 { "txid": "…", "version": "V6", "branch_id": "77190ad9", "lock_time": 0, "expiry_height": 0,
@@ -159,17 +183,56 @@ Before broadcasting, the runner checks each opened rung against the offer: the i
 `GET /api/status` reports the runner's view of the chain:
 
 ```json
-{ "network": "test", "tip": 4529263, "drand_round": 23456789, "subscriptions": 3, "sandbox": true }
+{ "network": "test", "tip": 4529263, "drand_round": 23456789, "sandbox": false }
 ```
+
+How many subscriptions a merchant has is the merchant's to know, so `subscriptions` (a count) is included only for a request with the merchant's bearer token, or on a sandbox runner, whose merchant is its own demo wallet.
+
+## CORS
+
+Off by default, which is all a web app the runner serves itself (`--web-dir`) needs. A web app hosted on another origin (`VITE_API=runners`, `web/README.md`) needs the runner started with `--app-url <URL>` (env `CADENCE_APP_URL`) or `--cors-origin <ORIGIN>` (repeatable; env `CADENCE_CORS_ORIGINS`, comma-separated). The app URL's origin is always allowed. Origins must be exact (`*`, a path, a query or credentials are refused at startup). Then `/api/*` answers exactly those origins:
+
+- methods `GET`, `POST` and `OPTIONS`; request headers `Content-Type` and `Authorization`; no credentials (the merchant token is a header, never a cookie);
+- `Vary: Origin`, and a preflight `max-age` of 600 s;
+- `Cross-Origin-Resource-Policy: cross-origin` on API responses, which the app's `require-corp` allows.
+
+The runner's own web files keep `Cross-Origin-Resource-Policy: same-origin` and the rest of their headers.
 
 ## Webhooks
 
-The names and shape match CipherPay, so existing handlers work unchanged. The runner POSTs to the merchant's URL with the header `X-Cadence-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`:
+The runner POSTs each event to `--webhook-url`, if both it and `CADENCE_WEBHOOK_SECRET` are set. Every POST carries two signatures over the same raw body, made with that one secret:
 
-| Event | Sent when |
-|---|---|
-| `invoice.confirmed` | An installment is mined. |
-| `invoice.expired` | An installment cannot be released: its rung window passed, or its package was refused. Nothing was paid. |
-| `invoice.cancelled` | The payer spent the pocket. |
+```
+X-Cadence-Signature:     t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>
+X-CipherPay-Signature:   <hex HMAC-SHA256(secret, "<X-CipherPay-Timestamp>.<body>")>
+X-CipherPay-Timestamp:   <the same second as t, UTC ISO 8601, e.g. 2026-02-21T18:30:00Z>
+X-CipherPay-Delivery-Id: <a random v4 UUID, the same on every retry of one event>
+```
 
-Every body has the form `{ "type": "<event>", "subscription_id": "…", "k": 1, "txid": "…" | null, "amount_zat": 100000, "mined_height": 4529248 | null }`.
+**What carries over from CipherPay, and what does not.** The three `X-CipherPay-*` headers are computed the way CipherPay's webhook docs compute them, so CipherPay's signature verification code accepts them unchanged. `event` carries CipherPay's event name, so a `switch` on it works. The body is Cadence's, not CipherPay's: an installment is `subscription_id` plus `k`, not an invoice. CipherPay's `invoice_id`, `timestamp`, `price_zec`, `received_zec`, `overpaid`, `price_id` and `immediate` are never sent, so a CipherPay handler that reads them needs changing.
+
+Every body has this form. `delivery_id` equals the `X-CipherPay-Delivery-Id` header; this copy is covered by both signatures, the header is not.
+
+```json
+{ "type": "invoice.confirmed", "event": "confirmed", "delivery_id": "…", "offer_id": "off_…",
+  "subscription_id": "sub_…", "k": 1, "txid": "…" | null, "amount_zat": 100000, "mined_height": 4529248 | null }
+```
+
+| `type` | `event` (CipherPay's name) | Sent when |
+|---|---|---|
+| `invoice.confirmed` | `confirmed` | An installment is mined. |
+| `invoice.expired` | `expired` | An installment cannot be released: its rung window passed (`missed`), or its package was refused (`invalid`). Nothing was paid, and the subscription is `stalled`. CipherPay's nearest subscription-level event is `subscription.past_due`; a handler may treat `expired` the same way. |
+| `invoice.cancelled` | `subscription.canceled` | The payer spent the pocket. Sent without `immediate`: the period already paid for still runs. |
+
+CipherPay's `detected`, `underpaid`, `invoice.created`, `subscription.renewed`, `subscription.paused`, `subscription.resumed` and `subscription.past_due` are never sent. A merchant stop sends nothing.
+
+**Delivery.** Each event is delivered in its own task, so the scheduler never waits on the merchant.
+
+- At most 3 attempts: at once, then 30 s and 2 minutes after a failure. Each attempt is signed afresh with its own timestamp, over the same body.
+- Each attempt is capped at 10 s, from the DNS lookup to the response. Only a `2xx` counts; redirects are not followed.
+- This is not CipherPay's retry schedule.
+- The POST goes straight to the URL, not over Tor.
+
+**No outbox.** Pending retries live in the runner's memory, so a restart drops them. An event whose 3 attempts all fail is dropped, with a line in the runner's log. The durable record is the runner's store: reconcile with `GET /api/subscriptions/:id` (or the list) rather than relying on webhooks alone. An event can arrive twice, and out of order (a retried `confirmed` for #1 can land after #2): dedupe on `delivery_id`, or on (`subscription_id`, `k`, `type`).
+
+`scripts/webhook-echo.py` is a dependency-free receiver that checks both signatures, each with a 5-minute window, prints which passed, and answers `200` only if both do.

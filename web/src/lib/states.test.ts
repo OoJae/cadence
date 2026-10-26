@@ -59,16 +59,14 @@ describe('runner log lines', () => {
   });
   const base = { k: 1, amount_zat: 100_000, release_round: 100, release_at: 0 };
 
-  it('prints the exact formats of crates/cadence-runner', () => {
+  it('prints runner-style lines that say only what the API fields show', () => {
     const due: Installment = { ...base, state: 'due' };
     expect(transitionLines('sealed', due, sub([due]))[0]!.text).toBe('installment 1: input mined at 4529209, waiting for anchor depth');
 
     const mined: Installment = { ...base, state: 'mined', txid: '7ae2'.padEnd(64, '0'), target_height: 4529247, mined_height: 4529248 };
     const lines = transitionLines('due', mined, sub([mined])).map((l) => l.text);
     expect(lines[0]).toBe(`installment 1: broadcast ${mined.txid} for target 4529247 (input mined at 4529209, anchor 4529244)`);
-    expect(lines[1]).toBe(
-      'installment 1: mined at 4529248: V6 branch 77190ad9, expiry 4529367 (expiry - mined = 119), transparent in/out 0/0, sapling false, orchard false, ironwood actions 2, fee 10000 zats',
-    );
+    expect(lines[1]).toBe('installment 1: mined at 4529248 (target 4529247); decode it for its shape');
 
     const cancelled: Installment = { ...base, state: 'cancelled' };
     expect(transitionLines('sealed', cancelled, sub([cancelled]))[0]!.text).toBe('installment 1: its input was spent elsewhere; mandate cancelled');

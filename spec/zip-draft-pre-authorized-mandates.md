@@ -96,6 +96,7 @@ ZIP 374 [^zip-0374] and ZIP 229 [^zip-0229] make pre-authorization possible: a v
 | Installment fee at target *T* | 2 × the marginal fee for *T*: 5,000, or 1,000 on Mainnet from `MAINNET_FEE_SWITCH`. So 10,000 or 2,000 zatoshis | `rung.rs::fee_rule_at`, `mandate.rs::installment_fee_at`; ZIP 317 [^zip-0317], ZIP 2009 |
 | `fee_inst` (funded per installment) | 10,000 zatoshis, the highest installment fee | `mandate.rs::installment_fee` |
 | Offer `count` range | 1 ≤ `count` ≤ 12 (Runner policy) | `cadence-runner/src/api.rs` |
+| Upload schedule tolerance | first release ≤ upload time + `period_secs` + 600 s; each later gap within `period_secs` ± ⌊`period_secs` / 2⌋ (Runner policy) | `api.rs::check_schedule`, `FIRST_RELEASE_SLACK_SECS` |
 | PRF personalizations | `"Cadence_AppSecrt"`, `"Cadence_RungSeed"` (16 bytes each) | `cadence-core/src/seed.rs` |
 | Frame magic | `"CDS1"` | `cadence-seal/src/seal.rs` |
 | `BUCKETS` | 65,536 × 2^*n* bytes, *n* = 0…9 (64 KiB to 32 MiB) | `seal.rs` |
@@ -123,7 +124,7 @@ A Pocket is derived from a seed *S* of 32 bytes drawn from a CSPRNG.
 
 *S* is raw entropy, not a BIP 39 mnemonic, so no stock wallet can restore a Pocket. Payer software MUST retain *S* for the life of the Mandate, and until the Pocket is empty, because cancellation and recovery need *ask_P*. The reference CLI writes *S* to the subscription file unencrypted.
 
-A **recovery kit** is that file encrypted to a passphrase with age's scrypt recipient (§ Constants). The CLI's `cancel` and `sweep` accept a plaintext file or a kit (`cadence-cli/src/subscribe.rs::read_kit`). The web app offers a kit, which it calls a cancel key, for download once the Packages are uploaded, and its Manage page opens one to cancel in the browser.
+A **recovery kit** is that file encrypted to a passphrase with age's scrypt recipient (§ Constants). The CLI's `cancel` and `sweep` accept a plaintext file or a kit (`cadence-cli/src/subscribe.rs::read_kit`). The web app offers a kit, which it calls a cancel key, for download once the Packages are uploaded, and has the payer open the downloaded file once with its passphrase before it says the tab can be closed; it checks that the kit's network, pocket id and address match the Pocket and that its seed derives that address. Its Manage page opens a kit to cancel in the browser.
 
 
 ## Offer
@@ -145,7 +146,7 @@ The Runner publishes an Offer. The payer fetches it (`GET /api/offers/{id}`) and
 
 The payer chooses these values, which are not part of the Offer:
 
-- `first_release_at`, a unix time. The reference CLI sets it to the signing time plus `--first-in`, which defaults to 60 s.
+- `first_release_at`, a unix time. The reference CLI sets it to the signing time plus `--first-in`, which defaults to 60 s; the web signer uses min(`period_secs`, 60 s). The reference Runner refuses an upload whose first release is more than `period_secs` + 600 s after it (§ Subscription).
 - `mandate_id`, 16 random bytes.
 - `label`, a string shown in the memo (§ Memo). The reference CLI and web signer set it to "`name` (`pocket_id`)".
 - *S*.
@@ -386,17 +387,24 @@ The Runner MUST check all of the following [impl: `api.rs::create_subscription`]
 - the pocket backs no other subscription;
 - the number of installments equals `count`;
 - the installments are numbered `k` = 1…`count` in order;
-- the release rounds strictly increase;
 - each Package's header round equals its `release_round`.
 
-The Runner cannot inspect a Package's contents before its round. It records `amount_zat` from the Offer, not from the Package, and it does not check that the rounds follow `period_secs`.
+The Runner cannot inspect a Package's contents before its round. It records `amount_zat` from the Offer, not from the Package.
+
+**Schedule check.** The Runner SHOULD also check the schedule against the Offer. This is the upload-time counterpart of release rule 2: it protects the merchant from a payer, and the payer's funds do not depend on it. [impl: `api.rs::check_schedule`, run before the header check]
+
+- The Runner has recorded *F*, and value(*F*) ≥ `funding_total`.
+- `time_of(r_1)` ≤ the upload time + `period_secs` + 600 s.
+- For each *k* ≥ 2, `time_of(r_k)` − `time_of(r_{k−1})` is within `period_secs` ± ⌊`period_secs` / 2⌋. This implies that the rounds strictly increase.
+
+Without it, a payer could seal a Ladder whose installments fall due a year apart, or from a Pocket that cannot cover them, and the Runner would accept it as the Offer. The tolerances leave room for signing time, for the payer's clock and for drand's 3 s rounding: with their default first release, both reference payers pass for every `period_secs` of 4 s or more. A failure is answered `400` with the reason. The sandbox's `stretch_schedule` probe runs this check on a copy of a real subscription's schedule with one installment moved a year later.
 
 
 ## Runner release rules
 
 The Runner evaluates each subscription whose status is `active` or `stalled` at regular intervals (10 s by default). Before each evaluation it syncs its wallet to *tip*. Only the lowest-numbered installment that is not yet mined, called *k*, is considered.
 
-1. **Open.** The Runner MUST NOT try to open Package *k* before `round_at(now) ≥ r_k`. It MUST fetch the beacon for round *r_k* and verify it before use (§ Sealing). It SHOULD fetch beacons over Tor. It then stores the beacon and moves *k* to `due`. [impl: beacons go over Tor unless `--drand-direct` is set. `--direct`, which `deploy/docker-compose.yml` sets for the Mainnet runner's own node, applies to lightwalletd only.]
+1. **Open.** The Runner MUST NOT try to open Package *k* before `round_at(now) ≥ r_k`. It MUST fetch the beacon for round *r_k* and verify it before use (§ Sealing). It SHOULD fetch beacons over Tor. It then stores the beacon and moves *k* to `due`. [impl: beacons go over Tor unless `--drand-direct` is set. `--direct`, which `deploy/docker-compose.yml` sets for the Mainnet runner's own node, applies to lightwalletd only. The reference goes on to rules 2–8 in the same evaluation, rather than at the next one: waiting costs a block or more, and an installment mined after its target shows `expiry − mined` < δ.]
 
    The reference stores only the sealed Package and the public beacon at rest, and opens the Package again in memory on every attempt.
 2. **Validate.** Before it broadcasts any rung of *k*, the Runner MUST check all of the following:
@@ -419,7 +427,7 @@ The Runner evaluates each subscription whose status is `active` or `stalled` at 
    It does not check the transaction version, the spend's nullifier, the other output or the fee, and it does not check that `enc_ciphertext` decrypts to the merchant's note (§ Security Considerations). A spend of any note other than the one named by `spends_nullifier` fails at rule 7, because the Runner installs that note's witness.
 
    A failed check marks *k* `invalid`, sets the subscription to `stalled` and sends `invoice.expired`. So does a Package that does not open, or whose Ladder JSON does not parse: once the beacon is verified, both failures are deterministic. A rung whose PCZT does not decode, or a `spends_nullifier` that does not decode, is instead an error that is retried at the next evaluation.
-3. **Target.** The target is `T = tip + 1`. [impl]
+3. **Target.** The target is `T = tip + 1`. [impl: the reference reads the tip again just before choosing the rung, and syncs its wallet first if the chain has moved, because syncing, the beacon fetch and earlier subscriptions can take seconds over Tor.]
 4. **Input.** Find the unspent Pocket note whose nullifier is `spends_nullifier`.
    - If there is none, and the input's mined height *m* is known and `tip ≥ m + 3`, apply the checks of § Cancellation, and if they pass, treat the Mandate as cancelled.
    - If there is none otherwise, wait.
@@ -527,7 +535,7 @@ The binding is informative. `docs/api.md` is the informative appendix. Every bod
 
 | Method and path | Caller | Authentication | Purpose |
 |---|---|---|---|
-| `POST /api/offers` | merchant | bearer token | create an Offer; returns `share_url = {public_url}/subscribe#offer=<base64url(offer)>` |
+| `POST /api/offers` | merchant | bearer token | create an Offer; returns `share_url = {app_url or public_url}/subscribe#offer=<base64url(offer)>` |
 | `GET /api/offers/{id}` | payer | none | the Offer (§ Offer) |
 | `POST /api/pockets` | payer | none | register a pocket UFVK; birthday = tip + 1 |
 | `GET /api/pockets/{id}` | payer | none (the id is a capability) | funding `{txid, tx_hex, mined_height, value_zat}`, unspent notes |
@@ -537,10 +545,13 @@ The binding is informative. `docs/api.md` is the informative appendix. Every bod
 | `GET /api/subscriptions` | merchant | bearer token | list subscriptions |
 | `GET /api/subscriptions/{id}` | anyone who knows the id | none | one subscription and its installments |
 | `POST /api/subscriptions/{id}/stop` | merchant | bearer token | stop and shred (rule 12) |
-| `GET /api/decode/{txid}`, `GET /api/status` | anyone | none | public transaction shape; tip and current round |
-| `POST /api/sandbox/fund` | anyone, Testnet only | none | fund a pocket from the custodial sandbox wallet |
+| `GET /api/decode/{txid}` | anyone | none | public transaction shape |
+| `GET /api/status` | anyone | none; the subscription count needs the bearer token, except on a sandbox | network, tip and current round |
+| `POST /api/sandbox/offer`, `POST /api/sandbox/fund`, `POST /api/sandbox/cheat` | anyone, Testnet sandbox only | none | a demo Offer paying the sandbox wallet; fund a pocket from that custodial wallet; the Runner's attempted violations |
 
-Webhooks are sent as `POST`s with the header `X-Cadence-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`. The body is `{type, subscription_id, k, txid|null, amount_zat, mined_height|null}`. The event types are `invoice.confirmed`, `invoice.expired` and `invoice.cancelled`.
+A Runner started with `--app-url` or `--cors-origin` answers `/api/*` requests from exactly those origins (CORS, without credentials), so a payer app can be served from an origin the merchant does not control.
+
+Webhooks are sent as `POST`s. Each carries `X-Cadence-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`, and, with the same secret, `X-CipherPay-Signature: <hex HMAC-SHA256(secret, "<X-CipherPay-Timestamp>.<body>")>`, `X-CipherPay-Timestamp` (UTC ISO 8601) and `X-CipherPay-Delivery-Id` (a v4 UUID), computed as CipherPay computes them. The body is `{type, event, delivery_id, offer_id, subscription_id, k, txid|null, amount_zat, mined_height|null}`. The event types are `invoice.confirmed`, `invoice.expired` and `invoice.cancelled`; `event` carries CipherPay's names for them (`confirmed`, `expired`, `subscription.canceled`). The body is otherwise not CipherPay's: it has no `invoice_id`. The reference makes at most 3 attempts from memory, with no persistent outbox, so the Runner's subscription state is the durable record.
 
 
 # Rationale
@@ -596,7 +607,7 @@ A signed transaction can be revoked only by making its input unspendable. Spendi
 
 ## Chain observer
 
-Each installment is v6 and Ironwood-only, with 2 actions, `flags = 7`, `lock_time = 0`, a fee of 10,000, a 7,264-byte proof, expiry *T* + δ and an anchor at *T* − 3. On testnet every installment and the cancellation decode with 0 outputs recoverable under the all-zero OVK and 0 under the Pocket's OVKs (`evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`).
+Each installment is v6 and Ironwood-only, with 2 actions, `flags = 7`, `lock_time = 0`, the installment fee at *T* (10,000 zatoshis, or 2,000 on Mainnet from 3,590,000), a 7,264-byte proof, expiry *T* + δ and an anchor at *T* − 3. On testnet every installment and the cancellation decode with 0 outputs recoverable under the all-zero OVK and 0 under the Pocket's OVKs (`evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`).
 
 The mainnet sample covers 200 blocks, heights 3,526,581 to 3,526,780 (`evidence/fingerprint-mainnet-sample.json`):
 
@@ -627,7 +638,7 @@ The Runner holds the Pocket's Orchard FVK and, after each round, that installmen
 From a cancellation it learns:
 
 - that the payer cancelled, and when;
-- the refund amount, by arithmetic: the reference cancellation pays value(live note) − 10,000.
+- the refund amount, by arithmetic: the reference cancellation pays value(live note) − fee(*T*).
 
 It does not learn:
 
@@ -649,21 +660,24 @@ Delegating proving is what costs the FVK. The alternatives are worse:
 
 ## Timing residual
 
-- **Periodic release.** The Runner releases at the first evaluation after three conditions hold: *r_k* has passed, *N_k* is anchor-deep, and a rung exists. Installments therefore form a series with period `period_secs`, plus block granularity. The only defense is the size of the class: about 0.84 per block in the pre-NU7 sample. Release-time jitter is **not yet implemented**. The threat model's statement that the "scheduler adds jitter" describes a planned feature.
+- **Periodic release.** The Runner releases at the first evaluation after three conditions hold: *r_k* has passed, *N_k* is anchor-deep, and a rung exists. Installments therefore form a series with period `period_secs`, plus block granularity. The only defense is the size of the class: about 0.84 per block in the pre-NU7 sample. Release-time jitter is **not yet implemented**, and the threat model says so.
 - **Funding proximity.** With the CLI default `--first-in 60`, Installment 1 is mined within a few blocks of the funding transaction. That is a timing correlation, though not a cryptographic link.
+- **Late release.** An installment mined after its target shows `expiry − mined` < δ. The public testnet sandbox run (`evidence/railway-sandbox.md`) mined two installments 5 and 11 blocks late, because the reference released one evaluation after opening, against a stale tip; it now releases in the same evaluation, against a fresh tip (rules 1 and 3). The fix has not yet been measured on a public run.
 - **Expiry retries.** A retry spends the same nullifier, which is inherent to spending the same note, so a mempool observer can link the two broadcasts. The `attempt` input of the seed would not prevent this.
 - **Chaining.** Installment *k*+1 cannot be mined until *C(k)* is anchor-deep, which matters only for short periods.
 
 ## Network and infrastructure
 
-- **Payer to Runner.** The reference CLI reaches the Runner with a plain `ureq` HTTP client, not through its embedded arti client. The Runner therefore sees the CLI user's IP address during subscription, funding polls and cancellation. This contradicts the README's statement that the Runner never learns the payer's IP when the CLI is used. The CLI's chain access does go over Tor. The web build is disclosed as clearnet unless it is used through Tor Browser with an onion address.
-- **drand relays.** The reference Runner fetches beacons over Tor unless `--direct` is set (see rule 1). Package headers reveal *r_k* to anyone who stores them.
-- **Capabilities in the HTTP binding.** `GET /api/pockets/{id}` and `GET /api/subscriptions/{id}` are unauthenticated. Their 80-bit random ids act as bearer capabilities that expose funding data, notes, the schedule and txids.
+- **Payer to Runner.** The reference CLI reaches the Runner over Tor, through its embedded arti client, on circuits isolated from its lightwalletd traffic (`cadence-cli/src/http.rs`). The exceptions are a Runner on a loopback address, which Tor cannot reach, and `--direct`. The CLI's chain access goes over Tor too. The web build is disclosed as clearnet unless it is used through Tor Browser; whatever terminates TLS in front of the Runner or the app host sees client IP addresses and request paths.
+- **Who serves the payer app.** A browser payer runs whatever code its web host serves, including the code that holds *S*. When the Runner serves the app, the merchant could serve code that exfiltrates *S*, which no rule of this ZIP prevents. The reference web app can instead be built for a host of its own (`VITE_API=runners`), which publishes the commit and a SHA-256 of every served file (`build.json`) so that payers can compare it with a build they trust; the CLI avoids the question.
+- **drand relays.** The reference Runner fetches beacons over Tor unless `--drand-direct` is set (see rule 1). Package headers reveal *r_k* to anyone who stores them.
+- **Capabilities in the HTTP binding.** `GET /api/pockets/{id}` and `GET /api/subscriptions/{id}` are unauthenticated. Their 80-bit random ids act as bearer capabilities that expose funding data, notes, the schedule and txids. The subscription list, and the count in `GET /api/status`, need the merchant's token, except on a Testnet sandbox.
+- **Decoding.** `GET /api/decode/{txid}` fetches the transaction and up to 12 tree states through the Runner's sync connection, so that lightwalletd server learns which txids are decoded, from the Runner rather than the visitor.
 
 
 # Security Considerations
 
-- **Spend authority.** The Runner never holds *ask_P*. Amounts, recipients, the fee, the expiry and the branch are under the spend authorization and binding signatures. Every rung of *k* spends the same nullifier, so at most one installment *k* is ever mined. A replay after a cancellation is a double-spend.
+- **Spend authority.** The Runner never holds *ask_P*. Amounts, recipients, the fee, the expiry and the branch are under the spend authorization and binding signatures. Every rung of *k* spends the same nullifier, so at most one installment *k* is ever mined. A rebroadcast of a mined installment, or a replay after a cancellation, is a double-spend.
 - **drand threshold.** "Not before" assumes that fewer than a threshold of the League of Entropy's quicknet nodes collude, and that the BLS12-381 assumptions hold.
 
   If that assumption fails, the Runner, and only the Runner, can open every Package at once. Consensus requires only that an installment's input be mined in an earlier block, so the Runner can then release each remaining installment as soon as the previous one is mined: one block later at the earliest, or about 3 blocks if it keeps the anchor rule. An installment released before its Window can only use an inexact rung, which leaves a visible `expiry − mined > δ`.
@@ -681,18 +695,18 @@ Delegating proving is what costs the FVK. The alternatives are worse:
 - **Runner liveness.** If the Runner is down for a whole Window, the installment is missed and the funds stay with the payer. In the reference implementation `missed` is terminal (§ Re-signing).
 - **FVK non-revocability.** A viewing key cannot be revoked. The exposure is bounded by single-use Pockets: the FVK reveals only this Pocket, which is empty after an exactly funded Mandate completes. Pocket addresses MUST NOT be reused.
 
-  A malicious Runner can keep copies of everything. An honest one MUST delete the UFVK (rule 12), and the reference does not yet delete it from its state database.
-- **Merchant-side validation.** Rule 2 stops a payer from sealing a Ladder that pays someone else or less: the reference Runner broadcasts only a rung with an output paying exactly `amount_zat` to the Offer's Orchard receiver, whose note commitment it rebuilds. It does not check that the output's `enc_ciphertext` decrypts for the merchant. A payer who corrupts the ciphertext still pays the note, so this costs the payer the installment, but the merchant's wallet does not see it, while the Runner sends `invoice.confirmed`. A merchant that needs proof of receipt SHOULD check its own wallet.
-- **Misclassification and reorgs.** "Input spent" is taken to mean "payer cancelled", and an installment is marked `mined` the first time it is seen, with no reorg handling. A missed observation of the Runner's own mined installment, followed by expiry, or a reorg that drops an installment whose anchor was also reorged, can lead the Runner to report a cancellation that never happened.
+  A malicious Runner can keep copies of everything. An honest one MUST delete the UFVK (rule 12); the reference does, from both databases, at the file level.
+- **Merchant-side validation.** The schedule check (§ Subscription) stops a payer from uploading a schedule that does not follow the Offer, such as one installment a year late. Rule 2 stops a payer from sealing a Ladder that pays someone else or less: the reference Runner broadcasts only a rung with an output paying exactly `amount_zat` to the Offer's Orchard receiver, whose note commitment it rebuilds. It does not check that the output's `enc_ciphertext` decrypts for the merchant. A payer who corrupts the ciphertext still pays the note, so this costs the payer the installment, but the merchant's wallet does not see it, while the Runner sends `invoice.confirmed`. A merchant that needs proof of receipt SHOULD check its own wallet.
+- **Misclassification and reorgs.** Before taking "input spent" to mean "payer cancelled", the reference checks that its last broadcast of *k* is not mined and that the input's parent still is (§ Cancellation). It does not otherwise handle reorgs: an installment is marked `mined` the first time it is seen, and that record is never revisited, so a reorg that later drops it is not reflected in the Runner's state or webhooks.
 - **Trusted JSON fields.** The Runner selects rungs by the payer-declared `target_height` and schedules retries by `expiry_height`, without checking either against the PCZT. A lying payer affects only its own privacy and liveness.
 - **Hostile Packages.** A Package is bounded in several ways:
   - decompression is capped at 64 MiB, with a single zstd frame and no trailing data, using the pure-Rust ruzstd decoder;
   - frame padding must be zero;
   - the HTTP body limit is 80 MiB.
 
-  A Package that fails to open leaves its installment `due` and is retried at every evaluation, without any webhook. A Package that opens but fails to prove is retried until its rungs run out.
+  A Package that fails to open, or whose Ladder does not parse, marks its installment `invalid` and sends `invoice.expired` (rule 2): once the beacon is verified, both failures are deterministic. A Package that opens but fails to prove is retried until its rungs run out.
 - **Builder determinism.** P1 depends on the exact builder version (§ Builder randomness). An upgrade between signing and cancellation can make the payer's recomputed *C(k)* wrong. The reference CLI would then refuse to cancel ("a note this pocket never created") until the right version is used.
-- **Payer key custody.** *S* is the only spend authority. If *S* is stolen, the thief can sweep the Pocket. If *S* is lost, the payer can no longer cancel, and the Mandate runs to completion as signed.
+- **Payer key custody.** *S* is the only spend authority. If *S* is stolen, the thief can sweep the Pocket; that includes a web host that serves the payer code which leaks it (§ Privacy Implications, *Who serves the payer app*). If *S* is lost, the payer can no longer cancel, nor recover what is left after a stop, a missed installment or overfunding, and the Mandate runs to completion as signed. The reference web app has the payer reopen the saved kit before it calls the tab closeable (§ Pocket).
 
 
 # Deployment
@@ -704,10 +718,11 @@ This ZIP needs no consensus change. It requires:
 - a lightwalletd that serves Ironwood tree states;
 - drand quicknet.
 
-Status as of 2026-10-22:
+Status as of 2026-10-26:
 
 - On NU7 testnet, a view-only Runner has released three chained installments (`evidence/S2-testnet.md`).
 - The full service has run on NU7 testnet: subscribe, release, completion, cancellation, and a run with everything over Tor (`evidence/E2E-service-testnet.md`).
+- A public sandbox Runner on Railway has released three installments signed in a browser by the WASM signer, and refused early-opening and tampering attempts (`evidence/railway-sandbox.md`).
 - A mainnet run has not been done.
 
 **NU7.** Windows may straddle activation, because each rung is signed with the branch for its own target height. The S1 test checks identical actions on both sides. A pre-NU7 rung that is broadcast but not mined by height 3,543,404 is dead at activation. A Runner SHOULD treat such a rung as expired at activation rather than waiting for its expiry, which for the last pre-NU7 rung (target 3,543,394, expiry 3,543,434) is 30 blocks, about 12.5 minutes, later. [impl: `service.rs::branch_passed` moves it back to `due` as soon as branch(tip + 1) differs from branch(*T*).]
@@ -728,17 +743,18 @@ ZIP 2009 expects height 3,590,000 in mid-December 2026. Under ZIP 218's 25 s spa
 | Pocket, rung, randomness, schedule and window, redaction | `crates/cadence-core/src/{pocket,rung,seed,mandate,package}.rs` |
 | Sealing, drand | `crates/cadence-seal/src/{lib,seal,drand}.rs` |
 | Wallet: import, anchor and witness, check, complete | `crates/cadence-chain/src/wallet.rs` |
-| Runner: release rules, HTTP binding, webhooks | `crates/cadence-runner/src/{service,api,store,webhook}.rs` |
-| Payer CLI: subscribe, resume, cancel | `crates/cadence-cli/src/{main,subscribe}.rs` |
+| Runner: release rules, HTTP binding and schedule check, webhooks, Testnet sandbox | `crates/cadence-runner/src/{service,api,store,webhook,sandbox}.rs` |
+| Payer CLI: subscribe, resume, cancel, sweep; Runner HTTP over Tor | `crates/cadence-cli/src/{main,subscribe,http}.rs` |
 | Browser signer | `crates/cadence-wasm` |
 | Shape decoder and fingerprint scanner | `crates/cadence-decode` |
-| Tests | `cargo test -p cadence-core` (S1 determinism), `cargo test -p cadence-seal` |
-| Evidence | `evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`, `evidence/fingerprint-mainnet-sample.json` |
+| Tests | `cargo test -p cadence-core` (S1 determinism), `cargo test -p cadence-seal`, `cargo test -p cadence-runner` (schedule check, CORS, webhooks) |
+| Evidence | `evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`, `evidence/railway-sandbox.md`, `evidence/fingerprint-mainnet-sample.json` |
 
 Known differences between this draft and the reference implementation, also marked inline:
 
 | Item | Status |
 |---|---|
+| Checking the uploaded schedule against the Offer (§ Subscription, next to rule 2) | impl: funding, first release within `period_secs` + 600 s, gaps within `period_secs` ± ⌊`period_secs` / 2⌋ |
 | Validating the Ladder against the Offer before broadcast (rule 2) | partial: index, amount, recipient and note commitment, branch, expiry, lock time and pools; not the version, spend nullifier, other output or fee |
 | Release-time jitter (rule 11) | not impl |
 | Re-signing flow, and recovery from `missed` or `invalid` | not impl: the payer cancels or sweeps and subscribes again |

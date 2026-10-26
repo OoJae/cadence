@@ -223,7 +223,7 @@ export function Landing() {
                     <td>
                       <span className="meh">Varies</span>
                     </td>
-                    <td className="hl">{yes('Yes, field for field')}</td>
+                    <td className="hl">{yes('Yes, on every measured field')}</td>
                   </tr>
                 </tbody>
               </table>
@@ -328,7 +328,7 @@ export function Landing() {
                     </li>
                     <li>
                       <XIcon size={15} className="accent" />
-                      <span>Replay after you cancel. The note is gone, so it would be a double-spend.</span>
+                      <span>Send a paid installment again, or replay one after you cancel. Its note is already spent, so it is a double-spend.</span>
                     </li>
                   </ul>
                 </div>
@@ -343,9 +343,10 @@ export function Landing() {
                     ['Release time rests on drand.', 'Opening a package early would take a threshold of the League of Entropy’s nodes colluding. That is a strong assumption, not a trustless one.'],
                     ['The runner must be online.', 'If it misses an installment’s signed height window, the installment is marked missed, the merchant is notified, and nothing more pays. You can then cancel (or sweep the pocket) and subscribe again.'],
                     ['The runner holds this pocket’s full viewing key.', 'Proving needs it. It is scoped to one single-use pocket with no transparent or Sapling part, and deleted at the end.'],
-                    ['Upgrades need a new signature.', 'Each signature commits to the consensus branch, so Cadence’s signing windows stop short of a network upgrade such as NU7; a schedule that runs past one must be signed again, which is not automatic yet. Fees follow ZIP 2009 at its switch height automatically.'],
-                    ['This web page talks to the runner directly.', 'Use Tor Browser, or the CLI, which uses Tor, if your IP address matters.'],
-                    ['Timing is public.', 'Installments land on a schedule, like any recurring payment. On-chain they are not linkable to each other.'],
+                    ['Unscheduled upgrades need a new signature.', 'Each signature commits to the consensus branch. Known upgrades are handled: NU7 is, because each rung is signed for the branch at its own height, and fees follow ZIP 2009 at its switch height. A schedule that runs past an upgrade unknown at signing must be signed again, which is not automatic yet.'],
+                    ['This web page talks to the runner directly.', 'The runner and its hosting provider see your IP address. Use Tor Browser, or the CLI, which uses Tor, if that matters.'],
+                    ['Whoever serves this page serves the code that holds your pocket key.', 'The runner software cannot spend your pocket, but a merchant who serves this page could serve other code. A build served from an origin the merchant does not control, with its commit and bundle hash in the footer to check against your own build, or the CLI, avoids that.'],
+                    ['Timing is public.', 'Installments land on a schedule, like any recurring payment, and Cadence adds no jitter yet. Their fields do not link them to each other, but their timing can.'],
                   ].map(([a, b]) => (
                     <li key={a}>
                       <span className="badge tone-amber" style={{ height: 20, padding: '0 6px' }}>
@@ -370,10 +371,10 @@ export function Landing() {
         <div className="container">
           <div className="card dot-grid" style={{ textAlign: 'center', padding: 'clamp(28px, 6vw, 64px) 20px' }}>
             <div className="stack" style={{ ['--gap' as string]: '16px', alignItems: 'center' }}>
-              <span className="kicker">Two minutes</span>
+              <span className="kicker">A few minutes</span>
               <h2 className="h2">Watch three installments land, then try to cheat.</h2>
               <p className="lede" style={{ marginInline: 'auto' }}>
-                The sandbox creates a mandate, funds it, signs it, closes the payer's tab and lets you attack the runner: open early, tamper, replay.
+                The sandbox creates a mandate, funds it, signs it, closes the payer's tab and lets you try to cheat: open early, tamper, rebroadcast a paid installment, stretch the plan.
               </p>
               <div className="row" style={{ justifyContent: 'center' }}>
                 <Link to="/sandbox" className="btn primary lg">

@@ -217,8 +217,8 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
             Create my pocket and continue
           </button>
           <p className="tiny muted">
-            A pocket is a fresh, single-use key made in this tab, never your wallet's seed. Nothing about it leaves the tab until you have paid and the schedule is signed; then only the
-            sealed packages and the pocket's view-only key go to the runner.
+            A pocket is a fresh, single-use key made in this tab, never your wallet's seed. Its view-only key goes to the runner as soon as it is made, so the runner can watch for your
+            payment; once you have paid and the schedule is signed, the sealed packages follow. The spending key stays in this tab, apart from the encrypted cancel key you download.
           </p>
         </div>
       )}

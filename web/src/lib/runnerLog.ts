@@ -1,10 +1,11 @@
 /**
- * Turns observed installment state changes into log lines in the exact formats
- * crates/cadence-runner prints (its println!/bail! strings), so the sandbox reads like
- * the real runner's terminal. Works against any runner: it only uses API fields.
+ * Turns observed installment state changes into log lines in the style of
+ * crates/cadence-runner's log, so the sandbox reads like a runner's terminal. They are
+ * written here, not copied from the runner: each line says only what the API fields
+ * show, on any network. Works against any runner.
  */
 import type { Installment, InstallmentState, Subscription } from '../api/types';
-import { DEFAULT_EXPIRY_DELTA, ANCHOR_DEPTH } from './shape';
+import { ANCHOR_DEPTH } from './shape';
 
 export interface LogLine {
   at: number;
@@ -38,9 +39,8 @@ function lineFor(state: InstallmentState, inst: Installment, sub: Subscription):
       };
     case 'mined': {
       if (!inst.mined_height) return null;
-      const expiry = (target ?? inst.mined_height - 1) + DEFAULT_EXPIRY_DELTA;
       return {
-        text: `installment ${k}: mined at ${inst.mined_height}: V6 branch 77190ad9, expiry ${expiry} (expiry - mined = ${expiry - inst.mined_height}), transparent in/out 0/0, sapling false, orchard false, ironwood actions 2, fee 10000 zats`,
+        text: `installment ${k}: mined at ${inst.mined_height}${target ? ` (target ${target})` : ''}; decode it for its shape`,
         tone: 'ok',
       };
     }

@@ -62,7 +62,7 @@ export function MerchantLearns({ compact }: { compact?: boolean }) {
           <li className="no">
             <EyeOffIcon size={15} />
             <span>
-              <strong>Your IP address</strong>, in the Tor builds (CLI and desktop). This web page connects to the runner directly unless you open it in Tor Browser.
+              <strong>Your IP address</strong>, when you use the CLI, which reaches the runner over Tor. This web page connects to the runner directly unless you open it in Tor Browser.
             </span>
           </li>
         </ul>

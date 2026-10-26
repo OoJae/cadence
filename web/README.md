@@ -2,17 +2,19 @@
 
 The browser front-end for Cadence: pre-authorized shielded standing orders on Zcash Ironwood.
 You subscribe from Zodl with one QR code and close the tab. The merchant's runner releases each
-pre-signed installment when it falls due. It cannot spend, redirect or enlarge them, and you cancel
-by spending your own note.
+pre-signed installment when it falls due. The runner software cannot spend, redirect or enlarge
+them, and you cancel by spending your own note. Whoever serves this app serves the code that holds
+the pocket key: see "Build identity" and `docs/threat-model.md`, §6.
 
 | Route | What it is |
 |---|---|
 | `/` | The pull-vs-push gap on one screen, how it works, what the runner can and cannot do, honest limits, and what the merchant learns. |
 | `/merchant` | Subscriptions and installments (sealed, due, broadcast, mined, cancelled, missed). Each has a live countdown to its drand round, and each txid links to the decoder. Also a "create offer" form whose share link carries the offer in the URL fragment. |
-| `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "save your cancel key" (WASM signer), "You can close this tab now", then manage or cancel. |
+| `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "save your cancel key, then check it opens" (WASM signer: re-pick the file, retype the passphrase), "You can close this tab now", then manage or cancel. |
 | `/manage` | Cancel after the tab is gone: load the saved cancel key and its passphrase, see the pocket and subscription, cancel and refund to your own address. Shows the `cadence sweep` fallback when the runner cannot help. |
-| `/decode/:txid` | The public shape of a transaction as a table, with a stock-wallet comparison column and red/green badges for what a chain observer can and cannot tell. |
-| `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has three cheat buttons. |
+| `/decode/:txid` | The public shape of a transaction as a table, with a stock-wallet comparison column and red/green badges for what a chain observer can and cannot tell. Its checks follow the runner's network, the transaction's branch and its height (see below). |
+| `/status#sub=<subscription_id>` | A demo view of one subscription: status, k of n paid, the next installment due, and per installment its state, release time and drand round, txid and mined height, with a short shape summary of each mined one and a note where a plan crosses NU7. It polls `GET /api/subscriptions/:id` and `GET /api/status` every 30 s and decodes mined installments with `GET /api/decode/:txid`, keeping results in memory only. The id is in the fragment, so it is not part of the page request, but the page does send it to the runner. |
+| `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has four cheat cards: open early, tamper, rebroadcast a paid installment, and stretch the plan. |
 
 ![Landing](screenshots/01-landing.png)
 
@@ -44,26 +46,49 @@ origin goes into the CSP `connect-src`.
 
 | `VITE_API` | Transport | `connect-src` |
 |---|---|---|
-| `mock` (default) | An in-memory runner and chain inside the page. It makes no network requests at all. | `'self'` |
+| `mock` (default) | An in-memory runner and chain inside the page. It requests nothing but its own static files. | `'self'` |
 | `self` | `fetch` to the same origin (the runner serves this app). | `'self'` |
 | `https://runner.example` | `fetch` to that origin. | `'self' https://runner.example` |
 | `http://xyz….onion` | `fetch` to a Tor onion service (open the app in Tor Browser). | `'self' http://xyz….onion` |
+| `runners` | An app host of its own: `fetch` to each origin in `VITE_RUNNERS`, and to no other. | `'self'` plus each of them |
 
-The build refuses any other `http://` origin. Example:
+The build refuses any other `http://` origin (localhost excepted, for development), and any host
+with a wildcard. Example:
 
 ```sh
 VITE_API=https://runner.example pnpm build
 ```
 
+**`VITE_API=runners`** serves the app from an origin no runner controls, so the merchant does not
+serve the code that holds the payer's pocket key (`deploy/README.md`, "App host"):
+
+- `VITE_RUNNERS` is a comma-separated list of exact origins: https, or http only for .onion and
+  localhost; no path, credentials, query, fragment or wildcard.
+- `VITE_DEFAULT_RUNNER` (default: the first) serves the pages with no runner of their own:
+  `/sandbox`, `/merchant`, `/decode`, `/status` and the header's runner pill, which polls its
+  `GET /api/status` every 5 s on every page.
+- `/subscribe` talks to the runner the offer's `runner_endpoint` names, and `/manage` to the one the
+  cancel key names, matched by origin, and only if it is in the list. Otherwise the page refuses and
+  points to `<runner>/subscribe` or `<runner>/manage`. The cancel key records the offer's runner.
+- The runners need `--app-url` (or `--cors-origin`) for this origin, or the browser blocks their
+  answers (`docs/api.md`, "CORS").
+- Setting `VITE_RUNNERS` or `VITE_DEFAULT_RUNNER` in any other mode is a build error, so a build
+  never quietly ignores the list.
+
+```sh
+VITE_SIGNER=wasm VITE_API=runners \
+  VITE_RUNNERS="https://sandbox.example,https://main.example" \
+  VITE_DEFAULT_RUNNER="https://sandbox.example" pnpm build
+```
+
 **The API client** (`src/api/client.ts`) is typed and covers every endpoint in `docs/api.md`:
-`POST /api/offers`, `GET /api/offers/:id`, `POST /api/subscriptions`, `GET /api/subscriptions`,
-`GET /api/subscriptions/:id`, `POST /api/subscriptions/:id/stop`, `GET /api/decode/:txid` and
-`GET /api/status`. Two notes:
+offers, pockets (register, state, witness), `POST /api/broadcast`, subscriptions (create, list,
+get, stop), `GET /api/decode/:txid`, `GET /api/status` and the three sandbox endpoints. Two notes:
 
 - The contract does not pin down the list shape of `GET /api/subscriptions`, so the client
   accepts either a bare array or `{ "subscriptions": [...] }`.
-- The webhook body and event types are in `src/api/types.ts` for merchant integrations. The browser
-  never receives webhooks.
+- Webhooks are documented in `docs/api.md` ("Webhooks"), not in `src/api/types.ts`, whose
+  `WebhookEvent` is a partial, unused type. The browser never receives webhooks.
 
 **The mock** (`src/mock/`) follows the same rules as `crates/cadence-runner`:
 
@@ -75,10 +100,10 @@ VITE_API=https://runner.example pnpm build
 From page load on, the mock chain runs at 5-second blocks so the sandbox fits in a couple of
 minutes. Real NU7 blocks are 25 seconds, and the UI says so wherever it matters.
 
-**Sandbox endpoints** are a proposed, testnet-only extension that is not in `docs/api.md` v0:
-`POST /api/sandbox/fund` (the auto-funder) and `POST /api/sandbox/cheat`. Only the mock implements
-them. A production runner must not implement them, and against a real runner the sandbox page says
-so.
+**Sandbox endpoints** (`POST /api/sandbox/offer`, `/fund` and `/cheat`, in `docs/api.md`,
+"Testnet sandbox") are testnet-only. The real runner serves them only on testnet with
+`--sandbox-funder`; the mock implements them too. Against a runner without them, the sandbox page
+says so.
 
 ### What is real and what is mocked
 
@@ -89,19 +114,39 @@ so.
 | The other dashboard rows, and decodes of their txids | Synthetic, labelled "mock". Their shapes follow the S2 rules. |
 | The "stock wallet send" column | A reference profile built by the same rules a stock `zcash_client_backend` send follows. It is **not** a decoded Zodl transaction. Use `?compare=<txid>` to fill it from a real decode. |
 | The signer | Mock by default (see below). `VITE_SIGNER=wasm` ships the real one: `cadence-core` compiled to WebAssembly (see "The WASM signer"). |
-| Cheat-button errors | Reproduced by the mock runner (see below). |
+| Cheat-button output | From a real sandbox runner, its own log lines, verbatim. In mock mode, reproduced by the mock runner (see below). |
+| The sandbox's runner log | Written by this page from the runner's API answers (`src/lib/runnerLog.ts`), in the style of the runner's log; not the runner's own output. |
 
-**Cheat errors.** The lines that start with `installment k:` use the exact message formats from
-`crates/cadence-runner` (its `println!` and `bail!` strings). That includes "its input was spent
-elsewhere; mandate cancelled" and the "mined at …" shape line. The drand, `age` and node lines
-reproduce what those components do:
+**Cheat errors in mock mode.** The mock runner returns the real runner's verdict shape (`kind`,
+`k`, `outcome`, `stage`, `log`) and reproduces what each component does:
 
 - **Open early.** There is no beacon yet for the round, and `age` answers `No matching keys found`.
 - **Tamper.** The sighash changes, so the spend authorization no longer verifies.
-- **Replay.** A duplicate nullifier makes it a double-spend.
+- **Rebroadcast.** It resends the latest mined installment; a duplicate nullifier makes it a
+  double-spend. `replay_after_cancel` is accepted as the old name.
+- **Stretch.** It moves installment 2 and every later one a year later and runs the mock's
+  schedule check, which its upload uses too: rounds must increase, and each installment must follow
+  the one before by the offer's period, to within one drand round (3 s). The real runner's check is
+  looser and broader (`docs/api.md`, `POST /api/subscriptions`).
 
-The tlock packaging and the replay probe are not in the runner yet. Once a real runner implements
-`/api/sandbox/cheat`, the sandbox shows its output verbatim.
+The mock's log lines are its own wording, close to but not the same as the real runner's.
+
+### The decoder's checks
+
+`src/lib/shape.ts` holds the chain rules, from `zcash_protocol` 0.11, `zcash_primitives` 0.31 and
+`cadence-core`. The decoder reads the runner's network from one `GET /api/status`, and its checks and
+table wait for it.
+
+- The implied target height is the expiry height less the default delta of the transaction's
+  branch: 40 blocks before NU7 (NU6.3) and 120 from NU7. An unknown branch fails the check rather
+  than being guessed.
+- The expected fee is the installment fee at that target on that network: 10,000 zats, or 2,000 on
+  mainnet from height 3,590,000. The fee row is labelled "ZIP 317 fee" or "ZIP 2009 fee".
+- The stock-send column is built at the decoded transaction's own target height on the runner's
+  network.
+- An unmined transaction is not failed on the anchor check; a mined one with no anchor range is.
+- The S2 example txids fall back to their decodes in `evidence/` when the runner cannot find them,
+  as on a mainnet runner.
 
 ## The `Signer` interface
 
@@ -128,6 +173,8 @@ export interface Signer {
   /** Decrypt a cancel key in a worker; restore it into a fresh signer. */
   openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit>;
   restore(kit: OpenedKit): Promise<PocketInfo>;
+  /** Check a saved cancel key, picked again: it opens with the passphrase and is this pocket's key. */
+  verifyKit(bytes: Uint8Array, passphrase: string): Promise<KitCheck>;
 
   /** Spend the pocket's current note to the payer's own UA with OvkPolicy::Discard. */
   cancel(refundUa: string, opts?: CancelOptions): Promise<CancelReceipt>;  // { txid, refunded_zat, fee_zat, target_height }
@@ -217,8 +264,17 @@ policy) on the worker scripts too.
 
 **Key custody** is `'memory'`, as in the mock: closing the tab forgets the pocket key. After the
 upload, the payer is asked to save a **cancel key** before "You can close this tab now": the kit,
-encrypted to a passphrase of at least 8 characters. Anyone with the file and the passphrase can
-cancel and take the remaining balance; the runner never sees either. `/manage` loads it into this
+encrypted to a passphrase of at least 8 characters. The page then has the payer pick the file again
+and retype the passphrase. `verifyKit` opens it in a worker (`openKit`'s path), derives the address
+from the opened seed, and `checkKit` (`src/signer/kit.ts`) passes it only if the network, pocket id
+and address match this tab's pocket; the opened seed is zeroed either way. Wrong file, wrong
+passphrase, another pocket's key and a damaged file each get their own message. Only a verified key
+makes the tab closeable, and nothing on the page calls the key saved until it is verified. The
+payer may instead go without a key, or skip the check; on `/subscribe` each sits behind a
+confirmation saying that without the key you cannot cancel, or get back what is left after a
+merchant stop, a missed installment or overfunding (`cadence sweep` needs the key too). The sandbox
+skips with one click. Anyone with the file and the passphrase can cancel and take the remaining
+balance; the app never sends either anywhere. `/manage` loads it into this
 tab's memory (forgotten on reload), and the CLI reads the same file:
 `cadence cancel --subscription <key> --to <UA>`, or `cadence sweep --pocket <key> --to <UA>`, which
 needs no runner. The download is a Blob URL and `<a download>`, which the CSP does not restrict.
@@ -254,14 +310,15 @@ build, drives every page and both flows in headless Chromium, and fails on any o
 
 1. **No third-party requests, ever.** There are no analytics, trackers, crash reporters, CDNs or web
    fonts from elsewhere. Code, styles and fonts are served from this origin, and the QR is drawn as
-   inline SVG by a bundled encoder. In mock mode the page fetches only its own static files and
-   makes no API requests at all.
+   inline SVG by a bundled encoder. API requests go to the runner (in a `runners` build, to the
+   runners it lists, which the footer names). In mock mode the page fetches only its own static
+   files and makes no API requests at all.
 2. **A strict Content-Security-Policy**, injected into `index.html` at build time
    (`src/config/csp.ts`):
 
    ```
    default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self';
-   font-src 'self'; connect-src 'self' [VITE_API origin]; worker-src 'self'; manifest-src 'self';
+   font-src 'self'; connect-src 'self' [VITE_API origin or VITE_RUNNERS]; worker-src 'self'; manifest-src 'self';
    media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';
    require-trusted-types-for 'script'; trusted-types 'none'
    ```
@@ -281,8 +338,8 @@ build, drives every page and both flows in headless Chromium, and fails on any o
    - names containing control, zero-width or bidi-override characters are refused, because they
      could spoof the display.
 
-   Before signing, the app also checks the offer against the runner's own copy
-   (`GET /api/offers/:id`), and that the named runner is the one this build may talk to.
+   Before signing, the app also checks that the named runner is one this build may talk to, and the
+   offer against that runner's own copy (`GET /api/offers/:id`).
 4. **No secrets in browser storage.** The app writes nothing to `localStorage`, `sessionStorage`,
    IndexedDB or cookies. Even the theme choice is kept in memory. The merchant's bearer token lives
    in memory for the life of the tab. The mock signer's seed lives in a private field and is
@@ -298,12 +355,20 @@ build, drives every page and both flows in headless Chromium, and fails on any o
    - the runner holds the pocket's full viewing key;
    - upgrades need a re-sign;
    - timing is public;
-   - this page shows your IP address to the runner unless you use Tor Browser.
+   - this page shows your IP address to the runner unless you use Tor Browser;
+   - whoever serves this page serves the code that holds the pocket key.
 
 What the front-end cannot guarantee on its own:
 
-- **Your IP address.** The web host sees page loads. The runner sees your IP when you subscribe,
-  unless you use Tor Browser or the Tor-only CLI.
+- **The code it runs.** Whoever serves this app decides what it does, including with the pocket
+  key. When the merchant's runner serves it (`VITE_API=self`, as on the live demo), that is the
+  merchant. A `runners` build on an app host the merchant does not control, checked against a build
+  of your own ("Build identity"), or the CLI, avoids that.
+- **Your IP address.** The web host, and the hosting edge in front of it (Railway for the demo),
+  see page loads. The runner sees your IP when you subscribe, unless you use Tor Browser or the
+  Tor-only CLI. In a `runners` build, the default runner also sees the header pill's
+  `GET /api/status` every 5 s on every page, and only the offer's or the key's runner sees
+  subscribe or cancel traffic.
 - **Response headers.** A `<meta>` CSP cannot set `frame-ancestors`. Deploy with these headers:
 
 ```
@@ -316,6 +381,48 @@ Cross-Origin-Resource-Policy: same-origin
 Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 ```
 
+Every build writes that header CSP, with `frame-ancestors 'none'`, to `dist/csp.txt`. A static host
+should send it as the `Content-Security-Policy` header on every response, worker scripts included;
+`deploy/railway-app/Caddyfile` does. In a `runners` build, `connect-src` holds `'self'` and every
+listed runner.
+
+## Build identity
+
+Every build writes `dist/build.json` (`src/config/buildInfo.ts`):
+
+| Field | Meaning |
+|---|---|
+| `commit` | Short hash of the checked-out commit, or `null` outside a git checkout. |
+| `dirty` | Whether the checkout had tracked or untracked, non-ignored changes. |
+| `api`, `runners`, `signer` | The build mode, its runner origins, and the signer. |
+| `files` | The SHA-256 of every emitted file, by path relative to `dist/`. |
+| `bundle_sha256` | The SHA-256 of a manifest of `<sha256>  <path>\n` lines, one per file except `build.json`, sorted by path in byte order: what `shasum -a 256` prints. |
+
+The footer reads `build.json` from its own origin and shows "Built from commit X; bundle sha256 Y".
+The commit is not in the bundle, so the same sources give the same `bundle_sha256` at any commit.
+
+This is not a reproducibility claim. Two consecutive clean builds on one machine, with the same
+`node_modules` and the same prebuilt WASM, were byte-identical; nothing has been checked across
+machines or with the WASM rebuilt from source. What it does give is a way to check that a host
+serves the files of a build you made or trust:
+
+```sh
+# 1. The hash of your own build (equals its bundle_sha256):
+cd web/dist && find . -type f ! -path ./build.json | sed 's|^\./||' | LC_ALL=C sort \
+  | xargs shasum -a 256 | shasum -a 256
+# 2. The files the host says it serves:
+curl -s https://APP/build.json | jq -r '.files | to_entries[] | "\(.value)  \(.key)"' > served.sha256
+# 3. Hash what it actually serves; no output means every listed file matches:
+while read -r sum path; do printf '%s  %s\n' "$(curl -s "https://APP/$path" | shasum -a 256 | cut -d' ' -f1)" "$path"; done \
+  < served.sha256 | diff - served.sha256
+# 4. Compare served.sha256 with your dist's files, or bundle_sha256 with step 1.
+# 5. The header CSP should equal the build's:
+curl -sI https://APP/ | grep -i content-security-policy; curl -s https://APP/csp.txt
+```
+
+The served `build.json` is only the host's claim; the check is against a hash you computed or got
+from elsewhere.
+
 ## Tests
 
 `pnpm test` runs the vitest tests:
@@ -327,21 +434,35 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 - `src/lib/states.test.ts`: state labels, plus runner log lines that match the real runner's
   formats.
 - `src/lib/drand.test.ts`: quicknet round ↔ time, and the schedule.
-- `src/mock/runner.test.ts`: installment state derivation (chaining, cancel, missed, stop) and the
-  three cheats.
+- `src/mock/runner.test.ts`: installment state derivation (chaining, cancel, missed, stop), the
+  four cheats and the old `replay_after_cancel` name, and the mock's schedule check.
 - `src/signer/mock.test.ts`: the `Signer` contract (single-use pockets, fixed-size packages, cancel
-  rules, `destroy`), and the cancel key: save, restore into a fresh signer, cancel.
+  rules, `destroy`), and the cancel key: save, `verifyKit`, restore into a fresh signer, cancel.
+- `src/signer/kitCheck.test.ts`: `checkKit` with fakes and, when `src/wasm/` is present, with the
+  real cadence-wasm build in Node through the worker's own handlers.
+- `src/lib/shape.test.ts`: the decoder's checks on mainnet before NU7, after NU7 on both sides of
+  3,590,000, and on testnet; null fields, an unknown branch, the moved reference column.
+- `src/lib/planStatus.test.ts`: the `/status` page's logic, including the NU7 crossing note.
+- `src/pages/Merchant.test.ts`: the receiving address against the runner's network.
+- `src/config/runners.test.ts`, `src/runtime.test.ts`: `VITE_RUNNERS` parsing and picking the
+  runner an offer or a cancel key names.
+- `src/config/buildInfo.test.ts`: the build manifest and its hash, as `shasum` computes them.
 - `src/signer/kit.test.ts`: the cancel key's JSON against the CLI's `SubscriptionFile`, read from
   `crates/cadence-cli/src/subscribe.rs`; parsing and refusals; the runner and network checks.
 - `src/signer/cancel.test.ts`: the cancel loop with fake timers: waiting for anchor depth, giving
   up, abort, losing the race to an installment (retry once, or nothing left), other refusals.
 - `src/data/s2.test.ts`: the S2 copy matches the evidence file, and every invariant holds.
 - `src/config/csp.test.ts`: the `VITE_API` and `VITE_SIGNER` parsing and the CSP's shape, including
-  the one Trusted Types policy of WASM-signer builds.
+  the one Trusted Types policy of WASM-signer builds, `runners` builds, and the header CSP against
+  the runner's `WEB_CSP` and both Caddyfiles.
 - `src/signer/wasmEngine.test.ts`: the WASM signer's pipeline with a fake pool. It covers change
   chaining, pipelining, progress order, disagreeing shards, foreign notes, exhausted pockets and
   abort. It also tests the worker pool with fake workers: priorities, lazy start, trapped workers,
   abort and terminate.
+
+`pnpm verify:app-host` (`scripts/app-host-smoke.mjs`) builds a `runners` app against two local
+stub runners, serves it with the app host's headers and drives headless Chromium; its header
+comment lists the checks.
 
 `cargo test -p cadence-wasm` covers the Rust side:
 
@@ -364,9 +485,12 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()
 - the merchant dashboard;
 - the decoder;
 - every payer step;
-- the sandbox: close the tab, three installments landed, an inline decode, then cancelled with all
-  three cheats rejected;
+- the sandbox: close the tab, three installments landed, an inline decode, then cancelled with the
+  first three cheats rejected;
 - mobile views.
+
+The committed set is from commit `98246ad` (Oct 23). It predates the four-card cheat grid, the
+cancel-key check, `/status` and the footer's build line.
 
 ## Layout
 
@@ -377,7 +501,7 @@ src/signer/     Signer interface, MockSigner, WasmSigner (wasm.ts) with its work
 src/wasm/       wasm-bindgen output of pnpm build:wasm (gitignored)
 src/lib/        offer fragment, ZIP 321, drand, amounts, states, shape checks, runner log formats
 src/components/ UI pieces: tables, QR, timeline, flow views, disclosure panel
-src/pages/      Landing, Merchant, Subscribe, Decode, Sandbox
-src/config/     VITE_API and VITE_SIGNER parsing and the CSP (shared with vite.config.ts)
-scripts/        verify-and-screenshot.mjs, build-wasm.sh, wasm-smoke.mjs + wasm-smoke/ (harness page)
+src/pages/      Landing, Merchant, Subscribe, Manage, Status, Decode, Sandbox
+src/config/     VITE_API, VITE_RUNNERS and VITE_SIGNER parsing, the CSP and build identity (shared with vite.config.ts)
+scripts/        verify-and-screenshot.mjs, build-wasm.sh, wasm-smoke.mjs + wasm-smoke/ (harness page), app-host-smoke.mjs
 ```
