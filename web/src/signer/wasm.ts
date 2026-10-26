@@ -8,7 +8,9 @@
  *   Custody is therefore 'memory'. To cancel after closing the tab, the payer saves
  *   a cancel key: sealKit() has a worker write the seed, schedule and notes into the
  *   kit JSON and encrypt it to a passphrase (age scrypt), and the page downloads the
- *   ciphertext. openKit() and restore() load it back into a fresh signer.
+ *   ciphertext. verifyKit() has the payer prove the saved file opens this pocket
+ *   before they close the tab; openKit() and restore() load it back into a fresh
+ *   signer.
  * - Chain access: none of its own. The runner watches the pocket from its UFVK
  *   (`POST /api/pockets`) and relays the raw funding transaction, which the
  *   worker decrypts with the pocket key; amounts are never taken on trust.
@@ -32,7 +34,7 @@ import { firstReleaseLead } from '../lib/schedule';
 import { nowSecs } from '../lib/time';
 import { totalPrepaidZat, type NetworkId } from '../lib/zat';
 import { checkPocketState, runCancel } from './cancel';
-import { KIT_KIND, kitFileName, passphraseProblem, type KitFields, type KitNote, type OpenedKit, type SealedKit } from './kit';
+import { checkKit, isAgeKit, KIT_KIND, kitFileName, passphraseProblem, type KitCheck, type KitFields, type KitNote, type OpenedKit, type SealedKit } from './kit';
 import { SignerError, type CancelOptions, type CancelReceipt, type FundingTx, type KitContext, type PocketInfo, type PresignOptions, type Signer } from './types';
 import { presignSchedule, type InstallmentPlan } from './wasmEngine';
 import { moduleWorker, WorkerPool, defaultPoolSize } from './wasmPool';
@@ -263,6 +265,17 @@ export class WasmSigner implements Signer {
   async openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit> {
     this.#alive();
     return this.#workers().call('openKit', { bytes, passphrase });
+  }
+
+  async verifyKit(bytes: Uint8Array, passphrase: string): Promise<KitCheck> {
+    const { pocket } = this.#key();
+    const expected = { network: pocket.network, pocket_id: pocket.pocket_id!, pocket_ua: pocket.ua, fileName: kitFileName(pocket.pocket_id!) };
+    return checkKit(bytes, passphrase, expected, {
+      looksLikeKit: isAgeKit,
+      open: (b, p) => this.openKit(b, p),
+      // The worker derives the address from the opened seed, as restore() does.
+      addressOf: async (network, seed) => (await this.#workers().call('pocketInfo', { network, seed })).ua,
+    });
   }
 
   async restore(kit: OpenedKit): Promise<PocketInfo> {

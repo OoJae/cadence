@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Offer } from '../api/types';
 import { firstRoundAtOrAfter, QUICKNET, roundTime } from '../lib/drand';
 import { seededBech32 } from '../lib/prng';
+import { planSchedule } from '../lib/schedule';
 import { cadenceChecks } from '../lib/shape';
 import { MockChain, MOCK_BLOCK_SECS } from './chain';
-import { deriveSubscription, MockRunner, type MockSubRecord } from './runner';
+import { deriveSubscription, MockRunner, scheduleProblem, type MockSubRecord } from './runner';
 
 const T0 = 1_800_000_000;
 
@@ -118,12 +119,86 @@ describe('mock runner state derivation', () => {
     // Installment 1 opened: tampering breaks the signature.
     setNow(roundTime(rec.installments[0]!.release_round) + 60);
     expect(runner.cheat({ subscription_id: 'sub_t', kind: 'tamper_amount', k: 1 }).stage).toBe('signature');
-    // Replay after cancel: double-spend.
+    // A stretched plan: the schedule check.
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'stretch_schedule', k: 2 }).stage).toBe('schedule');
+    // Rebroadcasting a paid installment, before any cancel: double-spend.
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'rebroadcast', k: 1 }).stage).toBe('double-spend');
+    // It still fails the same way after a cancel.
     const tCancel = roundTime(rec.installments[1]!.release_round) + 30;
     chain.send({ kind: 'cancel', to: 'refund', value_zat: 1, spends_pocket: rec.pocket_ufvk }, tCancel);
     setNow(tCancel + 30);
-    const replay = runner.cheat({ subscription_id: 'sub_t', kind: 'replay_after_cancel', k: 3 });
-    expect(replay.stage).toBe('double-spend');
-    expect(replay.log[0]).toBe('installment 3: its input was spent elsewhere; mandate cancelled');
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'rebroadcast', k: 2 }).stage).toBe('double-spend');
+  });
+
+  it('rebroadcasts the latest paid installment, and only once one is paid', () => {
+    const { runner, setNow, rec } = setup(4, 60);
+    const before = runner.cheat({ subscription_id: 'sub_t', kind: 'rebroadcast', k: 1 });
+    expect(before).toEqual({ kind: 'rebroadcast', k: 1, outcome: 'not_applicable', stage: null, log: ['no installment has been released yet'] });
+
+    setNow(roundTime(rec.installments[1]!.release_round) + 60);
+    const sub = runner.getSubscription('sub_t');
+    expect(sub.status).toBe('active');
+    const paid = [...sub.installments].reverse().find((i) => i.state === 'mined')!;
+    const res = runner.cheat({ subscription_id: 'sub_t', kind: 'rebroadcast', k: paid.k });
+    expect(res).toMatchObject({ kind: 'rebroadcast', k: paid.k, outcome: 'rejected', stage: 'double-spend' });
+    expect(res.log[0]).toBe(`runner: broadcasting installment ${paid.k} again (${paid.txid!.slice(0, 16)}…), whose pocket note is already spent`);
+    expect(res.log.at(-1)).toMatch(/^node: transaction rejected: Ironwood double-spend: nullifier .* already revealed by .* at height \d+$/);
+    // The old name is an alias, answered under the new one.
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'replay_after_cancel', k: paid.k })).toEqual(res);
+    expect(() => runner.cheat({ subscription_id: 'sub_t', kind: 'replay', k: 1 })).toThrow(/unknown cheat/);
+  });
+
+  it('refuses a stretched plan at the schedule check, at any time', () => {
+    const { runner, rec } = setup(4, 60);
+    const res = runner.cheat({ subscription_id: 'sub_t', kind: 'stretch_schedule', k: 2 });
+    expect(res).toMatchObject({ kind: 'stretch_schedule', k: 2, outcome: 'rejected', stage: 'schedule' });
+    expect(res.log.at(-1)).toBe(`runner: subscription refused: installment 2 releases ${(365 * 86_400 + 60).toLocaleString('en-US')} s after installment 1, but the offer's period is 60 s`);
+    expect(res.log[0]).toContain(`instead of round ${rec.installments[1]!.release_round}, a year late`);
+    // The stored schedule is untouched.
+    expect(rec.installments[1]!.release_round - rec.installments[0]!.release_round).toBe(60 / QUICKNET.period);
+    expect(runner.cheat({ subscription_id: 'sub_t', kind: 'stretch_schedule', k: 1 }).outcome).toBe('not_applicable');
+  });
+});
+
+describe('mock runner schedule check', () => {
+  const offer = { count: 3, period_secs: 30 };
+  const plan = (gaps: number[], first = firstRoundAtOrAfter(T0)) => {
+    const out = [{ k: 1, release_round: first }];
+    for (const g of gaps) out.push({ k: out.length + 1, release_round: out.at(-1)!.release_round + g });
+    return out;
+  };
+
+  it("accepts the signer's own schedules, rounded up to whole rounds", () => {
+    for (const period of [20, 30, 31, 45, 3600]) {
+      for (let t = T0; t < T0 + 6; t++) {
+        const p = { amount_zat: 1, period_secs: period, count: 4 };
+        expect(scheduleProblem(p, planSchedule(p, t))).toBeNull();
+      }
+    }
+    expect(scheduleProblem(offer, plan([10, 10]))).toBeNull();
+  });
+
+  it('refuses a schedule that does not follow the offer', () => {
+    expect(scheduleProblem(offer, plan([10, 12]))).toMatch(/installment 3 releases 36 s after installment 2, but the offer's period is 30 s/);
+    expect(scheduleProblem(offer, plan([10, 8]))).toMatch(/installment 3 releases 24 s/);
+    expect(scheduleProblem(offer, plan([10, 0]))).toBe('release rounds must increase');
+    expect(scheduleProblem(offer, plan([10]))).toBe('expected 3 installments, got 2');
+    expect(scheduleProblem(offer, plan([10, 10]).map((i) => ({ ...i, k: 4 - i.k })))).toMatch(/numbered/);
+  });
+
+  it('refuses a stretched upload', () => {
+    const { runner, chain, rec } = setup(3, 30);
+    const funding = chain.send({ kind: 'wallet', to: 'pocket2', value_zat: 330_000 }, T0);
+    const body = (rounds: number[]) => ({
+      offer_id: rec.offer.offer_id,
+      pocket_ufvk: `uviewtest1${seededBech32('p2', 189)}`,
+      birthday_height: 5_000_000,
+      funding_txid: funding.txid,
+      installments: rounds.map((release_round, i) => ({ k: i + 1, release_round, sealed: 'x'.repeat(64) })),
+    });
+    const honest = planSchedule(rec.offer, T0).map((i) => i.release_round);
+    const stretched = honest.map((r, i) => (i >= 1 ? r + (365 * 86_400) / QUICKNET.period : r));
+    expect(() => runner.createSubscription(body(stretched))).toThrow(/installment 2 releases .* the offer's period is 30 s/);
+    expect(runner.createSubscription(body(honest)).status).toBe('active');
   });
 });

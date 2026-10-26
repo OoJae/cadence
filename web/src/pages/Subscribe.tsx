@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Offer } from '../api/types';
-import { SaveCancelKey } from '../components/CancelKey';
+import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView } from '../components/FlowViews';
 import { KeyIcon, ShieldCheckIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
@@ -15,7 +15,6 @@ import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
 import { Link, useLocation } from '../router';
 import { api, apiLabel, apiSetting, createSigner, isMock, mockHooks } from '../runtime';
-import type { SealedKit } from '../signer/kit';
 import type { CancelReceipt, Signer } from '../signer/types';
 
 type Step = 'plan' | 'fund' | 'sign' | 'done' | 'manage';
@@ -34,12 +33,12 @@ interface Session extends FlowState {
   lastStep: Step;
   manage: boolean;
   cancel: CancelReceipt | null;
-  /** The encrypted cancel key, once saved (ciphertext only, for "download again"). */
-  kit: SealedKit | null;
+  /** The cancel key: downloaded (ciphertext only, for "download again"), checked, or skipped. */
+  key: CancelKeyState;
 }
 
 /** In memory only: survives in-app navigation (e.g. to the decoder), never a reload. */
-const session = createStore<Session>(() => ({ hash: '', phase: 'idle', signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null, kit: null }));
+const session = createStore<Session>(() => ({ hash: '', phase: 'idle', signer: null, abort: null, lastStep: 'plan', manage: false, cancel: null, key: NO_CANCEL_KEY }));
 
 /** Only the WASM signer's pocket can be cancelled after the tab closes, so only it asks for a cancel key. */
 const needsCancelKey = (s: Session) => s.signer?.implementation === 'wasm';
@@ -75,7 +74,7 @@ function start(offer: Offer) {
   s.signer?.destroy();
   const signer = createSigner();
   const abort = new AbortController();
-  session.set({ signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null, kit: null });
+  session.set({ signer, abort, phase: 'pocket', error: undefined, lastStep: 'fund', manage: false, cancel: null, key: NO_CANCEL_KEY });
   void runMandate(
     offer,
     signer,
@@ -249,7 +248,7 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
       {sub.error && <ErrorNote error={sub.error} retry={sub.refresh} />}
       {data ? <Timeline installments={data.installments} network={offer.network} /> : <Spinner label="Asking the runner…" />}
       {needsCancelKey(s) && s.signer && !s.cancel && (
-        <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} saved={s.kit} onSaved={(kit) => session.set({ kit })} />
+        <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
       )}
       <hr />
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
@@ -357,10 +356,10 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
             <DoneMoment
               offer={o}
               flow={s}
-              closeable={!needsCancelKey(s) || !!s.kit}
+              closeable={!needsCancelKey(s) || cancelKeySettled(s.key)}
               notice={
                 needsCancelKey(s) && s.signer ? (
-                  <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} saved={s.kit} onSaved={(kit) => session.set({ kit })} />
+                  <SaveCancelKey signer={s.signer} subscriptionId={s.subscriptionId ?? null} state={s.key} onChange={(key) => session.set({ key })} skip="confirm" />
                 ) : undefined
               }
             >
@@ -368,7 +367,7 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
                 <button type="button" className="btn" onClick={() => session.set({ manage: true })}>
                   Manage or cancel
                 </button>
-                {needsCancelKey(s) && (
+                {needsCancelKey(s) && s.key.step === 'verified' && (
                   <Link to="/manage" className="btn ghost">
                     Cancel later with your key
                   </Link>
@@ -415,7 +414,7 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
             <span className="h4">This tab</span>
             <span className="text-2">
               Signer: <span className="mono">{s.signer?.implementation ?? (isMock ? 'mock' : 'wasm')}</span>, keys in {s.signer?.keyCustody === 'passkey' ? 'a passkey-sealed store' : 'memory only'}
-              {s.kit ? ', and in the cancel key you saved' : ''}.
+              {s.key.step === 'verified' ? ', and in the cancel key you saved and checked' : ''}.
             </span>
             <span className="text-2">
               Talks to: <span className="mono">{isMock ? 'nothing (mock)' : apiLabel}</span>.

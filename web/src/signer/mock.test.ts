@@ -150,6 +150,32 @@ describe('MockSigner cancel key', () => {
     await expect(signer.openKit(new TextEncoder().encode('age-encryption.org/v1\n'), 'correct horse battery')).rejects.toThrow(/not a cancel key from this mock/);
   });
 
+  it('checks that a re-picked key is this pocket’s, and says what is wrong when it is not', async () => {
+    const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    const { signer } = await subscribed(l);
+    await expect(new MockSigner(l).verifyKit(new Uint8Array(1), 'x')).rejects.toThrow(/create a pocket first/);
+    const kit = await signer.sealKit('correct horse battery', ctx);
+
+    expect(await signer.verifyKit(kit.bytes, 'correct horse battery')).toEqual({ ok: true });
+    const wrongPass = await signer.verifyKit(kit.bytes, 'correct horse batterY');
+    expect(wrongPass).toMatchObject({ ok: false, reason: 'passphrase' });
+    const wrongFile = await signer.verifyKit(new TextEncoder().encode('age-encryption.org/v1\n-> scrypt x 17\n'), 'correct horse battery');
+    expect(wrongFile).toMatchObject({ ok: false, reason: 'file' });
+    expect(!wrongFile.ok && wrongFile.message).toContain(kit.fileName);
+
+    // Another pocket's key, even with the same passphrase, is the wrong file.
+    const { signer: other } = await subscribed(l);
+    const otherKit = await other.sealKit('correct horse battery', ctx);
+    const r = await signer.verifyKit(otherKit.bytes, 'correct horse battery');
+    expect(r).toMatchObject({ ok: false, reason: 'pocket' });
+    expect(!r.ok && r.message).toMatch(/another pocket/);
+
+    // Checking keeps nothing: the signer still holds only its own pocket.
+    expect(await signer.verifyKit(kit.bytes, 'correct horse battery')).toEqual({ ok: true });
+    signer.destroy();
+    await expect(signer.verifyKit(kit.bytes, 'correct horse battery')).rejects.toThrow(/destroyed/);
+  });
+
   it('refuses a key whose seed does not match its pocket', async () => {
     const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
     const { signer } = await subscribed(l);
