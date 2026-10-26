@@ -2,6 +2,7 @@
  * The payer's mandate flow, shared by /subscribe and the sandbox:
  * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
+import type { CadenceClient } from './api/client';
 import type { Offer, SealedInstallment } from './api/types';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
 import { buildZip321Uri } from './lib/zip321';
@@ -39,7 +40,12 @@ export async function runMandate(
   offer: Offer,
   signer: Signer,
   update: (patch: Partial<FlowState>) => void,
-  opts: { signal?: AbortSignal; onPocket?: (pocket: PocketInfo, totalZat: number) => void | Promise<void> } = {},
+  opts: {
+    signal?: AbortSignal;
+    /** The runner to upload to: the offer's (default: the build's default runner). */
+    api?: CadenceClient;
+    onPocket?: (pocket: PocketInfo, totalZat: number) => void | Promise<void>;
+  } = {},
 ): Promise<void> {
   try {
     update({ phase: 'pocket', error: undefined });
@@ -63,7 +69,7 @@ export async function runMandate(
     });
     update({ sealed, signedAt, phase: 'uploading' });
 
-    const res = await api.createSubscription(
+    const res = await (opts.api ?? api).createSubscription(
       {
         offer_id: offer.offer_id,
         ...(pocket.pocket_id ? { pocket_id: pocket.pocket_id } : {}),

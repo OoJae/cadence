@@ -27,12 +27,15 @@ export function Command({ text }: { text: string }) {
 export function SaveCancelKey({
   signer,
   subscriptionId,
+  runner = runnerUrl,
   saved,
   onSaved,
   onSkip,
 }: {
   signer: Signer;
   subscriptionId: string | null;
+  /** The runner that holds the subscription, as the key records it (default: the build's default runner). */
+  runner?: string;
   saved: SealedKit | null;
   onSaved: (kit: SealedKit) => void;
   /** Offered in the sandbox only: payments continue either way. */
@@ -67,7 +70,7 @@ export function SaveCancelKey({
     setBusy(true);
     setError(undefined);
     try {
-      const kit = await signer.sealKit(pass, { runner: runnerUrl, subscriptionId });
+      const kit = await signer.sealKit(pass, { runner, subscriptionId });
       downloadBytes(kit.bytes, kit.fileName);
       setPass('');
       setAgain('');
