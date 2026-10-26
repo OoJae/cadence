@@ -141,4 +141,19 @@ describe('Content-Security-Policy response header', () => {
     expect(caddy.length).toBeGreaterThan(0);
     for (const policy of caddy) expect(policy).toBe(header);
   });
+
+  it("is what deploy/railway-app/Caddyfile sends: the build's csp.txt, beside the same other headers as deploy/Caddyfile", () => {
+    const headers = (caddyfile: string) => {
+      const block = /\theader \{\n([\s\S]*?)\n\t\}/.exec(caddyfile)![1]!;
+      return block
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+    };
+    const app = headers(repoFile('deploy/railway-app/Caddyfile'));
+    expect(app).toContain('Content-Security-Policy "{file./srv/web/csp.txt}"');
+    const others = (h: string[]) => h.filter((l) => !l.startsWith('Content-Security-Policy')).sort();
+    expect(others(app)).toEqual(others(headers(repoFile('deploy/Caddyfile'))));
+    expect(app).toEqual(expect.arrayContaining(['Cross-Origin-Opener-Policy same-origin', 'Cross-Origin-Embedder-Policy require-corp', 'Cross-Origin-Resource-Policy same-origin', 'X-Content-Type-Options nosniff', 'Referrer-Policy no-referrer']));
+  });
 });
