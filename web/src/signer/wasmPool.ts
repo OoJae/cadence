@@ -100,6 +100,11 @@ export class WorkerPool<Ops extends OpMap> {
     return this.#slots.length;
   }
 
+  /** Whether the pool has shut down (terminate(), or a worker that failed): it takes no more requests. */
+  get closed(): boolean {
+    return this.#closed !== null;
+  }
+
   call<K extends keyof Ops & string>(op: K, args: Ops[K]['in'], opts: CallOptions = {}): Promise<Ops[K]['out']> {
     if (this.#closed) return Promise.reject(new PoolError(this.#closed));
     if (opts.signal?.aborted) return Promise.reject(opts.signal.reason ?? new PoolError('aborted'));

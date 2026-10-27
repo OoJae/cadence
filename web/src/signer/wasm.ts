@@ -134,7 +134,10 @@ export class WasmSigner implements Signer {
   }
 
   #workers(): WorkerPool<SignerOps> {
-    this.#pool ??= createSignerPool(this.#poolSize);
+    // A pool that shut down because a worker failed is replaced, so a failed presign can be
+    // tried again with the same pocket. A destroyed signer never gets a new one.
+    this.#alive();
+    if (!this.#pool || this.#pool.closed) this.#pool = createSignerPool(this.#poolSize);
     return this.#pool;
   }
 

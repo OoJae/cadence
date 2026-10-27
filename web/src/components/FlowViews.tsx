@@ -15,7 +15,20 @@ import { useNow } from '../hooks';
 
 // ---------------------------------------------------------------- fund
 
-export function FundingView({ offer, flow, onSimulate, simulateLabel = 'Simulate the payment from Zodl' }: { offer: Offer; flow: FlowState; onSimulate?: () => void; simulateLabel?: string }) {
+export function FundingView({
+  offer,
+  flow,
+  onSimulate,
+  simulateLabel = 'Simulate the payment from Zodl',
+  walletNote,
+}: {
+  offer: Offer;
+  flow: FlowState;
+  onSimulate?: () => void;
+  simulateLabel?: string;
+  /** A line under "Open in wallet": what paying from this device means for this tab. */
+  walletNote?: string;
+}) {
   if (!flow.pocket || !flow.uri || flow.totalZat === undefined) return <Spinner label="Creating a fresh pocket…" />;
   const unitAmount = formatZec(flow.totalZat, offer.network);
   return (
@@ -51,6 +64,7 @@ export function FundingView({ offer, flow, onSimulate, simulateLabel = 'Simulate
             <CopyButton text={flow.uri} label="Copy payment URI" /> Copy URI
           </span>
         </div>
+        {walletNote && <span className="tiny muted">{walletNote}</span>}
         <div className="panel row no-wrap" style={{ ['--gap' as string]: '10px' }} aria-live="polite">
           {flow.funding ? (
             <>

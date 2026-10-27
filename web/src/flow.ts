@@ -60,24 +60,35 @@ export async function runMandate(
 
     const funding = await signer.awaitFunding(totalZat, { signal: opts.signal });
     update({ funding, phase: 'signing' });
-
-    const signedAt = nowSecs();
-    const finished: PresignProgress[] = [];
-    const sealed = await signer.presign(offer, funding, {
-      signedAt,
-      signal: opts.signal,
-      onProgress: (progress) => {
-        if (progress.phase === 'done') finished.push(progress);
-        update({ progress, finished: [...finished] });
-      },
-    });
-    update({ sealed, signedAt, phase: 'uploading' });
-    const subscriptionId = await uploadSealed(offer, pocket, funding, sealed, opts);
-    update({ subscriptionId, phase: 'done' });
+    await signAndUpload(offer, signer, pocket, funding, update, opts);
   } catch (e) {
     if (opts.signal?.aborted) return;
     update({ phase: 'error', error: (e as Error).message });
   }
+}
+
+/** Pre-signs every installment against the funding, then uploads the sealed packages. */
+async function signAndUpload(
+  offer: Offer,
+  signer: Signer,
+  pocket: PocketInfo,
+  funding: FundingTx,
+  update: (patch: Partial<FlowState>) => void,
+  opts: { signal?: AbortSignal; api?: CadenceClient },
+): Promise<void> {
+  const signedAt = nowSecs();
+  const finished: PresignProgress[] = [];
+  const sealed = await signer.presign(offer, funding, {
+    signedAt,
+    signal: opts.signal,
+    onProgress: (progress) => {
+      if (progress.phase === 'done') finished.push(progress);
+      update({ progress, finished: [...finished] });
+    },
+  });
+  update({ sealed, signedAt, phase: 'uploading' });
+  const subscriptionId = await uploadSealed(offer, pocket, funding, sealed, opts);
+  update({ subscriptionId, phase: 'done' });
 }
 
 /** Upload attempts, and the wait before each retry. */
@@ -138,3 +149,29 @@ export async function retryUpload(
 
 /** Whether a failed flow can upload again rather than start over. */
 export const canRetryUpload = (s: FlowState): boolean => Boolean(s.pocket && s.funding && s.sealed && !s.subscriptionId);
+
+/**
+ * Signs again after signing failed with the pocket already funded. The signer still
+ * holds the pocket's key and its funding note, and marks a pocket pre-signed only once
+ * every installment is sealed, so a second attempt starts clean; starting over instead
+ * would abandon the paid pocket.
+ */
+export async function retrySigning(
+  offer: Offer,
+  signer: Signer,
+  s: FlowState,
+  update: (patch: Partial<FlowState>) => void,
+  opts: { signal?: AbortSignal; api?: CadenceClient } = {},
+): Promise<void> {
+  if (!canRetrySigning(s)) return;
+  try {
+    update({ phase: 'signing', error: undefined, progress: undefined, finished: [] });
+    await signAndUpload(offer, signer, s.pocket!, s.funding!, update, opts);
+  } catch (e) {
+    if (opts.signal?.aborted) return;
+    update({ phase: 'error', error: (e as Error).message });
+  }
+}
+
+/** Whether a failed flow is funded but has nothing sealed yet, so it can sign again. */
+export const canRetrySigning = (s: FlowState): boolean => Boolean(s.pocket && s.funding && !s.sealed && !s.subscriptionId);

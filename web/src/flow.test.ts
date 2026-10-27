@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, uploadTimeoutMs, type CadenceClient } from './api/client';
 import type { Offer } from './api/types';
-import { canRetryUpload, retryUpload, runMandate, type FlowState } from './flow';
+import { canRetrySigning, canRetryUpload, retrySigning, retryUpload, runMandate, type FlowState } from './flow';
 import type { Signer } from './signer/types';
 
 const offer = { offer_id: 'off_t', network: 'test', amount_zat: 100_000, count: 4, name: 'Weekly' } as unknown as Offer;
@@ -61,5 +61,35 @@ describe('a plan past the horizon', () => {
     await runMandate({ ...offer, period_secs: 2_592_000, count: 3 }, signer, (p) => patches.push(p));
     expect(signer.createPocket).not.toHaveBeenCalled();
     expect(patches).toEqual([{ phase: 'error', error: expect.stringMatching(/cannot yet seal a payment due more than 45 days/) }]);
+  });
+});
+
+describe('signing again after a failed signing', () => {
+  const paid: FlowState = { ...held, sealed: undefined };
+
+  it('is offered only for a funded pocket with nothing sealed', () => {
+    expect(canRetrySigning(paid)).toBe(true);
+    expect(canRetrySigning({ ...paid, funding: undefined })).toBe(false);
+    expect(canRetrySigning(held)).toBe(false);
+    expect(canRetrySigning({ ...paid, subscriptionId: 'sub_t' })).toBe(false);
+  });
+
+  it('pre-signs against the same pocket and funding, then uploads', async () => {
+    const sealed = [{ k: 1, release_round: 10, sealed: 'AAAA' }];
+    const signer = { presign: vi.fn(async () => sealed) } as unknown as Signer;
+    const api = { createSubscription: vi.fn(async () => ({ subscription_id: 'sub_t', status: 'active' })) } as unknown as CadenceClient;
+    const patches: Partial<FlowState>[] = [];
+    await retrySigning(offer, signer, paid, (p) => patches.push(p), { api });
+    expect(signer.presign).toHaveBeenCalledWith(offer, paid.funding, expect.anything());
+    expect(api.createSubscription).toHaveBeenCalledWith(expect.objectContaining({ pocket_id: 'pkt_t', funding_txid: paid.funding!.txid, installments: sealed }), undefined);
+    expect(patches[0]).toMatchObject({ phase: 'signing', error: undefined, finished: [] });
+    expect(patches.at(-1)).toEqual({ subscriptionId: 'sub_t', phase: 'done' });
+  });
+
+  it('lands back in the error state if signing fails again', async () => {
+    const signer = { presign: vi.fn(async () => { throw new Error('a signer worker failed'); }) } as unknown as Signer;
+    const patches: Partial<FlowState>[] = [];
+    await retrySigning(offer, signer, paid, (p) => patches.push(p));
+    expect(patches.at(-1)).toEqual({ phase: 'error', error: 'a signer worker failed' });
   });
 });
