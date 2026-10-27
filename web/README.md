@@ -33,7 +33,7 @@ pnpm build:wasm   # build the real signer (crates/cadence-wasm) into src/wasm/ (
 pnpm verify:wasm  # after build:wasm: the WASM signer end to end in headless Chromium
 ```
 
-Node 20 or newer works; this was built with Node 26 and pnpm 11. The runtime dependencies are React,
+Use Node 22.12 or newer (vitest needs it; a build alone works on 20.19), and run `pnpm exec playwright install chromium` once before the `verify` scripts. This was built with Node 26, pnpm 11 and Rust 1.96.0; `pnpm build:wasm` also needs the `wasm32-unknown-unknown` target, wasm-bindgen-cli 0.2.129 and Homebrew LLVM (`scripts/build-wasm.sh` says why). The runtime dependencies are React,
 `uqr` (the QR encoder), `lenis` (eased wheel scrolling on the landing and /brand) and `three` (core
 only, for the landing's WebGL stage, in a lazy chunk), all bundled. The fonts (Inter, JetBrains Mono
 and Bodoni Moda, all OFL) are bundled from npm, Latin subset only.
@@ -331,8 +331,10 @@ build, drives every page and both flows in headless Chromium, and fails on any o
    use `trusted-types cadence-worker` instead of `'none'`, for one policy that can only produce
    same-origin worker script URLs (see "The WASM signer").
 3. **Offer data only in the URL fragment.** Share links are `/subscribe#offer=<base64url(json)>`.
-   Browsers never send the fragment to a server, so neither the web host nor the runner learns who
-   opened a link. The fragment is untrusted input and is parsed strictly (`src/lib/offer.ts`):
+   Browsers never send the fragment to a server, so the offer's contents reach neither the web
+   host nor the runner. When the page opens, though, it asks the runner the offer names for its
+   copy by id (`GET /api/offers/<id>`), so that runner and its hosting edge learn that this IP
+   opened that offer. The fragment is untrusted input and is parsed strictly (`src/lib/offer.ts`):
    - fields are checked by type and range;
    - unknown fields are dropped;
    - size is capped;

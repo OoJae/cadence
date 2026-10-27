@@ -122,7 +122,7 @@ A Pocket is derived from a seed *S* of 32 bytes drawn from a CSPRNG.
 - A Pocket MUST back at most one Mandate, and its addresses MUST NOT be reused after the Mandate ends. The Runner MUST refuse a second subscription for the same Pocket. [impl]
 - *Choice:* the account index is 7. Any non-zero account is acceptable (see Rationale).
 
-*S* is raw entropy, not a BIP 39 mnemonic, so no stock wallet can restore a Pocket. Payer software MUST retain *S* for the life of the Mandate, and until the Pocket is empty, because cancellation and recovery need *ask_P*. The reference CLI writes *S* to the subscription file unencrypted.
+*S* is raw entropy, not a BIP 39 mnemonic, so no stock wallet can restore a Pocket. Payer software MUST retain *S* for the life of the Mandate, and until the Pocket is empty, because cancellation and recovery need *ask_P*. The reference CLI writes *S* to the subscription file unencrypted, before funding. [partial: the reference web app holds *S* only in the tab's memory until the Packages are uploaded and the recovery kit is saved, so a tab closed after funding and before that loses the Pocket]
 
 A **recovery kit** is that file encrypted to a passphrase with age's scrypt recipient (§ Constants). The CLI's `cancel` and `sweep` accept a plaintext file or a kit (`cadence-cli/src/subscribe.rs::read_kit`). The web app offers a kit, which it calls a cancel key, for download once the Packages are uploaded, and has the payer open the downloaded file once with its passphrase before it says the tab can be closed; it checks that the kit's network, pocket id and address match the Pocket and that its seed derives that address. Its Manage page opens a kit to cancel in the browser.
 
@@ -282,6 +282,8 @@ Window sizes at 25 s spacing with no exclusions, computed from the formula:
 | 1 day | 3,456 | 279 | 454 | 734 |
 | 30 days | 103,680 | 2,333 | 3,510 | 5,844 |
 | 330 days | 1,140,480 | 15,685 | 27,230 | 42,916 |
+
+These are Window sizes. A Package must also fit the 64 MiB plaintext cap (§ Sealing): in the reference ladder format each rung takes about 7.4 KB, so a Package holds about 9,000 rungs, the Window of a payment due up to about 53 days after signing at 25 s spacing. Longer Mandates need rolling funding or a compact ladder format. [not impl]
 
 Run 1 of `evidence/E2E-service-testnet.md` reports 157, 167 and 175 rungs. The formula gives exactly those counts for offsets of 60 s, 180 s and 300 s, which is what the CLI default `--first-in 60` gives with a 120 s period.
 
@@ -601,7 +603,7 @@ A signed transaction can be revoked only by making its input unspendable. Spendi
 - **Anchor at *T* − 3.** ZIP 315 [^zip-0315] recommends a fixed anchor depth equal to the trusted confirmation depth, which it sets at 3. In the mainnet sample, 78% of the class is consistent with this rule. *F* comes from outside the Pocket, so ZIP 315 would call it untrusted and require 10 confirmations; this ZIP uses 3. That is a *Choice*. A reorg of *F* can only delay Installment 1.
 - **Discard.** The pocket UFVK includes the Pocket's OVKs. If change and cancellation outputs used them, the Runner could decrypt where cancelled funds went. With Discard, `out_ciphertext` is undecryptable, just as stock outgoing ciphertexts are to anyone without the sender's OVK.
 - **Fresh seed and a non-zero account.** A Pocket shares no key material with the main wallet. The non-zero account is defense in depth: if *S* were ever imported into a stock wallet, that wallet would restore account 0, find nothing, and so never sweep the Pocket with the default OVK, which the Runner could decrypt.
-- **Keyed PRF seed.** P1 needs a single seed per installment. The payer has to be able to recompute *C(k)* from *S*. Nobody else may be able to compute the seed, because it determines `esk` and `rcv`, and with those anyone could decrypt the outputs and open the value commitments. `mandate_id` is not secret (the wasm signer puts it in the memo), so the seed must be keyed.
+- **Keyed PRF seed.** P1 needs a single seed per installment. The payer has to be able to recompute *C(k)* from *S*. Nobody else may be able to compute the seed, because it determines `esk` and `rcv`, and with those anyone could decrypt the outputs and open the value commitments. `mandate_id` is not secret, so the seed must be keyed. (The memo carries the label, the offer name and pocket id, not `mandate_id`.)
 - **Bucket padding.** The size of a Package reveals only its bucket. Identical actions across rungs compress well under zstd: each Package in the testnet run, with 157 to 175 rungs, fit the 64 KiB bucket.
 
 
@@ -625,7 +627,7 @@ The mainnet sample covers 200 blocks, heights 3,526,581 to 3,526,780 (`evidence/
 - `expiry − mined` is 40 for 46% of the class and 39 for 30%.
 - Inferring each member's target as expiry − 40, 125 of the 160 members with an inferable offset are consistent with an anchor at target − 3. The shares are not exclusive, because the root does not change across blocks with no Ironwood commitments.
 
-The sample predates NU7, where δ = 40. No Cadence transaction has yet been mined on mainnet, and the post-NU7 population (δ = 120) has not been measured.
+The sample predates NU7, where δ = 40. Cadence's first mainnet installments were mined on 2026-10-27, before NU7, and each matches the payer's own Zodl send on every structural field (`evidence/mainnet.md`). The post-NU7 population (δ = 120) has not been measured.
 
 ## What the Runner learns
 
@@ -664,13 +666,13 @@ Delegating proving is what costs the FVK. The alternatives are worse:
 
 - **Periodic release.** The Runner releases at the first evaluation after three conditions hold: *r_k* has passed, *N_k* is anchor-deep, and a rung exists. Installments therefore form a series with period `period_secs`, plus block granularity. The only defense is the size of the class: about 0.84 per block in the pre-NU7 sample. Release-time jitter is **not yet implemented**, and the threat model says so.
 - **Funding proximity.** With the CLI default `--first-in 60`, Installment 1 is mined within a few blocks of the funding transaction. That is a timing correlation, though not a cryptographic link.
-- **Late release.** An installment mined after its target shows `expiry − mined` < δ. The public testnet sandbox run (`evidence/railway-sandbox.md`) mined two installments 5 and 11 blocks late, because the reference released one evaluation after opening, against a stale tip; it now releases in the same evaluation, against a fresh tip (rules 1 and 3). The fix has not yet been measured on a public run.
+- **Late release.** An installment mined after its target shows `expiry − mined` < δ. The public testnet sandbox run (`evidence/railway-sandbox.md`) mined two installments 5 and 11 blocks late, because the reference released one evaluation after opening, against a stale tip; it now releases in the same evaluation, against a fresh tip (rules 1 and 3). Re-measured on the next public run, the three installments showed 118, 117 and 119, one to three blocks of testnet inclusion latency; on mainnet, the short run's three installments each mined in their target block (`evidence/mainnet.md`).
 - **Expiry retries.** A retry spends the same nullifier, which is inherent to spending the same note, so a mempool observer can link the two broadcasts. The `attempt` input of the seed would not prevent this.
 - **Chaining.** Installment *k*+1 cannot be mined until *C(k)* is anchor-deep, which matters only for short periods.
 
 ## Network and infrastructure
 
-- **Payer to Runner.** The reference CLI reaches the Runner over Tor, through its embedded arti client, on circuits isolated from its lightwalletd traffic (`cadence-cli/src/http.rs`). The exceptions are a Runner on a loopback address, which Tor cannot reach, and `--direct`. The CLI's chain access goes over Tor too. The web build is disclosed as clearnet unless it is used through Tor Browser; whatever terminates TLS in front of the Runner or the app host sees client IP addresses and request paths.
+- **Payer to Runner.** The reference CLI reaches the Runner over Tor, through its embedded arti client, on circuits isolated from its lightwalletd traffic (`cadence-cli/src/http.rs`). The exceptions are a Runner on a loopback address, which Tor cannot reach, and `--direct`. The CLI's chain access goes over Tor too. The web build is disclosed as clearnet unless it is used through Tor Browser; whatever terminates TLS in front of the Runner or the app host sees client IP addresses and request paths, and can read request and response bodies, including each Pocket's UFVK as it is registered.
 - **Who serves the payer app.** A browser payer runs whatever code its web host serves, including the code that holds *S*. When the Runner serves the app, the merchant could serve code that exfiltrates *S*, which no rule of this ZIP prevents. The reference web app can instead be built for a host of its own (`VITE_API=runners`), which publishes the commit and a SHA-256 of every served file (`build.json`) so that payers can compare it with a build they trust; the CLI avoids the question.
 - **drand relays.** The reference Runner fetches beacons over Tor unless `--drand-direct` is set (see rule 1). Package headers reveal *r_k* to anyone who stores them.
 - **Capabilities in the HTTP binding.** `GET /api/pockets/{id}` and `GET /api/subscriptions/{id}` are unauthenticated. Their 80-bit random ids act as bearer capabilities that expose funding data, notes, the schedule and txids. The subscription list, and the count in `GET /api/status`, need the merchant's token, except on a Testnet sandbox.
@@ -724,12 +726,12 @@ Status as of 2026-10-27:
 
 - On NU7 testnet, a view-only Runner has released three chained installments (`evidence/S2-testnet.md`).
 - The full service has run on NU7 testnet: subscribe, release, completion, cancellation, and a run with everything over Tor (`evidence/E2E-service-testnet.md`).
-- A public sandbox Runner on Railway has released three installments signed in a browser by the WASM signer, and refused early-opening and tampering attempts (`evidence/railway-sandbox.md`).
+- A public sandbox Runner on Railway has released three installments signed in a browser by the WASM signer, and, in a re-run from the app host, refused all four cheats: early opening, tampering, rebroadcast and a stretched schedule (`evidence/railway-sandbox.md`).
 - On Mainnet, two Mandates were funded from Zodl and signed in a browser: a three-installment run whose installments each mined in their target block, and a weekly Mandate whose third installment, already signed, will be the first after NU7 (`evidence/mainnet.md`).
 
 **NU7.** Windows may straddle activation, because each rung is signed with the branch for its own target height. The S1 test checks identical actions on both sides. A pre-NU7 rung that is broadcast but not mined by height 3,543,404 is dead at activation. A Runner SHOULD treat such a rung as expired at activation rather than waiting for its expiry, which for the last pre-NU7 rung (target 3,543,394, expiry 3,543,434) is 30 blocks, about 12.5 minutes, later. [impl: `service.rs::branch_passed` moves it back to `due` as soon as branch(tip + 1) differs from branch(*T*).]
 
-**ZIP 2009 on Mainnet.** Each rung pays the fee for its own target height, and no Window straddles height 3,590,000 (§ Guard bands), so a Mandate that runs past the switch needs no re-signing: a monthly Mandate signed on Mainnet today has a Window for every installment (`mandate.rs` test `mainnet_windows_keep_to_one_side_of_the_fee_switch`). Each installment after the switch leaves 8,000 zatoshis in the Pocket for the payer to recover.
+**ZIP 2009 on Mainnet.** Each rung pays the fee for its own target height, and no Window straddles height 3,590,000 (§ Guard bands), so a Mandate that runs past the switch needs no re-signing: a monthly Mandate signed on Mainnet today has a Window for every installment (`mandate.rs` test `mainnet_windows_keep_to_one_side_of_the_fee_switch`), though installments due more than about 53 days out exceed the Package cap (§ Window). Each installment after the switch leaves 8,000 zatoshis in the Pocket for the payer to recover.
 
 ZIP 2009 expects height 3,590,000 in mid-December 2026. Under ZIP 218's 25 s spacing, the code's model puts it about 13.5 days after NU7 activation (46,595 blocks). The rule depends only on the height, not on the date.
 
@@ -750,7 +752,7 @@ ZIP 2009 expects height 3,590,000 in mid-December 2026. Under ZIP 218's 25 s spa
 | Browser signer | `crates/cadence-wasm` |
 | Shape decoder and fingerprint scanner | `crates/cadence-decode` |
 | Tests | `cargo test -p cadence-core` (S1 determinism), `cargo test -p cadence-seal`, `cargo test -p cadence-runner` (schedule check, CORS, webhooks) |
-| Evidence | `evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`, `evidence/railway-sandbox.md`, `evidence/fingerprint-mainnet-sample.json` |
+| Evidence | `evidence/S2-testnet.md`, `evidence/E2E-service-testnet.md`, `evidence/railway-sandbox.md`, `evidence/mainnet.md`, `evidence/fingerprint-mainnet-sample.json` |
 
 Known differences between this draft and the reference implementation, also marked inline:
 

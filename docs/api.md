@@ -8,10 +8,10 @@ The runner serves JSON over HTTP behind a TLS proxy (Caddy, or Railway's edge), 
 
 ```json
 { "name": "Shielded Press monthly", "amount_zat": 500000, "period_secs": 2592000,
-  "count": 3, "merchant_ua": "u1…" }
+  "count": 2, "merchant_ua": "u1…" }
 ```
 
-`count` is 1–12, `amount_zat` and `period_secs` must be positive, and `merchant_ua` must be a unified address with an Orchard receiver on the runner's network. The response is `201`. The share URL carries the offer in its **fragment**, so it never reaches a server:
+`count` is 1–12, `amount_zat` and `period_secs` must be positive, and `merchant_ua` must be a unified address with an Orchard receiver on the runner's network. Keep the last installment within about 45 days of signing (`(count − 1) × period_secs`, plus the first payment's lead): each installment's sealed package is capped at 64 MiB, which holds the window of a payment due up to about 53 days out, so a longer plan cannot be signed. The runner does not check this yet. The response is `201`. The share URL carries the offer in its **fragment**, so it never reaches a server:
 
 ```json
 { "offer_id": "off_…", "share_url": "https://pay.example/subscribe#offer=<base64url(offer json)>" }
@@ -22,7 +22,7 @@ The share URL's base is `--app-url` when the runner was started with one, and `-
 `GET /api/offers/:id` returns the offer the payer app signs against:
 
 ```json
-{ "offer_id": "off_…", "name": "…", "amount_zat": 500000, "period_secs": 2592000, "count": 3,
+{ "offer_id": "off_…", "name": "…", "amount_zat": 500000, "period_secs": 2592000, "count": 2,
   "merchant_ua": "u1…", "runner_age_recipient": "age1…", "runner_endpoint": "https://… | http://….onion",
   "network": "main | test", "drand_chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971" }
 ```
@@ -61,7 +61,7 @@ Once the subscription ends, the runner deletes the pocket's account, viewing key
 { "target_height": 3529011, "anchor_height": 3529008, "anchor": "…", "position": 123456, "auth_path": ["…"] }
 ```
 
-`POST /api/broadcast` relays a finished transaction. It is used for the browser's cancel. The runner learns of the cancel either way. The CLI broadcasts over Tor through an independent lightwalletd instead.
+`POST /api/broadcast` relays a finished transaction. It is used for the browser's cancel. The runner learns of the cancel either way. The CLI broadcasts over Tor through a lightwalletd of the payer's choosing instead; it looks up the note's transaction through that same server, so its operator can link the cancel to the mandate.
 
 ```json
 { "tx_hex": "…" }
@@ -185,6 +185,8 @@ Before broadcasting, the runner checks each opened rung against the offer: the i
 ```json
 { "network": "test", "tip": 4529263, "drand_round": 23456789, "sandbox": false }
 ```
+
+A sandbox runner also reports its faucet, `"faucet": { "balance_zat": 7990000, "notes": 48 }`.
 
 How many subscriptions a merchant has is the merchant's to know, so `subscriptions` (a count) is included only for a request with the merchant's bearer token, or on a sandbox runner, whose merchant is its own demo wallet.
 

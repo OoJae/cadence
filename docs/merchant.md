@@ -14,7 +14,7 @@ cadence-runner serve --network main \
   --webhook-url https://shop.example.com/cadence/webhook
 ```
 
-`deploy/docker-compose.yml` runs the whole stack: Zebra 7, lightwalletd, the runner, Caddy and an onion service.
+`deploy/docker-compose.yml` describes the whole stack: Zebra 7, lightwalletd, the runner, Caddy and an onion service. It is written for a server of your own and has not yet been run end to end; the live demo runs on Railway without a node (`deploy/README.md`).
 
 With no node of your own, drop `--direct` and point `--server` at a public lightwalletd. The runner then syncs and broadcasts over Tor. drand beacons are fetched over Tor either way.
 
@@ -25,10 +25,10 @@ To serve the payer app from your runner, add `--web-dir web/dist`. To have it se
 ```sh
 curl -s -X POST https://pay.example.com/api/offers \
   -H "Authorization: Bearer $CADENCE_MERCHANT_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"Pro plan","amount_zat":5000000,"period_secs":2592000,"count":3,"merchant_ua":"u1…"}'
+  -d '{"name":"Pro plan","amount_zat":5000000,"period_secs":604800,"count":4,"merchant_ua":"u1…"}'
 ```
 
-`merchant_ua` must be a unified address with an Orchard receiver on the runner's network: `u1…` on mainnet, `utest1…` on testnet. The runner refuses anything else, and the dashboard checks the address against the network `GET /api/status` reports.
+`merchant_ua` must be a unified address with an Orchard receiver on the runner's network: `u1…` on mainnet, `utest1…` on testnet. The runner refuses anything else, and the dashboard checks the address against the network `GET /api/status` reports. Keep the last installment within about 45 days of signing: longer plans exceed the sealed package's 64 MiB cap and cannot be signed yet (`docs/api.md`).
 
 The response holds a `share_url`. The offer is encoded in its `#fragment`, so the link works from any page or message without telling your web server who clicked it.
 
@@ -121,4 +121,4 @@ That is what any subscription merchant knows. You never see the customer's walle
 - **Who serves the payer app.** If your runner serves it (`--web-dir`), you serve the code that holds your customers' pocket keys, and customers have to trust you with that. An app host you do not control (`VITE_API=runners`, `deploy/README.md`), whose build identity customers can check, removes that, and so does the CLI.
 - **Memos.** Each installment carries a text memo your wallet shows, such as "Cadence · Pro plan (pkt_…) · payment 2 of 3".
 - **Network upgrades.** Pre-signed transactions commit to the consensus branch and the fee. Cadence's windows skip the blocks just before NU7, and from the ZIP 2009 fee switch (height 3,590,000) installments pay the new 2,000-zat fee, as ZIP 2009 tells wallets to. An upgrade that was not scheduled when the customer signed needs a new subscription.
-- **Cleanup.** When a subscription completes, is cancelled or is stopped (`POST /api/subscriptions/:id/stop`), the runner deletes the pocket's account, viewing key, funding transaction and sealed packages. If you stop a subscription early, what is left in the pocket stays the customer's, and they recover it with `cadence sweep`.
+- **Cleanup.** When a subscription completes, is cancelled or is stopped (`POST /api/subscriptions/:id/stop`), the runner deletes the pocket's account, viewing key, raw funding transaction and sealed packages. The funding txid and amount and the installment txids stay, as the record of what was paid. If you stop a subscription early, what is left in the pocket stays the customer's, and they recover it with `cadence sweep`.

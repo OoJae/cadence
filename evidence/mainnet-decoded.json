@@ -1,0 +1,209 @@
+{
+  "source": "GET https://main-production-d975.up.railway.app/api/decode/<txid> (the same fields as cadence-decode), 2026-10-27",
+  "transactions": [
+    {
+      "role": "funding (Zodl), short run",
+      "anchor_depths": [
+        5,
+        5
+      ],
+      "anchor_heights": [
+        3532610,
+        3532610
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532653,
+      "expiry_minus_mined": 38,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "ab1ce1e71f8253fbd3d98fd2045f68ebd482f50573f52ba81737ec648299ed0a",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "a0e71d8eb9e01fb66598125d026679308e614b3f3fb06bb5d213bae42b29233e",
+        "04763b4112559395abba25144fe17f80159416edb8f8fb30000241c5bbde3f26"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532615,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "3f1c3c399cfbbe7b79a54c55f300c801d03ec7be61199e4304da8d02a5e0e63e",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "short run installment 1",
+      "anchor_depths": [
+        3,
+        3
+      ],
+      "anchor_heights": [
+        3532615,
+        3532615
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532658,
+      "expiry_minus_mined": 40,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "a5bd982eb535c9d3265ac0541024f00582b1f7b01038c057b93cf00fde62132e",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "7baf6ad9bafbe6ad23e76b0a4eb3b9925a8afadd08f8e95319e9f85f8369e93a",
+        "8c9ca42d39fb283eaf468e0f7cee9a1280d335f01c305a20d6b90eb625964710"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532618,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "74edd53ed10d420017ed3f400be1be142a45ffe07720e1d7cc3dcdbd3b9cda85",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "short run installment 2",
+      "anchor_depths": [
+        3,
+        3
+      ],
+      "anchor_heights": [
+        3532621,
+        3532621
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532664,
+      "expiry_minus_mined": 40,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "76ed1d93a626c5a251827ecc2bd8ecbe39bb3476fa833f5a3bebc7e9692e0007",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "1585e05b7f948f93fc6b44de9c1ff96ec62ceaa0df222c6b015888fce27a8c08",
+        "efea7a720d4a9df84953c78cf2c8fb1585195aa6783a21a4714b1676eb3b1f33"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532624,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "bfad85310a3b374efdd973bf5e8a1c0c56acf7cfb7de674cce4cfd499f8411b3",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "short run installment 3",
+      "anchor_depths": [
+        3,
+        3
+      ],
+      "anchor_heights": [
+        3532628,
+        3532628
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532671,
+      "expiry_minus_mined": 40,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "8c591a2af4ac2d808dd2877fc4982e028e6de3b8c2ce86aeec87dc62d1ea5029",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "449fd9f1fa9b20c9e65067d56972adaf1001c4748c49954c9258da80fbfccd01",
+        "4e0c541372947acfc2d19238822cd67a1f36aa8c8ffb10771a1ea858f2de6313"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532631,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "a57fd9d88c1411d57984e6104fd4d8f7d98984ff7a65d8bbbb49f695e3957e6c",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "funding (Zodl), weekly",
+      "anchor_depths": [
+        9,
+        9
+      ],
+      "anchor_heights": [
+        3532615,
+        3532615
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532658,
+      "expiry_minus_mined": 34,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "a5bd982eb535c9d3265ac0541024f00582b1f7b01038c057b93cf00fde62132e",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "5425da8de2e2121331c2f013043c7e45e74b827d019db003361b3fff9e17a32a",
+        "a296672d7cc2166adb0ac1622b2ea507b6dc3ae2fd681b43bb703911a5d91130"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532624,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "120bd07611128e3c3801a9f457885089647f0ca25ad800c2df02a85a2a9da1cf",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "weekly installment 1",
+      "anchor_depths": [
+        4,
+        4
+      ],
+      "anchor_heights": [
+        3532624,
+        3532624
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 3532667,
+      "expiry_minus_mined": 39,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "a24d1527deeb712c39da6876f62c8b93dfe72df59b324b6998af67f0a0d49d10",
+      "ironwood_flags": 7,
+      "ironwood_nullifiers": [
+        "e761eba21a2ab3e3954e144ba6d9f27799a10ba7a12f90e01730a88feb86b919",
+        "fc02533f951d35e1716a9ee65f63fa77d91acf014441008c5c2c899b87d80636"
+      ],
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 3532628,
+      "orchard_actions": 0,
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "f5531143d2f15b7f46d9492fdb54aaa91583548249e9c712a4941fc6da970a91",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    }
+  ]
+}

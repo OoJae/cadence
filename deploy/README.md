@@ -31,6 +31,8 @@ railway up /tmp/cadence-stage --path-as-root --service sandbox --detach
 railway up /tmp/cadence-stage --path-as-root --service main --detach
 ```
 
+> **The `main` service is frozen until the weekly mainnet mandate completes on 17 Nov 2026.** Do not redeploy it or change its variables: it holds the sealed packages of a live mandate (`evidence/mainnet.md`). Deploy only `app`, and `sandbox` only if you must.
+
 Only one process may use a given sandbox funder seed at a time: stop any local sandbox runner first.
 
 ## App host (the web app on an origin of its own)
@@ -60,6 +62,8 @@ When a runner serves the web app, the merchant serves the code that holds the pa
 4. Check what the host serves against a build you made or trust: `web/README.md`, "Build identity". The footer shows the commit and the bundle's sha256 from the host's `build.json`, which is only the host's claim until you compare it.
 
 ## A server with our own node
+
+This section describes the design target. It is written for a server of your own and has not yet been run end to end: the live demo runs on Railway, above, without a node.
 
 One server runs everything: a Zebra mainnet node with lightwalletd, the mainnet runner, the testnet judge sandbox, Caddy for TLS, and a Tor onion service for the mainnet runner.
 
