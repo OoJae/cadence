@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
-import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView } from '../components/FlowViews';
+import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView, StatusLink } from '../components/FlowViews';
 import { BanIcon, BoltIcon, ClockIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, TabIcon } from '../components/Icons';
 import { LogView, useRunnerLog } from '../components/RunnerLog';
 import { ShapeTable } from '../components/ShapeTable';
@@ -420,6 +420,7 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
               ) : undefined
             }
           >
+            {s.subscriptionId && <StatusLink subscriptionId={s.subscriptionId} closeable={!needsCancelKey(s) || cancelKeySettled(s.key)} />}
             {(!needsCancelKey(s) || cancelKeySettled(s.key)) && (
               <div className="row" style={{ justifyContent: 'center' }}>
                 <button

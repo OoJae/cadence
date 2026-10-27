@@ -199,6 +199,12 @@ export function Footer() {
             <li>
               <Link to="/brand">Brand and design system</Link>
             </li>
+            <li>
+              <Link to="/status">Status</Link>
+            </li>
+            <li>
+              <a href="https://github.com/OoJae/cadence">Source</a>
+            </li>
           </ul>
         </nav>
       </div>

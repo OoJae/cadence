@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Offer } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
-import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView } from '../components/FlowViews';
+import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView, StatusLink } from '../components/FlowViews';
 import { KeyIcon, ShieldCheckIcon, TabIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
 import { Timeline } from '../components/Timeline';
@@ -533,6 +533,7 @@ function SubscribeView({
                   </Link>
                 )}
               </div>
+              {s.subscriptionId && <StatusLink subscriptionId={s.subscriptionId} closeable={!needsCancelKey(s) || cancelKeySettled(s.key)} />}
               {!needsCancelKey(s) && s.signer?.keyCustody === 'memory' && (
                 <Callout kind="plain" icon={<KeyIcon size={16} />}>
                   <span className="small">

@@ -12,6 +12,8 @@ import { CheckIcon, LockIcon, TabIcon } from './Icons';
 import { Qr } from './Qr';
 import { Badge, Callout, CopyButton, Countdown, ErrorNote, Spinner, Txid } from './ui';
 import { useNow } from '../hooks';
+import { Link } from '../router';
+import { isMock } from '../runtime';
 
 // ---------------------------------------------------------------- fund
 
@@ -232,6 +234,38 @@ export function DoneMoment({ offer, flow, children, closeable = true, notice }: 
         ))}
       </div>
       {children}
+    </div>
+  );
+}
+
+/**
+ * This subscription's status page on this origin, to copy. The runner pays and reports
+ * with no tab open, so the payer can watch from any device. The link opens a new tab:
+ * leaving this one would drop the pocket key it holds. In the mock build the runner
+ * lives in this tab, so the link is an in-app one and works only here.
+ */
+export function StatusLink({ subscriptionId, closeable }: { subscriptionId: string; closeable: boolean }) {
+  const path = `/status#sub=${subscriptionId}`;
+  const url = `${location.origin}${path}`;
+  const style = { flex: 1, minWidth: 0 };
+  return (
+    <div className="panel stack" style={{ ['--gap' as string]: '6px' }}>
+      <span className="small text-2">
+        {closeable ? 'Watch it from any device, then close this tab:' : 'Once your cancel key is saved, watch it from any device, then close this tab:'}
+      </span>
+      <div className="row no-wrap" style={{ ['--gap' as string]: '6px' }}>
+        {isMock ? (
+          <Link to={path} className="mono small break" style={style}>
+            {url}
+          </Link>
+        ) : (
+          <a href={url} target="_blank" rel="noopener noreferrer" className="mono small break" style={style}>
+            {url}
+          </a>
+        )}
+        <CopyButton text={url} label="Copy status link" />
+      </div>
+      {isMock && <span className="tiny muted">In this mock build the runner lives in this tab, so the link works here and not on another device.</span>}
     </div>
   );
 }
