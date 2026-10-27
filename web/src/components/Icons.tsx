@@ -182,6 +182,56 @@ export const BoltIcon = (p: P) => (
   </Svg>
 );
 
+/*
+ * Installment states as mini ladders: two rails and their rungs, one installment's
+ * pre-signed copies. What happens to the rungs is the state.
+ */
+
+/** Sealed: the ladder locked away until its drand round. */
+export const SealedGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M8.75 10.25V7a3.25 3.25 0 0 1 6.5 0v3.25" />
+    <rect x="5.75" y="10.25" width="12.5" height="10.5" />
+    <path d="M10 12.75v5.5M14 12.75v5.5M10 15.5h4" />
+  </Svg>
+);
+/** Due: its round has passed and the seal is lifted; nothing has gone out yet. */
+export const DueGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M5.75 7.25V3.25h12.5v4" />
+    <path d="M9.5 9.5v11.25M14.5 9.5v11.25M9.5 12.75h5M9.5 16.25h5M9.5 19.75h5" />
+  </Svg>
+);
+/** Broadcast: exactly one rung pulled out, as in the mark. */
+export const BroadcastGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M11.5 3.75v16.5M17.5 3.75v16.5M11.5 7.5h6M11.5 16.5h6" />
+    <path d="M3 12h5.5" />
+  </Svg>
+);
+/** Mined: the pulled rung sits in a block. */
+export const MinedGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M12.5 3.75v16.5M18.5 3.75v16.5M12.5 7.5h6M12.5 12h6" />
+    <rect x="3.25" y="14" width="6.25" height="6.25" />
+    <path d="M5 17.125h2.75" />
+  </Svg>
+);
+/** Cancelled: the note every rung spends is gone, so the whole ladder is struck. */
+export const CancelledGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 3.75v16.5M15 3.75v16.5M9 8h6M9 12h6M9 16h6" />
+    <path d="M4 20 20 4" />
+  </Svg>
+);
+/** Missed or invalid: no rung could go out. */
+export const RefusedGlyph = (p: P) => (
+  <Svg {...p}>
+    <path d="M12.5 3.75v16.5M18.5 3.75v16.5M12.5 7.5h6M12.5 16.5h6" />
+    <path d="m3.5 9.5 5 5M8.5 9.5l-5 5" />
+  </Svg>
+);
+
 /**
  * The Cadence mark, "the pulled rung": three bars, and out of the first one the single
  * rung that goes out next, in the only amber. On a 48 grid; minimum size 16 px.

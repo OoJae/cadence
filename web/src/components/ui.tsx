@@ -2,28 +2,42 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { InstallmentState, SubscriptionStatus } from '../api/types';
 import { useNow } from '../hooks';
 import { shorten } from '../lib/addresses';
-import { roundTime } from '../lib/drand';
+import { roundAt, roundTime } from '../lib/drand';
 import { installmentStateInfo, subscriptionStatusInfo, type Tone } from '../lib/states';
 import { formatCountdown, formatDateTime, formatRelative } from '../lib/time';
 import { Link } from '../router';
 import {
   AlertIcon,
-  BanIcon,
+  BroadcastGlyph,
+  CancelledGlyph,
   CheckIcon,
-  ClockIcon,
   CopyIcon,
-  CubeIcon,
+  DueGlyph,
   InfoIcon,
-  LockIcon,
-  RadioIcon,
+  MinedGlyph,
+  RefusedGlyph,
+  SealedGlyph,
   ShieldCheckIcon,
   XIcon,
 } from './Icons';
 
+/**
+ * A live dot pulses once per drand round (--beat), brightest as each round begins.
+ * The phase is read once, at mount: the CSS animation then keeps time by itself.
+ */
+function LiveDot() {
+  const [delay] = useState(() => {
+    const now = Date.now() / 1000;
+    const intoRound = now - roundTime(roundAt(now));
+    return `-${intoRound.toFixed(3)}s`;
+  });
+  return <span className="dot" aria-hidden="true" style={{ animationDelay: delay }} />;
+}
+
 export function Badge({ tone = 'muted', children, dot, live, lg, title }: { tone?: Tone | 'accent'; children: ReactNode; dot?: boolean; live?: boolean; lg?: boolean; title?: string }) {
   return (
     <span className={`badge tone-${tone}${live ? ' live' : ''}${lg ? ' lg' : ''}`} title={title}>
-      {dot && <span className="dot" aria-hidden="true" />}
+      {dot && (live ? <LiveDot /> : <span className="dot" aria-hidden="true" />)}
       {children}
     </span>
   );
@@ -32,18 +46,18 @@ export function Badge({ tone = 'muted', children, dot, live, lg, title }: { tone
 export function StateIcon({ state, size = 16 }: { state: InstallmentState; size?: number }) {
   switch (state) {
     case 'sealed':
-      return <LockIcon size={size} />;
+      return <SealedGlyph size={size} />;
     case 'due':
-      return <ClockIcon size={size} />;
+      return <DueGlyph size={size} />;
     case 'broadcast':
-      return <RadioIcon size={size} />;
+      return <BroadcastGlyph size={size} />;
     case 'mined':
-      return <CubeIcon size={size} />;
+      return <MinedGlyph size={size} />;
     case 'cancelled':
-      return <BanIcon size={size} />;
+      return <CancelledGlyph size={size} />;
     case 'missed':
     case 'invalid':
-      return <AlertIcon size={size} />;
+      return <RefusedGlyph size={size} />;
   }
 }
 
@@ -51,7 +65,7 @@ export function StateBadge({ state }: { state: InstallmentState }) {
   const info = installmentStateInfo(state);
   return (
     <span className={`badge tone-${info.tone}${state === 'due' || state === 'broadcast' ? ' live' : ''}`} title={info.description}>
-      {state === 'due' || state === 'broadcast' ? <span className="dot" aria-hidden="true" /> : <StateIcon state={state} size={12} />}
+      {state === 'due' || state === 'broadcast' ? <LiveDot /> : <StateIcon state={state} size={12} />}
       {info.label}
     </span>
   );
@@ -59,8 +73,11 @@ export function StateBadge({ state }: { state: InstallmentState }) {
 
 export function StatusBadge({ status, lg }: { status: SubscriptionStatus; lg?: boolean }) {
   const info = subscriptionStatusInfo(status);
+  // An active plan is ongoing, not "next": a Ledger outline whose live dot keeps the beat.
+  // The Release fill stays with the one installment being broadcast.
+  const tone = status === 'active' ? 'sealed' : info.tone;
   return (
-    <Badge tone={info.tone} dot live={status === 'active'} lg={lg} title={info.description}>
+    <Badge tone={tone} dot live={status === 'active'} lg={lg} title={info.description}>
       {info.label}
     </Badge>
   );
@@ -142,7 +159,7 @@ export function Txid({ value, link = true, head = 8, tail = 6 }: { value: string
   );
 }
 
-export function Callout({ kind = 'info', children, icon }: { kind?: 'info' | 'warn' | 'danger' | 'ok' | 'plain'; children: ReactNode; icon?: ReactNode }) {
+export function Callout({ kind = 'info', children, icon, className }: { kind?: 'info' | 'warn' | 'danger' | 'ok' | 'plain'; children: ReactNode; icon?: ReactNode; className?: string }) {
   const ico =
     icon ??
     (kind === 'warn' ? (
@@ -155,7 +172,7 @@ export function Callout({ kind = 'info', children, icon }: { kind?: 'info' | 'wa
       <InfoIcon size={16} />
     ));
   return (
-    <div className={`callout ${kind === 'plain' ? '' : kind}`} role={kind === 'danger' ? 'alert' : undefined}>
+    <div className={`callout${kind === 'plain' ? '' : ` ${kind}`}${className ? ` ${className}` : ''}`} role={kind === 'danger' ? 'alert' : undefined}>
       {ico}
       <div>{children}</div>
     </div>
