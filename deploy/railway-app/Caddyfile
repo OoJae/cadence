@@ -23,8 +23,30 @@
 	@wasm path *.wasm
 	header @wasm Content-Type application/wasm
 	root * /srv/web
-	try_files {path} /index.html
-	file_server
+	# Vite names every file under /assets/ by its content, so one that exists can be cached
+	# for good. Everything else (index.html under every app path, build.json, csp.txt,
+	# /wasm/, a 404) is revalidated, so a redeploy reaches returning visitors at once. The ?
+	# sets it only where the line above did not.
+	@asset {
+		path /assets/*
+		file
+	}
+	header @asset Cache-Control "public, max-age=31536000, immutable"
+	header ?Cache-Control no-cache
+	# A missing hashed asset (asked for by a page from an older deploy) is a 404, not
+	# index.html served as a script. respond, not a file_server error, so the 404 carries
+	# the headers above. Every other path falls back to index.html for the app's router.
+	@missingAsset {
+		path /assets/*
+		not file
+	}
+	handle @missingAsset {
+		respond 404
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 	log {
 		output discard
 	}
