@@ -43,6 +43,51 @@ export const BEATS: Record<BeatId, BeatState> = {
   cancel: { camera: { position: [2.2, 1.4, 8.0], target: [0, 2.4, 0], fov: 26 }, dim: 0, sheaths: 0, tower: 0, cancel: 1 },
 };
 
+/**
+ * The SVG tier's camera, framing the same facts as the 3D cameras above: a 2D transform
+ * (translate and scale) on the stage's wrapper. Not perspective: a 3D transform makes the
+ * compositor resample the one-unit rungs, which beats into moiré and splits the rails at
+ * tile seams; a flat camera is painted as vectors at rest, crisp at every zoom. Depth comes
+ * from scale, from the DOM labels moving over the drawing, and from the rung coming forward.
+ * Points are viewBox units of stage/geometry.ts.
+ */
+export interface SvgCamera {
+  /** The stage point the camera centres on. */
+  focus: readonly [number, number];
+  /** Where that point lands, in the unmoved stage's units. */
+  at: readonly [number, number];
+  scale: number;
+}
+
+const BASE: readonly [number, number] = [388, 770];
+const ON_RUNG: SvgCamera = { focus: [200, 752], at: [320, 520], scale: 2.6 };
+
+export const SVG_CAMERAS: Record<BeatId, SvgCamera> = {
+  hero: { focus: BASE, at: [388, 620], scale: 1 },
+  gap: { focus: BASE, at: [388, 650], scale: 0.86 },
+  sign: { focus: [268, 700], at: [300, 480], scale: 2.3 },
+  tower: { focus: [200, 770], at: [300, 820], scale: 0.42 },
+  seal: { focus: BASE, at: [388, 640], scale: 0.98 },
+  hold: { focus: BASE, at: [388, 650], scale: 0.94 },
+  release: ON_RUNG,
+  refusals: ON_RUNG,
+  cancel: { focus: BASE, at: [388, 640], scale: 1 },
+};
+
+/**
+ * A portrait stage (phones) sits behind the passages, which cover its middle: the ladders
+ * stand lower, so the amber rung shows under the hero's text and the release under its own.
+ */
+export const SVG_CAMERAS_NARROW: Partial<Record<BeatId, SvgCamera>> = {
+  hero: { focus: BASE, at: [388, 850], scale: 1 },
+  gap: { focus: BASE, at: [388, 850], scale: 0.9 },
+  seal: { focus: BASE, at: [388, 830], scale: 0.98 },
+  hold: { focus: BASE, at: [388, 830], scale: 0.94 },
+  release: { focus: [200, 752], at: [300, 800], scale: 2.8 },
+  refusals: { focus: [200, 752], at: [300, 800], scale: 2.8 },
+  cancel: { focus: BASE, at: [388, 830], scale: 1 },
+};
+
 /** Moving between beats: the camera, then dims and states. Retargets from current values. */
 export const BEAT_TWEEN = { camera: DUR.camera, state: 600 } as const;
 
