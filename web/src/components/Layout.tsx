@@ -164,7 +164,7 @@ export function Footer() {
             <span className="brand-word">cadence</span>
           </Link>
           <p>Pre-authorized shielded standing orders on Zcash Ironwood. ZECATHON 2026, Shielded Payments track.</p>
-          <p className="faint">Testnet software. Not audited. Do not use it with funds you cannot afford to lose.</p>
+          <p className="faint">Experimental software. Not audited. Do not use it with funds you cannot afford to lose.</p>
         </div>
         <div>
           <h2>This page</h2>
