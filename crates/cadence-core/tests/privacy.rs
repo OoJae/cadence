@@ -5,7 +5,7 @@
 use core::convert::Infallible;
 
 use cadence_core::{
-    build_rung, mandate::installment_fee_at, package::redact_for_runner, rung::fee_rule_at, seed, Installment, Pocket,
+    build_rung, mandate::installment_fee_at, package::redact_for_runner, pocket::POCKET_ACCOUNT, rung::fee_rule_at, seed, Installment, Pocket,
 };
 use orchard::{
     keys::{OutgoingViewingKey, Scope},
@@ -138,7 +138,7 @@ fn with_wallet_metadata(pczt: Pczt, coin_type: u32) -> Pczt {
     let fingerprint = zip32::fingerprint::SeedFingerprint::from_seed(&POCKET_SEED).unwrap().to_bytes();
     let path = || {
         let hardened = |i: u32| i | (1 << 31);
-        Zip32Derivation::parse(fingerprint, vec![hardened(32), hardened(coin_type), hardened(7)]).unwrap()
+        Zip32Derivation::parse(fingerprint, vec![hardened(32), hardened(coin_type), hardened(POCKET_ACCOUNT)]).unwrap()
     };
     Updater::new(pczt)
         .update_global_with(|mut g| g.set_proprietary("wallet:global".into(), b"g".to_vec()))
@@ -160,7 +160,7 @@ fn with_wallet_metadata(pczt: Pczt, coin_type: u32) -> Pczt {
 }
 
 #[test]
-fn redaction_strips_every_wallet_field_and_keeps_what_proving_needs() {
+fn redaction_strips_every_field_an_updater_can_set_and_keeps_what_proving_needs() {
     let (params, pocket, inst) = fixture();
     let coin_type = params.network_type().coin_type();
 

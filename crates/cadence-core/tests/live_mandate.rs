@@ -89,7 +89,8 @@ fn live_mandate_windows_avoid_nu7_and_the_fee_switch() {
     assert_eq!(span(&window_k(3, 3_532_626, 0)), (3_558_521, 3_560_795));
     assert_eq!(span(&window_k(4, 3_532_626, 0)), (3_582_223, 3_585_719));
 
-    let mut worst = [u32::MAX; 4];
+    let mut worst = [u32::MAX; 6];
+    let mut k3_top = u32::MAX;
     for tip in TIPS {
         for lag in 0..=120 {
             let w: Vec<Vec<u32>> = (1..=4).map(|k| window_k(k, tip, lag)).collect();
@@ -116,7 +117,17 @@ fn live_mandate_windows_avoid_nu7_and_the_fee_switch() {
                 assert_eq!(installment_fee_at(&MainNetwork, BlockHeight::from_u32(*h)), installment_fee());
             }
 
-            let margins = [guard_band - k2.1, k3.0 - nu7, k3.1 - predicted_k(3, tip, lag), MAINNET_FEE_SWITCH - k4.1];
+            // Slack above each prediction: how far the chain can run ahead of it before the
+            // installment's window has passed when its round arrives.
+            let margins = [
+                guard_band - k2.1,
+                k2.1 - predicted_k(2, tip, lag),
+                k3.0 - nu7,
+                k3.1 - predicted_k(3, tip, lag),
+                k4.1 - predicted_k(4, tip, lag),
+                MAINNET_FEE_SWITCH - k4.1,
+            ];
+            k3_top = k3_top.min(k3.1);
             for (w, m) in worst.iter_mut().zip(margins) {
                 *w = (*w).min(m);
             }
@@ -125,11 +136,17 @@ fn live_mandate_windows_avoid_nu7_and_the_fee_switch() {
 
     let hours = |blocks: u32, secs: u64| f64::from(blocks) * secs as f64 / 3600.0;
     println!("installment 2: last rung {} blocks ({:.1} h) below the guard band", worst[0], hours(worst[0], PRE_NU7_BLOCK_SECS));
-    println!("installment 3: first rung {} blocks ({:.1} h) after NU7", worst[1], hours(worst[1], NU7_BLOCK_SECS));
-    println!("installment 3: last rung {} blocks ({:.1} h) above its prediction", worst[2], hours(worst[2], NU7_BLOCK_SECS));
-    println!("installment 4: last rung {} blocks ({:.1} h) below the fee switch", worst[3], hours(worst[3], NU7_BLOCK_SECS));
+    println!("installment 2: last rung {} blocks ({:.1} h) above its prediction", worst[1], hours(worst[1], PRE_NU7_BLOCK_SECS));
+    println!("installment 3: first rung {} blocks ({:.1} h) after NU7", worst[2], hours(worst[2], NU7_BLOCK_SECS));
+    println!("installment 3: last rung {} blocks ({:.1} h) above its prediction; lowest last rung {k3_top}", worst[3], hours(worst[3], NU7_BLOCK_SECS));
+    println!("installment 4: last rung {} blocks ({:.1} h) above its prediction", worst[4], hours(worst[4], NU7_BLOCK_SECS));
+    println!("installment 4: last rung {} blocks ({:.1} h) below the fee switch", worst[5], hours(worst[5], NU7_BLOCK_SECS));
     // The tightest is installment 3's slack above its prediction: if NU7 activates about
     // 9 h earlier than predicted, the chain is that many 25 s blocks ahead when it is
-    // released, its window has passed, and it is missed.
-    assert!(worst[0] > 2_000 && worst[1] > 15_000 && worst[2] > 1_300 && worst[3] > 4_200, "{worst:?}");
+    // released, its window has passed, and it is missed. A monitor should compare the
+    // chain against the lowest last rung, not the one pinned above.
+    let tightest = hours(worst[3], NU7_BLOCK_SECS);
+    assert!(hours(worst[1], PRE_NU7_BLOCK_SECS) > tightest && hours(worst[4], NU7_BLOCK_SECS) > tightest, "{worst:?}");
+    assert!(worst[0] > 2_000 && worst[1] > 650 && worst[2] > 15_000 && worst[3] > 1_300 && worst[4] > 2_000 && worst[5] > 4_200, "{worst:?}");
+    assert!(k3_top >= 3_560_780, "{k3_top}");
 }
