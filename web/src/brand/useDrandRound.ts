@@ -45,6 +45,8 @@ function subscribe(cb: () => void) {
       document.removeEventListener('visibilitychange', onVisibility);
       clearTimeout(timer);
       timer = undefined;
+      // The next page that shows the round starts from now, not from where this one left.
+      round = 0;
     }
   };
 }

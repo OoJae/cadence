@@ -29,8 +29,15 @@ export function useSmoothScroll(): RefObject<Lenis | null> {
   return lenis;
 }
 
-/** Scrolls an element into view: eased by Lenis when it runs, instant under reduced motion. */
-export function scrollToElement(el: HTMLElement, lenis: Lenis | null, offset = 0): void {
-  if (lenis) lenis.scrollTo(el, { offset: -offset });
-  else el.scrollIntoView({ block: 'start' });
+/**
+ * Scrolls an element to the top, clear of the header (html's scroll-padding-top and the
+ * element's scroll-margin-top): eased by Lenis when it runs, instant under reduced motion.
+ * The target comes from the page's real position, not Lenis's own, which a native scroll
+ * mid-ease (find in page, say) leaves behind.
+ */
+export function scrollToElement(el: HTMLElement, lenis: Lenis | null): void {
+  if (!lenis) return el.scrollIntoView({ block: 'start' });
+  const pad = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+  const margin = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+  lenis.scrollTo(el.getBoundingClientRect().top + window.scrollY - pad - margin);
 }

@@ -66,8 +66,9 @@
   padding-block: clamp(32px, 6vw, 80px) var(--s-9);
   font-size: var(--fs-body);
 }
+/* Below the header's own clearance (html scroll-padding-top in app.css). */
 .brand-book section[id] {
-  scroll-margin-top: 88px;
+  scroll-margin-top: 16px;
 }
 
 .bb-masthead {
@@ -1184,11 +1185,11 @@
   font-size: 20px;
   line-height: 1.15;
 }
-/* The perforation: 2.5 px holes at a 10 px pitch, punched through to the ground. */
+/* The perforation, as on the real stubs: holes 2.5 px in radius at a 10 px pitch, punched through to the ground. */
 .bb-stub-tear {
   flex: none;
   width: 10px;
-  background: radial-gradient(circle, var(--hole) 1.25px, transparent 1.6px) center top / 10px 10px repeat-y;
+  background: radial-gradient(circle, var(--hole) 2.5px, transparent 3px) center top / 10px 10px repeat-y;
 }
 .bb-stub-end {
   flex: none;

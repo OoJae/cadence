@@ -20,7 +20,6 @@ import { SmallPrint } from './landing/SmallPrint';
 // Rung counts come from the spec's window formula (lib/window.ts, unit-tested), not from copy.
 const DUE_IN_A_MINUTE = rungWindow(aheadFor(60)).rungs;
 const DUE_IN_30_DAYS = rungWindow(aheadFor(30 * 86_400)).rungs;
-const HEADER = 64;
 
 /**
  * The hero's entrance waits for the display face (or 500 ms, whichever is first) so the
@@ -61,7 +60,8 @@ export function Landing() {
   const toStory = () => {
     const el = gap.current;
     if (!el) return;
-    scrollToElement(el, lenis.current, HEADER);
+    // The section's scroll-margin-top clears the header on both paths (Lenis honours it).
+    scrollToElement(el, lenis.current);
     el.focus({ preventScroll: true });
   };
 
@@ -91,6 +91,11 @@ export function Landing() {
             </div>
             <div className="hero-foot">
               <p className="fact-strip">Every payment: v6 · 2 Ironwood actions · 0 transparent · 0 zero-OVK outputs</p>
+              {/* What the stage beside the text draws, for readers who don't see it (it is aria-hidden). */}
+              <p className="sr-only">
+                The drawing: testnet run 1, {RUN1.date}, three payments two minutes apart, signed as ladders of {RUN1.rungs.map(fmt).join(', ')} rungs. The amber rung is the one for
+                block {fmt(RUN1.mined[0])}, the block after the tip at {fmt(RUN1.mined[0] - 1)}.
+              </p>
               <button type="button" className="scroll-cue" onClick={toStory}>
                 What happens after you leave
                 <ArrowRightIcon className="cue-arrow" size={14} />
@@ -158,7 +163,7 @@ export function Landing() {
               <Lines as="h2" id="seal-title" className="beat-title" lines={['Then each one is', 'locked to a moment', "that hasn't", 'happened yet.']} />
               <p className="beat-text" data-reveal="rise">
                 Each payment is sealed to the merchant's runner and time-locked to a drand round. A new round comes every 3 seconds. Until its round arrives, the key that opens a
-                payment doesn't exist, for the runner or for anyone. Sealed, every package is the same {RUN1.packageKiB} KiB.
+                payment doesn't exist, for the runner or for anyone. Sealed packages are padded to fixed sizes, so a size shows only its bucket: in run 1, every one was exactly {RUN1.packageKiB} KiB.
               </p>
               <Lines as="p" className="closing-line" lines={[<em key="close">Now close the tab.</em>]} />
             </div>
@@ -206,7 +211,7 @@ export function Landing() {
               </p>
               <Lines as="h2" id="refusals-title" className="beat-title" lines={['Four ways to cheat.', 'Four different', 'refusals.']} />
               <p className="beat-text" data-reveal="rise">
-                Nothing here relies on the runner behaving. Pick one to see which layer stops it.
+                Three of these don't rely on the runner at all; the fourth is the merchant's runner refusing a payer. Pick one to see which layer stops it.
               </p>
               <div data-reveal="rise">
                 <Refusals />
@@ -233,6 +238,10 @@ export function Landing() {
               <p className="beat-text" data-reveal="rise">
                 Open your cancel key and spend your pocket's note back to your own address. Every payment still waiting then spends a note that no longer exists, so no node will
                 accept it. You get a certificate anyone can check on chain.
+              </p>
+              <p className="sr-only">
+                The drawing: testnet run 2, a separate mandate. Installment 1 was mined at block {fmt(RUN2.installment1Mined)}; installments 2 and 3 can never be valid. Its rung
+                counts weren't recorded, so the drawing isn't to scale.
               </p>
               <CertificateSpecimen />
             </div>

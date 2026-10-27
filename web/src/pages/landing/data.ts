@@ -14,7 +14,7 @@ export const RUN1 = {
   targets: [4_529_470, 4_529_476, 4_529_483] as const,
   mined: [4_529_470, 4_529_480, 4_529_488] as const,
   txid1: '2f1154c7f02916d5c2f36a5091ca39077eb9ba01a3f7b3a29f6aee0540c7006e',
-  /** Every sealed package is exactly this size. */
+  /** Every sealed package in run 1 was exactly this size (sizes come in 64 KiB × 2^n buckets). */
   packageKiB: 64,
 } as const;
 

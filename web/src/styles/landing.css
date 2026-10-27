@@ -107,24 +107,26 @@ html.lenis body {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
 }
-/* From 1280 px the drand rail owns the right margin: the drawing fades out before it, so
-   close framings never run rungs under the rail's text. */
+/* From 1280 px the drand rail owns the right margin: the stage ends before it (the rail is
+   centred half a margin in and about 36 px wide, so 16 px clear of it) and fades out over
+   its last 64 px. Ending the frame, rather than masking a bled one, keeps the drawing
+   centred on what shows at every width: at 1920 px and up a bled frame put ladder 3
+   under the rail. */
 @media (min-width: 1280px) {
   .stage-layer > .stage-frame {
-    /* The rail is centred half a margin in and about 36 px wide: clear it by 16 px more. */
-    --rail-clear: calc(max(0px, (100vw - var(--maxw-wide)) / 2) + var(--margin) / 2 + 34px);
-    -webkit-mask-image:
-      linear-gradient(to bottom, transparent 0, #000 16%),
-      linear-gradient(to left, transparent var(--rail-clear), #000 calc(var(--rail-clear) + 64px));
+    right: calc(max(0px, (100% - var(--maxw-wide)) / 2) + var(--margin) / 2 + 34px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, #000 64px);
     -webkit-mask-composite: source-in;
-    mask-image:
-      linear-gradient(to bottom, transparent 0, #000 16%),
-      linear-gradient(to left, transparent var(--rail-clear), #000 calc(var(--rail-clear) + 64px));
+    mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, #000 64px);
     mask-composite: intersect;
   }
 }
 /* Narrow desktops: from column 8, so the hero's headline keeps clear of the first ladder. */
 @media (min-width: 960px) and (max-width: 1279px) {
+  /* The sign beat's label repeats the passage's kicker, and this frame has no room for it. */
+  .stage-layer .stage-label[data-label='installment'] {
+    display: none;
+  }
   .stage-layer > .stage-frame {
     left: calc(max(0px, (100% - var(--maxw-wide)) / 2) + var(--margin) + (min(100%, var(--maxw-wide)) - 2 * var(--margin)) * 7 / 12 + var(--grid-gap) * 7 / 12);
   }
@@ -398,7 +400,6 @@ html.motion-ok .story[data-enter='pending'] .stage-frame {
 .beat {
   position: relative;
   z-index: 1;
-  scroll-margin-top: var(--header-h);
 }
 .beat:focus {
   outline: none;
@@ -528,6 +529,29 @@ html:has(.mock-banner) .hero > .grid-12 {
 }
 .scroll-cue:hover {
   color: var(--text);
+}
+/* Short laptop windows (768 px and under, after the browser's chrome): the hero keeps its
+   fact strip and cue on the first screen by giving up air, not type. */
+@media (min-width: 960px) and (max-height: 820px) {
+  .hero > .grid-12 {
+    padding-block-start: clamp(16px, 3svh, 40px);
+  }
+  .hero-text {
+    gap: var(--s-4);
+  }
+  .hero-title {
+    margin-block: 0 var(--s-2);
+  }
+  .hero-lede {
+    font-size: min(var(--fs-lede), 2.6svh);
+  }
+  .hero-cta .btn.lg {
+    height: 44px;
+  }
+  .hero-foot {
+    margin-top: var(--s-4);
+    padding-block: var(--s-3);
+  }
 }
 .scroll-cue .cue-arrow {
   transform: rotate(90deg);
@@ -1088,6 +1112,8 @@ html.motion-ok .stamp-text {
   margin-top: var(--s-2);
 }
 .close-manage {
+  display: inline-block;
+  padding-block: 12px;
   font-size: var(--fs-small);
   color: var(--muted);
   text-underline-offset: 4px;
@@ -1123,9 +1149,16 @@ html.motion-ok .stamp-text {
   .stage-layer .stage-label {
     font-size: 10px;
   }
+  /* Labels that would sit under a passage's plate and only ghost through its text. */
+  .stage-layer .stage-label[data-label^='sheath-'],
+  .stage-layer .stage-label[data-label='installment'] {
+    display: none;
+  }
+  /* The header is solid, so the fog only needs to start under it: the release, framed at a
+     quarter of the screen, stands in full. */
   .stage-layer > .stage-frame {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30%);
-    mask-image: linear-gradient(to bottom, transparent 0, #000 30%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 10%, #000 20%);
+    mask-image: linear-gradient(to bottom, transparent 10%, #000 20%);
   }
 
   .beat-body,

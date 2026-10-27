@@ -4,8 +4,12 @@ import type { BeatId } from '../stage/timeline';
 export interface BeatHandlers {
   /** The passage crossing mid-viewport changed: [data-beat], or a [data-sub] inside one. */
   beat(beat: BeatId): void;
-  /** A [data-moment] element crossed mid-viewport, once per page view. */
-  moment(name: string): void;
+  /**
+   * A [data-moment] element crossed mid-viewport, once per page view. `passed` means it was
+   * already above the line when first seen (a reload, Back, or a jump into the page), so
+   * the moment shows where it ends rather than playing.
+   */
+  moment(name: string, passed: boolean): void;
 }
 
 /**
@@ -17,6 +21,7 @@ export function observeBeats(root: HTMLElement, on: BeatHandlers): () => void {
   const subs = [...root.querySelectorAll<HTMLElement>('[data-sub]')];
   const moments = [...root.querySelectorAll<HTMLElement>('[data-moment]')];
   const live = new Set<Element>();
+  const seen = new Set<Element>();
   let current: BeatId | null = null;
 
   // A capture that sizes the viewport to the whole page has no reading position: keep the
@@ -26,13 +31,20 @@ export function observeBeats(root: HTMLElement, on: BeatHandlers): () => void {
   const io = new IntersectionObserver(
     (entries) => {
       const flat = whole();
+      const passed: string[] = [];
       for (const e of entries) {
         if (e.isIntersecting) live.add(e.target);
         else live.delete(e.target);
         const name = (e.target as HTMLElement).dataset.moment;
-        if (name && e.isIntersecting && !flat) {
+        const first = !seen.has(e.target);
+        seen.add(e.target);
+        if (!name || flat) continue;
+        if (e.isIntersecting) {
           io.unobserve(e.target);
-          on.moment(name);
+          on.moment(name, false);
+        } else if (first && e.boundingClientRect.bottom <= (e.rootBounds?.top ?? innerHeight / 2)) {
+          io.unobserve(e.target);
+          passed.push(name);
         }
       }
       let next: BeatId | null = flat ? 'hero' : null;
@@ -42,6 +54,8 @@ export function observeBeats(root: HTMLElement, on: BeatHandlers): () => void {
         current = next;
         on.beat(next);
       }
+      // After the beat, so the stage is already on the passage the moment ends in.
+      for (const name of passed) on.moment(name, true);
     },
     { rootMargin: '-50% 0px -50% 0px' },
   );
@@ -58,6 +72,6 @@ export function useBeats(root: RefObject<HTMLElement | null>, handlers: BeatHand
   useEffect(() => {
     const el = root.current;
     if (!el || typeof IntersectionObserver !== 'function') return;
-    return observeBeats(el, { beat: (b) => latest.current.beat(b), moment: (m) => latest.current.moment(m) });
+    return observeBeats(el, { beat: (b) => latest.current.beat(b), moment: (m, passed) => latest.current.moment(m, passed) });
   }, [root]);
 }

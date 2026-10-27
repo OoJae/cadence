@@ -29,7 +29,7 @@ export const TIP_SIGNING_Y = BASE_Y;
 export const TIP_RELEASE_Y = BASE_Y - RELEASED * PITCH;
 export const TIP_X: readonly [number, number] = [84, 572];
 
-/** Every package is the same 64 KiB, so every sheath is the same size: the tallest ladder's. */
+/** In run 1 every package was the same 64 KiB, so every sheath is the same size: the tallest ladder's. */
 export const SHEATH = {
   w: LADDER_W + 28,
   h: Math.max(...RUNGS) * PITCH + 34,

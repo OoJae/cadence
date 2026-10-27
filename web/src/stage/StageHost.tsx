@@ -48,6 +48,11 @@ export function StageHost({ story, onRelease, onSeat }: { story: RefObject<HTMLE
     // Offscreen, nothing animates: state changes land instantly and schedule no frames.
     let visible = true;
     const instant = () => !visible || !motionOk();
+    const narrow = () => getComputedStyle(frame).getPropertyValue('--stage-layout').trim() === 'narrow';
+    const titleAbove = () => {
+      const title = root.querySelector('[data-moment="release"]');
+      return !!title && title.getBoundingClientRect().bottom <= innerHeight / 2;
+    };
 
     const release = (now: boolean) => {
       if (played) return;
@@ -60,11 +65,16 @@ export function StageHost({ story, onRelease, onSeat }: { story: RefObject<HTMLE
       beat(b) {
         beat = b;
         active.setBeat(b, { instant: instant() });
+        if (played) return;
         // Scrolled past the moment without it crossing the line: show where it ended.
-        if (!played && past(b, 'release')) release(true);
+        if (past(b, 'release')) release(true);
+        // On phones the passage's plate rises over the stage's middle, so the moment plays as
+        // the passage arrives, while the plate is still low. Anywhere, if the title is already
+        // past the line (a jump, find in page, a dragged scrollbar), it plays now.
+        else if (b === 'release' && (narrow() || titleAbove())) release(instant());
       },
-      moment(name) {
-        if (name === 'release') release(instant());
+      moment(name, passed) {
+        if (name === 'release') release(passed || instant());
       },
     });
 
@@ -76,6 +86,8 @@ export function StageHost({ story, onRelease, onSeat }: { story: RefObject<HTMLE
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     const bring = (d: StageDriver) => {
+      // A tier that read its colours before a theme switch (the GL one compiles first) catches up.
+      d.setTheme();
       d.setBeat(beat, { instant: true });
       if (played) d.playRelease({ instant: true });
     };

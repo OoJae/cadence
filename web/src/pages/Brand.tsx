@@ -1,4 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import type Lenis from 'lenis';
+// The brand book's own styles ride with its lazy chunk, not every page's first paint.
+import '../styles/brand.css';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import type { InstallmentState } from '../api/types';
 import { contrast, grade } from '../brand/contrast';
 import { LadderArt, ladderGeometry } from '../brand/LadderArt';
@@ -9,7 +12,7 @@ import { ArrowRightIcon, CheckIcon, Logo, XIcon } from '../components/Icons';
 import { Badge, StateBadge } from '../components/ui';
 import { useDocumentTitle } from '../hooks';
 import { BEAT_MS, DUR, EASE_REVEAL, EASE_TOGGLE, motionOk, STAGGER } from '../motion/tokens';
-import { useSmoothScroll } from '../motion/smoothScroll';
+import { scrollToElement, useSmoothScroll } from '../motion/smoothScroll';
 import { ReleaseSpecimen } from '../stage/ReleaseSpecimen';
 import { fmt, MAINNET_SAMPLE, RUN1, RUN1_RELEASED_INDEX, RUN2, shortTxid } from './landing/data';
 
@@ -129,13 +132,22 @@ function Masthead() {
   );
 }
 
-function Contents() {
+function Contents({ lenis }: { lenis: RefObject<Lenis | null> }) {
+  // Through Lenis, not the browser's jump: a wheel ease still running would carry the page
+  // on past a native jump. The hash still records the section, for sharing and Back.
+  const go = (e: MouseEvent<HTMLAnchorElement>, id: string) => {
+    const el = document.getElementById(id);
+    if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    history.pushState(history.state, '', `#${id}`);
+    scrollToElement(el, lenis.current);
+  };
   return (
     <nav className="bb-contents" aria-label="Brand book">
       <ol>
         {SECTIONS.map((s, i) => (
           <li key={s.id}>
-            <a href={`#${s.id}`}>
+            <a href={`#${s.id}`} onClick={(e) => go(e, s.id)}>
               <span className="bb-contents-n" aria-hidden="true">
                 {i + 1}
               </span>
@@ -344,7 +356,7 @@ function WordmarkSection() {
       </div>
 
       <ul className="bb-rules">
-        <li>Use the outlined files. Only the site header sets the name as live text, beside a 22 px mark.</li>
+        <li>Use the outlined files. Only the site header and footer set the name as live text, beside the mark.</li>
         <li>Always lowercase, always italic. Never retype it in another face, and never stretch, slant or space it.</li>
       </ul>
     </Section>
@@ -497,7 +509,7 @@ function ColourSection() {
         </div>
         <div>
           <h3 className="bb-h3">Data tones</h3>
-          <p className="bb-sub">For the app’s states only. They sit outside the brand and never appear on the landing.</p>
+          <p className="bb-sub">For the app’s states only. They sit outside the brand and never appear in the landing's story.</p>
           <ul className="bb-list">
             {TONES.map((t) => (
               <li key={t.name} className="bb-tone">
@@ -970,7 +982,7 @@ function ComponentsSection() {
           <span className="btn primary is-focus">Sign and seal</span>
         </Plate>
       </div>
-      <p className="bb-note">The focus ring: 2 px, 3 px clear of the control, the same on every element. Press Tab on this page to see it live.</p>
+      <p className="bb-note">The focus ring: 2 px, 3 px clear on buttons and links, 2 px on inputs. Press Tab on this page to see it live.</p>
     </Section>
   );
 }
@@ -981,7 +993,7 @@ function TextureSection() {
   return (
     <Section id="texture" rule="Print, not pixels: grain, ruled lines, perforations and engraving.">
       <div className="bb-textures">
-        <Plate className="bb-texture" caption="Grain: a same-origin SVG tile at 4.5% on dark and 3.5% on light. Shown here at five times that.">
+        <Plate className="bb-texture" caption="Grain: a same-origin SVG tile at 4.5% on dark and 3.5% on light. Shown here at ten times that.">
           <div className="bb-grain" />
         </Plate>
         <Plate className="bb-texture" caption="The rung rule: 1 px on, 2 px off. Dividers and progress fills.">
@@ -993,7 +1005,7 @@ function TextureSection() {
             </span>
           </div>
         </Plate>
-        <Plate className="bb-texture" caption="Perforation: 2.5 px holes at a 10 px pitch, on the cancel key and certificate stubs.">
+        <Plate className="bb-texture" caption="Perforation: holes 2.5 px in radius (5 px across) at a 10 px pitch, on the cancel key and certificate stubs.">
           <div className="bb-stub-ground">
             <div className="bb-stub">
               <span className="bb-stub-main">
@@ -1127,7 +1139,7 @@ function SocialCardSection() {
         caption={
           <>
             Shown scaled to fit. The ladders are run 1 at {RUN1.rungs.join(', ')} rungs, 2.6 px a block; the amber rung is installment 1’s, block{' '}
-            {fmt(RUN1.mined[0])}, {RUN1_RELEASED_INDEX} rungs above the base.
+            {fmt(RUN1.mined[0])}, drawn {RUN1_RELEASED_INDEX} rungs above the base (the signing tip isn’t on file, so the funding height stands in).
           </>
         }
       >
@@ -1143,11 +1155,27 @@ function SocialCardSection() {
 
 export function Brand() {
   useDocumentTitle('Brand');
-  useSmoothScroll();
+  const lenis = useSmoothScroll();
+  // A shared /brand#section link: the browser looked for the section before this lazy page
+  // rendered, so go there once it has, and once the text faces have set (they reflow it).
+  useEffect(() => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id) return;
+    let live = true;
+    let raf = 0;
+    const go = () => {
+      if (live) raf = requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }));
+    };
+    void (document.fonts?.ready ?? Promise.resolve()).then(go, go);
+    return () => {
+      live = false;
+      cancelAnimationFrame(raf);
+    };
+  }, []);
   return (
     <div className="brand-book page">
       <Masthead />
-      <Contents />
+      <Contents lenis={lenis} />
       <MarkSection />
       <WordmarkSection />
       <ColourSection />

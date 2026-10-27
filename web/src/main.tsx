@@ -4,7 +4,6 @@ import './styles/fonts.css';
 import './styles/app.css';
 import './styles/motion.css';
 import './styles/landing.css';
-import './styles/brand.css';
 import { App } from './App';
 import { DUR, EASE_TOGGLE } from './motion/tokens';
 

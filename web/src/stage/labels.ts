@@ -50,9 +50,10 @@ export const STAGE_LABELS: readonly StageLabel[] = [
   { id: 'tip', text: `tip ${fmt(RUN1.mined[0] - 1)}`, at: [TIP_X[0], TIP_RELEASE_Y + 6], align: [0, 0], beats: ['hero'], afterRelease: RELEASED },
   { id: 'round', text: `round ${fmt(RUN1.rounds[0])}`, at: [besideRung, RUNG.y - 18], align: [0, -1], beats: [], afterRelease: RELEASED },
   { id: 'rung', text: `rung for ${fmt(RUN1.mined[0])}`, at: [besideRung, RUNG.y - 7], align: [0, -1], beats: [], afterRelease: RELEASED },
-  // Right of the two bars once they are out, short of ladder 1's rail, and clear above the
-  // tip line, which runs through the rung's middle after the release.
-  { id: 'actions', text: '2 actions', at: [RUNG.x + RUNG.w + RUNG_OUT_DX + 10, RUNG.y + RUNG.h / 2 - 3], align: [0, -1], beats: [], afterRelease: RELEASED },
+  // Right of the two bars once they are out, short of ladder 1's rail, and under the tip
+  // line (which runs through the rung's middle after the release): above it, 'rung for …'
+  // would crowd it in a narrow frame.
+  { id: 'actions', text: '2 actions', at: [RUNG.x + RUNG.w + RUNG_OUT_DX + 10, RUNG.y + RUNG.h / 2 + 5], align: [0, 0], beats: [], afterRelease: RELEASED },
   ...RUN1.rounds.map(
     (round, k): StageLabel => ({
       id: `sheath-${k + 1}`,

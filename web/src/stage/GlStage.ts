@@ -47,7 +47,7 @@ const TOWER_X = -2.4;
 /** The rung for the block after the tip, on installment 1's ladder. */
 const RELEASED = RUN1_RELEASED_INDEX;
 const RUNG_Y = (RELEASED + 0.5) * P;
-/** Every package is the same 64 KiB, so every sheath is the same box. */
+/** In run 1 every package was the same 64 KiB, so every sheath is the same box. */
 const SHEATH = { w: 0.62, h: 6.5, d: 0.2, y: 6.5 / 2 - 0.1 } as const;
 const TIP = { x: -0.5, w: 4.2, h: 0.1, thickness: 0.006 } as const;
 /**
@@ -86,6 +86,17 @@ const FRAME_Y_NARROW: Record<BeatId, number> = { hero: -0.1, gap: -0.1, sign: -0
 /** Looking up the tower from further back, its rungs foreshorten below a pixel: there the lens stays at the timeline's distance. */
 const DOLLY: Partial<Record<BeatId, number>> = { tower: 1 };
 const FOG = { near: 8 * LENS.dolly, far: 34 * LENS.dolly } as const;
+/**
+ * The frame the framings were drawn for (columns 7 to 12 at 1440 × 900). A narrower frame
+ * (960 to 1279 px, or a tall screen) widens the view to keep the same width in shot, so
+ * the pulled rung and its labels never fall off the frame's edge.
+ */
+const FRAMED_ASPECT = 0.78;
+const fovFor = (aspect: number): number => {
+  const base = BEATS.hero.camera.fov;
+  if (aspect >= FRAMED_ASPECT) return base;
+  return (2 * Math.atan((Math.tan((base * Math.PI) / 360) * FRAMED_ASPECT) / aspect) * 180) / Math.PI;
+};
 const MAX_DPR = 1.75;
 
 const CASCADE_BANDS = 8;
@@ -588,6 +599,8 @@ export async function createGlStage(frame: HTMLElement, ctx: GlContext, hooks: G
     renderer.setSize(W, H, false);
     grain.uPixelRatio.value = dpr;
     camera.aspect = W / H;
+    // The phones' layout (768 to 959 px here) has its own framing; leave it as drawn.
+    camera.fov = narrow ? BEATS.hero.camera.fov : fovFor(camera.aspect);
     viewY = NaN;
     frameView();
   };
@@ -650,16 +663,19 @@ export async function createGlStage(frame: HTMLElement, ctx: GlContext, hooks: G
       return;
     }
     const fade = { duration: 600, easing: EASE_TOGGLE };
-    const out = svgParts[1]?.animate([{ opacity: 1 }, { opacity: 0 }], { ...fade, fill: 'forwards' });
+    labelsOut = svgParts[1]?.animate([{ opacity: 1 }, { opacity: 0 }], { ...fade, fill: 'forwards' });
     layer.animate([{ opacity: 0 }, { opacity: 1 }], fade).finished.then(
       () => {
+        labelsOut?.cancel();
         if (dead) return;
         for (const el of svgParts) el.style.visibility = 'hidden';
-        out?.cancel();
       },
-      () => out?.cancel(),
+      () => labelsOut?.cancel(),
     );
   };
+  // The SVG labels' fade-out while the layer comes in: cancelled however the reveal ends, so
+  // a failure mid-fade hands back labels that show.
+  let labelsOut: Animation | undefined;
 
   const ro = new ResizeObserver(() => {
     resize();
@@ -691,6 +707,7 @@ export async function createGlStage(frame: HTMLElement, ctx: GlContext, hooks: G
     removeEventListener('scroll', onScroll);
     canvas.removeEventListener('webglcontextlost', onLost);
     for (const l of labels) l.fade.cancel(), l.rise.cancel();
+    labelsOut?.cancel();
     for (const el of svgParts) el.style.visibility = '';
     const teardown = () => {
       for (const g of geometries) g.dispose();
@@ -796,8 +813,9 @@ export async function createGlStage(frame: HTMLElement, ctx: GlContext, hooks: G
   resize();
   writeScene();
   try {
-    // Off the main thread where the browser can (KHR_parallel_shader_compile).
-    await renderer.compileAsync(scene, camera);
+    // Off the main thread where the browser can. has() asks quietly; compileAsync without
+    // the extension logs a three.js warning (Firefox has none).
+    if (renderer.extensions.has('KHR_parallel_shader_compile')) await renderer.compileAsync(scene, camera);
   } catch {
     // compileAsync is an optimisation; the first render compiles anyway.
   }

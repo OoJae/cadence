@@ -53,7 +53,13 @@ export function createSvgDriver(frame: HTMLElement): StageDriver {
   measure();
 
   /** [ax, ay, scale, fx, fy] in frame pixels: the focus point (fx, fy) moves to (ax, ay). */
-  const camVec = (c: SvgCamera): number[] => [ox + c.at[0] * k, oy + c.at[1] * k, c.scale, ox + c.focus[0] * k, oy + c.focus[1] * k];
+  const camVec = (c: SvgCamera): number[] => [
+    c.frame ? c.frame[0] * W : ox + c.at[0] * k,
+    c.frame ? c.frame[1] * H : oy + c.at[1] * k,
+    c.scale,
+    ox + c.focus[0] * k,
+    oy + c.focus[1] * k,
+  ];
   const cameraFor = (b: BeatId): SvgCamera => (narrow ? SVG_CAMERAS_NARROW[b] : undefined) ?? SVG_CAMERAS[b];
   // Written function by function, so the browser interpolates the numbers, not a matrix.
   const camFormat = (v: readonly number[]) =>
@@ -97,16 +103,27 @@ export function createSvgDriver(frame: HTMLElement): StageDriver {
   let beat: BeatId = 'hero';
   let played = false;
   let raf = 0;
+  // Label widths, for keeping labels inside the frame; read again after a resize.
+  let widths: number[] | null = null;
+  const EDGE = 6;
   const placeLabels = () => {
     const v = camera.current();
-    for (const l of labels) {
+    widths ??= labels.map((l) => l.el.offsetWidth);
+    labels.forEach((l, i) => {
       const [x, y] = labelAnchor(l.def, beat);
       // Whole pixels keep the mono text crisp.
-      const [sx, sy] = project(v, x, y).map(Math.round) as [number, number];
-      l.el.style.transform = l.def.vertical
-        ? `translate(${sx}px, ${sy}px) rotate(-90deg) translateY(-100%)`
-        : `translate(${sx}px, ${sy}px) translate(${l.def.align[0] * 100}%, ${l.def.align[1] * 100}%)`;
-    }
+      let [sx, sy] = project(v, x, y).map(Math.round) as [number, number];
+      if (l.def.vertical) {
+        l.el.style.transform = `translate(${sx}px, ${sy}px) rotate(-90deg) translateY(-100%)`;
+        return;
+      }
+      // Slide a label back inside the frame rather than let the edge cut it.
+      const w = widths![i]!;
+      const left = sx + l.def.align[0] * w;
+      if (w && left < EDGE) sx += EDGE - left;
+      else if (w && left + w > W - EDGE) sx -= left + w - (W - EDGE);
+      l.el.style.transform = `translate(${sx}px, ${sy}px) translate(${l.def.align[0] * 100}%, ${l.def.align[1] * 100}%)`;
+    });
   };
   const follow = () => {
     cancelAnimationFrame(raf);
@@ -215,9 +232,23 @@ export function createSvgDriver(frame: HTMLElement): StageDriver {
     bands.forEach((t, i) => t.to([VOID], { dur: cascade.dur, delay: cascade.at + i * (cascade.stagger ?? 0), ease: ease(cascade) }));
   };
 
-  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => (measure(), apply(beat, true))) : null;
+  // A ResizeObserver reports once as soon as it observes: only a real change of size counts,
+  // and it re-places the camera and labels without touching a moment in flight.
+  const onResize = () => {
+    if (frame.clientWidth === W && frame.clientHeight === H) return;
+    measure();
+    widths = null;
+    camera.to(camVec(cameraFor(beat)), { dur: 0, instant: true });
+    placeLabels();
+  };
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null;
   ro?.observe(frame);
   apply('hero', true);
+  // The mono face may arrive after the first placement: measure the labels again then.
+  void document.fonts?.ready.then(() => {
+    widths = null;
+    placeLabels();
+  });
 
   return {
     setBeat(b, opts) {
