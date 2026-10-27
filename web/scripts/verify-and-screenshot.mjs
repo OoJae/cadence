@@ -93,10 +93,28 @@ async function shot(page, name, fullPage = true) {
     await page.mouse.wheel(0, 600);
     await page.waitForTimeout(120);
   }
+  // Smooth scrolling eases the wheel: let it come to rest before jumping, or it carries on
+  // to its own target and overrides the jump. Its tail moves a pixel at a time, so wait for
+  // Lenis to say it has stopped as well as for the position to hold.
+  for (let last = null, still = 0, t = 0; still < 2; t += 300) {
+    if (t > 20_000) {
+      problems.push('landing: smooth scrolling never came to rest');
+      break;
+    }
+    await page.waitForTimeout(300);
+    const now = await page.evaluate(() => `${scrollY} ${document.documentElement.classList.contains('lenis-scrolling')}`);
+    still = now === last && now.endsWith('false') ? still + 1 : 0;
+    last = now;
+  }
   const release = page.locator('[data-moment="release"]');
   if (await release.count()) {
     await release.first().evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await page.waitForTimeout(1800);
+    const view = await release.first().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { inView: r.top < innerHeight / 2 && r.bottom > innerHeight / 2, top: Math.round(r.top), bottom: Math.round(r.bottom), scrollY: Math.round(scrollY) };
+    });
+    if (!view.inView) problems.push(`landing: the release passage is not in view for 07-landing-release (${JSON.stringify(view)})`);
     await shot(page, '07-landing-release', false);
   } else problems.push('landing: no [data-moment="release"]');
   await audit(page, '/ scrolled');

@@ -9,6 +9,8 @@ import { ArrowRightIcon, CheckIcon, Logo, XIcon } from '../components/Icons';
 import { Badge, StateBadge } from '../components/ui';
 import { useDocumentTitle } from '../hooks';
 import { BEAT_MS, DUR, EASE_REVEAL, EASE_TOGGLE, motionOk, STAGGER } from '../motion/tokens';
+import { useSmoothScroll } from '../motion/smoothScroll';
+import { ReleaseSpecimen } from '../stage/ReleaseSpecimen';
 import { fmt, MAINNET_SAMPLE, RUN1, RUN1_RELEASED_INDEX, RUN2, shortTxid } from './landing/data';
 
 /**
@@ -387,8 +389,8 @@ const LIGHT: Array<{ name: string; hex: string; role: string }> = [
 ];
 
 const TONES: Array<{ name: string; dark: string; light: string; role: string }> = [
-  { name: 'Settled', dark: '#55C78F', light: '#17824F', role: 'Mined' },
-  { name: 'Refused', dark: '#F2735F', light: '#C23D29', role: 'Missed, invalid, rejected' },
+  { name: 'Settled', dark: '#55C78F', light: '#147044', role: 'Mined' },
+  { name: 'Refused', dark: '#F2735F', light: '#AF3725', role: 'Missed, invalid, rejected' },
 ];
 
 function Ratio({ fg, bg }: { fg: string; bg: string }) {
@@ -857,11 +859,7 @@ function MotionSection() {
         <RevealDemo />
       </div>
 
-      {/*
-        Slot: the landing's <ReleaseSpecimen /> ("Replay the release") goes here once the
-        landing track merges: the stage's 1.4 s release from stage/timeline.ts, as its own
-        figure in a .bb-plate, replayed on demand. Nothing else in this section changes.
-      */}
+      <ReleaseSpecimen />
     </Section>
   );
 }
@@ -1145,6 +1143,7 @@ function SocialCardSection() {
 
 export function Brand() {
   useDocumentTitle('Brand');
+  useSmoothScroll();
   return (
     <div className="brand-book page">
       <Masthead />

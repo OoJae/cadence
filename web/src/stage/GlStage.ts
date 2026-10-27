@@ -284,7 +284,7 @@ const ANCHORS: Record<string, Anchor> = {
   },
   round: { at: [RUNG_OUT_LEFT, RUNG_Y + RUNG_OUT[1] + P, RUNG_OUT[2]], px: [0, -26] },
   rung: { at: [RUNG_OUT_LEFT, RUNG_Y + RUNG_OUT[1] + P, RUNG_OUT[2]], px: [0, -8] },
-  actions: { at: [LADDER_X[0] + RUNG_OUT[0] + RUNG_W / 2 + 0.03, RUNG_Y + RUNG_OUT[1], RUNG_OUT[2]], px: [6, 0] },
+  actions: { at: [LADDER_X[0] + RUNG_OUT[0] + RUNG_W / 2 + 0.03, RUNG_Y + RUNG_OUT[1], RUNG_OUT[2]], px: [6, 0], align: [0, -0.5] },
   'sheath-1': { at: [LADDER_X[0] - SHEATH.w / 2, SHEATH.y - SHEATH.h / 2, SHEATH.d / 2], px: [-6, 0] },
   'sheath-2': { at: [LADDER_X[1] - SHEATH.w / 2, SHEATH.y - SHEATH.h / 2, SHEATH.d / 2], px: [-6, 0] },
   'sheath-3': { at: [LADDER_X[2] - SHEATH.w / 2, SHEATH.y - SHEATH.h / 2, SHEATH.d / 2], px: [-6, 0] },

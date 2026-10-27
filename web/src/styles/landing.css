@@ -107,19 +107,26 @@ html.lenis body {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
 }
+/* From 1280 px the drand rail owns the right margin: the drawing fades out before it, so
+   close framings never run rungs under the rail's text. */
+@media (min-width: 1280px) {
+  .stage-layer > .stage-frame {
+    /* The rail is centred half a margin in and about 36 px wide: clear it by 16 px more. */
+    --rail-clear: calc(max(0px, (100vw - var(--maxw-wide)) / 2) + var(--margin) / 2 + 34px);
+    -webkit-mask-image:
+      linear-gradient(to bottom, transparent 0, #000 16%),
+      linear-gradient(to left, transparent var(--rail-clear), #000 calc(var(--rail-clear) + 64px));
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to bottom, transparent 0, #000 16%),
+      linear-gradient(to left, transparent var(--rail-clear), #000 calc(var(--rail-clear) + 64px));
+    mask-composite: intersect;
+  }
+}
 /* Narrow desktops: from column 8, so the hero's headline keeps clear of the first ladder. */
 @media (min-width: 960px) and (max-width: 1279px) {
   .stage-layer > .stage-frame {
     left: calc(max(0px, (100% - var(--maxw-wide)) / 2) + var(--margin) + (min(100%, var(--maxw-wide)) - 2 * var(--margin)) * 7 / 12 + var(--grid-gap) * 7 / 12);
-  }
-}
-/* From 1280 px the drand rail owns the right margin: the drawing fades out before it. */
-@media (min-width: 1280px) {
-  .stage-layer > .stage-frame {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, transparent calc(var(--margin) * 0.6), #000 calc(var(--margin) + 40px));
-    mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, transparent calc(var(--margin) * 0.6), #000 calc(var(--margin) + 40px));
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
   }
 }
 
@@ -535,7 +542,7 @@ html:has(.mock-banner) .hero > .grid-12 {
 .compare-plate {
   grid-column: 1 / -1;
   margin-top: var(--s-8);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-1);
 }

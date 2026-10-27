@@ -144,6 +144,9 @@ export default defineConfig(({ mode }) => {
       // The modulepreload polyfill is unnecessary for the browsers we target and adds
       // a fetch() of its own; turn it off to keep the request list minimal.
       modulePreload: { polyfill: false },
+      // The WebGL stage (three.js core, 547 kB minified, 139 kB gzip) is a lazy chunk that
+      // only desktop landings with a capable GPU fetch; nothing else comes close.
+      chunkSizeWarningLimit: 600,
     },
     server: { port: 5173 },
     test: {

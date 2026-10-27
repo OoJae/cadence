@@ -152,9 +152,9 @@
   --sealed: var(--ink);
   --amber: #8a5b00;
   --blue: #8a5b00;
-  --green: #17824f;
+  --green: #147044;
   --muted-tone: #676b65;
-  --red: #c23d29;
+  --red: #af3725;
 
   --qr-bg: #ffffff;
   --qr-fg: #0b0d0c;
@@ -561,8 +561,20 @@ code em,
   position: sticky;
   top: 0;
   z-index: var(--z-header);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
+}
+/* Solid, so display type never ghosts under it; it carries the page's grain on the same
+   tile origin (it sits at the top of the viewport), so there is no seam. */
+.site-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url('/grain.svg');
+  background-size: 180px 180px;
+  opacity: var(--grain);
 }
 
 .site-header .bar {
@@ -604,8 +616,7 @@ html.motion-ok .brand:hover .logo-rung {
   display: flex;
   gap: 2px;
   align-items: center;
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
 }
 
 .nav a {
@@ -636,11 +647,21 @@ html.motion-ok .brand:hover .logo-rung {
   pointer-events: none;
 }
 
+/* The tools give way before the nav does: a long runner host is cut short, never overlapped. */
 .header-tools {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Until the pill's long label fits beside the whole nav, it says only the network. */
+@media (max-width: 1180px) {
+  .header-tools .runner-pill .label-long {
+    display: none;
+  }
 }
 
 @media (max-width: 860px) {
@@ -690,6 +711,13 @@ html.motion-ok .brand:hover .logo-rung {
   font-size: 11.5px;
   color: var(--text-2);
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.runner-pill .label-long:not(.faint) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-dot {
@@ -921,7 +949,7 @@ html.motion-ok .brand:hover .logo-rung {
   --line-strong: #bfb9ab;
   --line-control: #8c897d;
   --surface-3: color-mix(in srgb, var(--ink) 7%, var(--certificate));
-  --green: #17824f;
+  --green: #147044;
   --focus: #8a5b00;
   position: relative;
   overflow: hidden;

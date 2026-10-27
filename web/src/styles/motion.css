@@ -106,3 +106,10 @@ html.vt .page {
   opacity: 0;
   pointer-events: none;
 }
+
+/* The theme switch is instant: Layout.tsx sets this for the frame the theme changes. */
+html.theme-switch *,
+html.theme-switch *::before,
+html.theme-switch *::after {
+  transition: none !important;
+}

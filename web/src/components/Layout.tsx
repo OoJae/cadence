@@ -20,8 +20,12 @@ function ThemeToggle() {
       aria-label={`Switch to ${next} theme`}
       title={`Switch to ${next} theme`}
       onClick={() => {
-        document.documentElement.dataset.theme = next;
+        // The switch is instant: colour transitions sit out the frame the theme changes.
+        const html = document.documentElement;
+        html.classList.add('theme-switch');
+        html.dataset.theme = next;
         setTheme(next);
+        requestAnimationFrame(() => requestAnimationFrame(() => html.classList.remove('theme-switch')));
       }}
     >
       {theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}

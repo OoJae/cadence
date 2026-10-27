@@ -38,14 +38,17 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Local Georgia scaled to Bodoni's metrics, so the swap doesn't move the layout. */
+/* Local Georgia scaled to Bodoni's metrics, so the swap doesn't move the layout. Widths were
+   measured in Chromium at 34-128 px (roman sets at 94.3% of Bodoni, italic at 101.4%);
+   ascent and descent are Bodoni's 1.125 and 0.4 em, divided by size-adjust, which
+   Chromium applies to the overrides too. */
 @font-face {
   font-family: 'Bodoni Fallback';
   font-style: normal;
   src: local('Georgia');
-  size-adjust: 97%;
-  ascent-override: 92%;
-  descent-override: 24%;
+  size-adjust: 102.8%;
+  ascent-override: 109.4%;
+  descent-override: 38.9%;
   line-gap-override: 0%;
 }
 
@@ -53,8 +56,8 @@
   font-family: 'Bodoni Fallback';
   font-style: italic;
   src: local('Georgia Italic'), local('Georgia-Italic');
-  size-adjust: 97%;
-  ascent-override: 92%;
-  descent-override: 24%;
+  size-adjust: 95.7%;
+  ascent-override: 117.6%;
+  descent-override: 41.8%;
   line-gap-override: 0%;
 }

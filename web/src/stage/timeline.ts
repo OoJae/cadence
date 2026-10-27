@@ -76,15 +76,16 @@ export const SVG_CAMERAS: Record<BeatId, SvgCamera> = {
 
 /**
  * A portrait stage (phones) sits behind the passages, which cover its middle: the ladders
- * stand lower, so the amber rung shows under the hero's text and the release under its own.
+ * stand lower, so the amber rung shows under the hero's text. The release is framed high,
+ * at about half the screen, so the moment plays above its passage's plate, not behind it.
  */
 export const SVG_CAMERAS_NARROW: Partial<Record<BeatId, SvgCamera>> = {
   hero: { focus: BASE, at: [388, 850], scale: 1 },
   gap: { focus: BASE, at: [388, 850], scale: 0.9 },
   seal: { focus: BASE, at: [388, 830], scale: 0.98 },
   hold: { focus: BASE, at: [388, 830], scale: 0.94 },
-  release: { focus: [200, 752], at: [300, 800], scale: 2.8 },
-  refusals: { focus: [200, 752], at: [300, 800], scale: 2.8 },
+  release: { focus: [200, 752], at: [350, 200], scale: 2.8 },
+  refusals: { focus: [200, 752], at: [350, 200], scale: 2.8 },
   cancel: { focus: BASE, at: [388, 830], scale: 1 },
 };
 
