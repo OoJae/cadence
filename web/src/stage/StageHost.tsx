@@ -3,6 +3,7 @@ import { RoundRail } from '../brand/RoundRail';
 import { observeBeats } from '../motion/useBeats';
 import { motionOk } from '../motion/tokens';
 import { createSvgDriver } from './driver';
+import { loadGlTier } from './probe';
 import { SvgStage } from './SvgStage';
 import { BEAT_ORDER, type BeatId, type StageDriver } from './timeline';
 
@@ -78,7 +79,7 @@ export function StageHost({ story, onRelease, onSeat }: { story: RefObject<HTMLE
       d.setBeat(beat, { instant: true });
       if (played) d.playRelease({ instant: true });
     };
-    callbacks.current.onSeat?.({
+    const seat: StageSeat = {
       frame,
       adopt(next) {
         bring(next);
@@ -91,9 +92,13 @@ export function StageHost({ story, onRelease, onSeat }: { story: RefObject<HTMLE
         active.dispose();
         active = svg;
       },
-    });
+    };
+    callbacks.current.onSeat?.(seat);
+    // The tier switch: desktops with a real GPU get the WebGL stage once the page is idle.
+    const stopGl = loadGlTier(seat);
 
     return () => {
+      stopGl();
       stop();
       seen.disconnect();
       theme.disconnect();
