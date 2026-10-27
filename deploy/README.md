@@ -55,7 +55,7 @@ When a runner serves the web app, the merchant serves the code that holds the pa
    railway up /tmp/cadence-app-stage --path-as-root --service app --detach
    ```
 
-   `stage.sh` builds nothing, and refuses a dist that is not a `runners` build. The image is `caddy:2.11.4-alpine` running as uid 10001, with no access log and no admin endpoint. It sends the build's own CSP from `dist/csp.txt`, and the same COOP, COEP, CORP, Referrer-Policy and Permissions-Policy headers as `deploy/Caddyfile`.
+   `stage.sh` builds nothing, and refuses a dist that is not a `runners` build. The image is `caddy:2.11.4-alpine` running as uid 10001, with no access log and no admin endpoint. It sends the build's own CSP from `dist/csp.txt`, and the same COOP, COEP, CORP, Referrer-Policy and Permissions-Policy headers as `deploy/Caddyfile`. Content-hashed files under `/assets/` are cached for a year as immutable. Everything else, including `index.html`, `build.json` and the WebAssembly, is `no-cache`, so a redeploy takes effect on the next load. A missing `/assets/` file is a plain 404 with the same headers, never `index.html`.
 
 3. Set `CADENCE_APP_URL=https://<app domain>` on each runner and redeploy it. Share links then point at the app host, and the runners answer its origin's requests (`docs/api.md`, "CORS"). Without this, the browser blocks the app's API calls.
 
