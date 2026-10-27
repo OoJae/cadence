@@ -431,7 +431,10 @@ function SubscribeView({ offer: o, step, s, hash, verified }: { offer: Offer; st
             <span className="text-2">
               Talks to: <span className="mono">{isMock ? 'nothing (mock)' : (s.runner ?? verified.runner)?.label ?? apiLabel}</span>.
             </span>
-            <span className="text-2">The offer was read from the link's # fragment, which your browser never sends to a server.</span>
+            <span className="text-2">
+              The offer was read from the link's # fragment, which your browser never sends to a server.
+              {isMock ? '' : ' To check it, this page asked the runner for its copy by id, so that runner saw your IP address open this offer.'}
+            </span>
           </div>
         </aside>
       </div>

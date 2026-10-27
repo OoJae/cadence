@@ -4,7 +4,8 @@
  * Installment k+1 spends the note the cancel spent (C(k), or the funding note for
  * k = 0), so once that nullifier is on chain no node accepts it. Every later
  * installment spends the change of the one before it, which can now never exist.
- * Both hold only once the cancel is mined.
+ * Both hold only once the cancel is mined, and that the cancel is mined is what the
+ * runner's decoder reports: the certificate names that runner, and checks nothing else.
  */
 import type { CancelReceipt } from '../signer/types';
 
@@ -23,6 +24,8 @@ export interface Certificate {
   fee_zat: number;
   /** Unix seconds when this page saw the cancel mined. */
   confirmed_at: number;
+  /** The runner whose decoder reported the cancel mined: the certificate rests on its word. */
+  reported_by: string;
 }
 
 /** Installments k+1..count: the first spends the cancelled note, the rest its descendants. */
@@ -36,7 +39,7 @@ export function voidInstallments(spentK: number, count: number): number[] {
 export function certify(
   receipt: CancelReceipt,
   decoded: { mined_height?: number | null; ironwood_nullifiers?: string[] } | undefined,
-  plan: { network: 'main' | 'test'; subscription_id: string | null; count: number },
+  plan: { network: 'main' | 'test'; subscription_id: string | null; count: number; runner: string },
   now: number,
 ): Certificate | null {
   if (receipt.spent_k === undefined || !receipt.spent_nullifier) return null;
@@ -53,6 +56,7 @@ export function certify(
     returned_zat: receipt.refunded_zat,
     fee_zat: receipt.fee_zat,
     confirmed_at: now,
+    reported_by: plan.runner,
   };
 }
 

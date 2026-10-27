@@ -13,9 +13,14 @@ import { Callout, Spinner, Txid } from './ui';
 
 const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
 
+/** "the runner at host" for a runner named by its host; "the in-page mock runner" for one named in words. */
+const runnerName = (label: string) => (label.includes(' ') ? `the ${label}` : `the runner at ${label}`);
+
 /**
  * After a cancel: waits until it is mined and the decoder shows it revealing the
  * spent note's nullifier, then states what that proves about the rest of the plan.
+ * "Mined" is the runner's report (it relays the cancel and decodes it), so the
+ * certificate says so and names the runner, rather than claiming a check of its own.
  * Drawn as a certificate on Paper; its rosette comes from the spent nullifier, so
  * every certificate's engraving is its own.
  */
@@ -33,9 +38,10 @@ export function CancelCertificate({
   count: number;
 }) {
   const decoded = usePoll((signal) => client.decode(receipt.txid, signal), 20_000, [receipt.txid]);
+  const runner = client.transport.label;
   const cert = useMemo<Certificate | null>(
-    () => certify(receipt, decoded.data, { network, subscription_id: subscriptionId, count }, Math.floor(nowSecs())),
-    [receipt, decoded.data, network, subscriptionId, count],
+    () => certify(receipt, decoded.data, { network, subscription_id: subscriptionId, count, runner }, Math.floor(nowSecs())),
+    [receipt, decoded.data, network, subscriptionId, count, runner],
   );
   if (receipt.spent_k === undefined || !receipt.spent_nullifier) return null;
   if (!cert) return <Spinner label="Waiting for the cancel to be mined…" />;
@@ -71,11 +77,11 @@ export function CancelCertificate({
             : voids.length === 1
               ? `Installment ${voids[0]} spends exactly that note, so no node will accept it.`
               : `Installment ${voids[0]} spends exactly that note, so no node will accept it, and ${voids.length === 2 ? 'installment' : 'installments'} ${installmentRange(voids.slice(1))} would spend change that installment ${voids[0]} can now never make. Installments ${installmentRange(voids)} can never be valid.`}{' '}
-          Seen mined {formatDateTime(cert.confirmed_at)}.
+          Mined, as reported by {runnerName(cert.reported_by)} (seen {formatDateTime(cert.confirmed_at)}).
         </span>
         <div className="row" style={{ ['--gap' as string]: '10px' }}>
           <Link to={`/decode/${cert.cancel_txid}?nf=${cert.spent_nullifier}`} className="link-btn small">
-            Verify in the decoder
+            Open in the decoder
           </Link>
           <button
             type="button"
@@ -87,7 +93,10 @@ export function CancelCertificate({
             Save certificate
           </button>
         </div>
-        <span className="tiny muted">The certificate leaves out your refund address. Anyone can check it: the decoder lists the nullifiers a transaction reveals.</span>
+        <span className="tiny muted">
+          The certificate leaves out your refund address. It rests on what that runner reports, and this app's decoder reads from a runner too. To check it without a runner, look
+          up the cancel txid in any explorer, or with <code>cadence-decode</code> through a lightwalletd of your own, and see the refund arrive in your own wallet.
+        </span>
       </div>
     </Callout>
   );

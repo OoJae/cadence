@@ -343,7 +343,8 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
             <Qr value={result.share_url} label="QR code of the share link" size={176} />
             <div className="small text-2" style={{ flex: '1 1 160px' }}>
               <p>
-                Everything after <code>#</code> stays in the payer's browser. Your web host never sees who opened it.
+                Everything after <code>#</code> stays in the payer's browser, so no web host sees the offer itself. Opening the link is not anonymous: the page asks your runner for
+                its copy of the offer by id, so the runner and its hosting edge see the payer's IP address and which offer was opened.
               </p>
               {decoded?.ok && (
                 <p className="tiny muted" style={{ marginTop: 8 }}>

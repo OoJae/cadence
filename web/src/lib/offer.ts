@@ -1,7 +1,9 @@
 /**
  * The offer travels in the URL fragment (`/subscribe#offer=<base64url(json)>`).
- * Browsers never send the fragment to any server, so neither the web host nor the
- * runner learns who opened a share link until the payer chooses to subscribe.
+ * Browsers never send the fragment to any server, so the web host never sees the
+ * offer itself. Opening a link is not private, though: /subscribe asks the runner the
+ * offer names for its copy by id (GET /api/offers/:id) as soon as the page opens, so
+ * that runner and its hosting edge see the visitor's IP address and the offer id.
  *
  * A share link is attacker-controllable input, so parsing is strict: every field is
  * type- and range-checked, unknown fields are dropped, and text that could spoof the
