@@ -2,6 +2,8 @@
 //
 //   pnpm build && pnpm verify
 //   VERIFY_DIST=/tmp/dist-mock pnpm verify     # a build elsewhere (vite build --outDir …)
+//   VERIFY_HEADED=1 pnpm verify                # a headed browser: exercises the GPU (WebGL) path
+//   VERIFY_PORT=4301 pnpm verify               # another port, so two checkouts can verify at once
 //
 // Serves dist/ with `vite preview`, drives every page and both flows in headless
 // Chromium, and fails if the page makes any request to another origin, triggers a
@@ -16,7 +18,7 @@ import { chromium } from 'playwright';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'screenshots');
 mkdirSync(outDir, { recursive: true });
-const PORT = 4173;
+const PORT = Number(process.env.VERIFY_PORT ?? 4173);
 const ORIGIN = `http://localhost:${PORT}`;
 const S2 = '7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790';
 
@@ -30,7 +32,7 @@ await new Promise((resolve, reject) => {
 
 const problems = [];
 const requests = new Set();
-const browser = await chromium.launch();
+const browser = await chromium.launch({ headless: !process.env.VERIFY_HEADED });
 
 async function newPage({ width = 1440, height = 900, theme = 'dark', mobile = false } = {}) {
   // 1x on desktop keeps the committed screenshots small; phones are captured at 2x.

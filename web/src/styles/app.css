@@ -1,88 +1,168 @@
 /* ============================================================================
-   Cadence design system. Dark by default; [data-theme="light"] on <html> flips it.
+   Cadence design system: "the pulled rung".
+   Six colours with one job each. Release (Zcash amber) marks only what happens
+   next: the tip+1 rung, your next action, focus, "due". Nothing past is amber.
+   Dark by default; [data-theme="light"] on <html> flips it. /brand shows it all.
    ========================================================================== */
 
 :root {
-  --font-display: 'Instrument Serif', ui-serif, 'Iowan Old Style', Georgia, serif;
+  --vault: #0b0d0c;
+  --hairline: #2b322e;
+  --graphite: #8b8f87;
+  --ledger: #eceae3;
+  --release: #f4b728;
+  --paper: #f3f0e8;
+  --ink: #171917;
+
+  --font-display: 'Bodoni Moda Variable', 'Bodoni Fallback', Didot, 'Bodoni 72', Georgia, serif;
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --r-sm: 6px;
-  --r: 10px;
-  --r-lg: 16px;
-  --r-xl: 22px;
+  /* Fluid type, linear from 375 to 1440 px. */
+  --fs-hero: clamp(2.75rem, min(0.901rem + 7.887vw, 15svh), 8rem);
+  --fs-d1: clamp(2.125rem, 1.222rem + 3.85vw, 4.6875rem);
+  --fs-d2: clamp(1.875rem, 1.479rem + 1.69vw, 3rem);
+  --fs-figure: clamp(3rem, 1.416rem + 6.76vw, 7.5rem);
+  --fs-title: clamp(1.125rem, 1.037rem + 0.376vw, 1.375rem);
+  --fs-lede: clamp(1.0625rem, 0.953rem + 0.469vw, 1.375rem);
+  --fs-body: clamp(0.9375rem, 0.916rem + 0.094vw, 1rem);
+  --fs-small: 0.8125rem;
+  --fs-label: 0.71875rem;
 
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Space: a 4 px scale. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+  --s-10: 144px;
+  --space-section: clamp(96px, 14vw, 200px);
+
+  /* Grid: 12 columns on the landing, 16 px margins at 375, 80 px at 1440. */
+  --margin: clamp(16px, 6vw - 6.5px, 80px);
+  --grid-gap: clamp(12px, 1.6vw, 24px);
+  --maxw-wide: 1440px;
   --gutter: clamp(16px, 4vw, 40px);
   --maxw: 1200px;
+
+  /* Radii: rungs and controls are square-cut; cards and panes barely round. */
+  --r-0: 2px;
+  --r-1: 6px;
+  --r-2: 12px;
+  --r-pill: 999px;
+  --r-sm: var(--r-0);
+  --r: var(--r-0);
+  --r-lg: var(--r-1);
+  --r-xl: var(--r-2);
+
+  /* Motion. Reveals ease out; toggles ease in and out. Only transform and opacity move. */
+  --ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-toggle: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease: var(--ease-toggle);
+  --ease-out: var(--ease-reveal);
+  --dur-press: 0.2s;
+  --dur-micro: 0.24s;
+  --dur-roll: 0.36s;
+  --dur-reveal: 0.8s;
+  --dur-reveal-l: 1s;
+  --dur-page-out: 0.28s;
+  --dur-page: 0.9s;
+  --dur-camera: 1.2s;
+  --dur-moment: 1.4s;
+  --stagger: 0.08s;
+  --stagger-tight: 0.05s;
+  --stagger-loose: 0.12s;
+  /* drand quicknet's period: the only repeating rhythm. */
+  --beat: 3s;
+
+  --z-grain: -1;
+  --z-header: 40;
+  --z-tip: 60;
 }
 
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0b0d0c;
-  --bg-elev: #0f1211;
-  --surface: #131715;
-  --surface-2: #181d1a;
-  --surface-3: #1e2420;
-  --line: #222925;
-  --line-strong: #2f3833;
-  --text: #ecebe5;
-  --text-2: #bcbdb5;
-  --muted: #8b8f87;
-  --faint: #5f645e;
+  --bg: var(--vault);
+  --bg-elev: color-mix(in srgb, var(--ledger) 2.5%, var(--vault));
+  --surface: color-mix(in srgb, var(--ledger) 4%, var(--vault));
+  --surface-2: color-mix(in srgb, var(--ledger) 6.5%, var(--vault));
+  --surface-3: color-mix(in srgb, var(--ledger) 9%, var(--vault));
+  --line: var(--hairline);
+  --line-strong: color-mix(in srgb, var(--ledger) 16%, var(--vault));
+  /* 3.1:1 on Vault: borders of inputs and secondary buttons. */
+  --line-control: color-mix(in srgb, var(--graphite) 66%, var(--vault));
+  --text: var(--ledger);
+  --text-2: color-mix(in srgb, var(--ledger) 78%, var(--vault));
+  --muted: var(--graphite);
+  --faint: #7d817a;
 
-  --accent: #f4b728;
-  --accent-ink: #1b1505;
+  --accent: var(--release);
+  --accent-ink: var(--vault);
   --accent-text: #f4c454;
-  --accent-soft: rgba(244, 183, 40, 0.1);
-  --accent-line: rgba(244, 183, 40, 0.32);
+  --accent-graphic: var(--release);
+  --accent-soft: color-mix(in srgb, var(--release) 10%, transparent);
+  --accent-line: color-mix(in srgb, var(--release) 32%, transparent);
+  --focus: var(--release);
 
-  --sealed: #a99bf7;
-  --amber: #f2aa3e;
-  --blue: #74abff;
+  /* Data tones. Due and broadcast are "next" and "now", so they are Release. */
+  --sealed: var(--ledger);
+  --amber: var(--release);
+  --blue: var(--release);
   --green: #55c78f;
-  --muted-tone: #8f948c;
+  --muted-tone: var(--graphite);
   --red: #f2735f;
 
   --qr-bg: #f7f5ef;
   --qr-fg: #0b0d0c;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.75);
-  --grid-dot: rgba(255, 255, 255, 0.055);
+  --certificate: var(--paper);
+  --certificate-ink: var(--ink);
+  --shadow: inset 0 1px 0 color-mix(in srgb, var(--ledger) 4%, transparent);
+  --grid-dot: color-mix(in srgb, var(--ledger) 5.5%, transparent);
+  --grain: 0.045;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f4f2ec;
-  --bg-elev: #f9f8f4;
-  --surface: #ffffff;
-  --surface-2: #f6f4ef;
-  --surface-3: #eeebe4;
-  --line: #e2ded5;
-  --line-strong: #cfcac0;
-  --text: #171917;
+  --bg: var(--paper);
+  --bg-elev: color-mix(in srgb, #fff 35%, var(--paper));
+  --surface: #fbfaf6;
+  --surface-2: color-mix(in srgb, var(--ink) 3%, var(--paper));
+  --surface-3: color-mix(in srgb, var(--ink) 6%, var(--paper));
+  --line: #dcd8cd;
+  --line-strong: #c9c4b8;
+  --line-control: #8c897d;
+  --text: var(--ink);
   --text-2: #3d413d;
-  --muted: #676b65;
-  --faint: #9a9d96;
+  --muted: #5f635d;
+  --faint: #676b65;
 
-  --accent: #f4b728;
-  --accent-ink: #1b1505;
-  --accent-text: #8f5f00;
-  --accent-soft: rgba(196, 136, 0, 0.1);
-  --accent-line: rgba(160, 110, 0, 0.35);
+  --accent: var(--release);
+  --accent-ink: var(--ink);
+  --accent-text: #8a5b00;
+  --accent-graphic: #b07800;
+  --accent-soft: color-mix(in srgb, #b07800 10%, transparent);
+  --accent-line: color-mix(in srgb, #8a5b00 35%, transparent);
+  --focus: #8a5b00;
 
-  --sealed: #6550d6;
-  --amber: #a96500;
-  --blue: #2560cf;
+  --sealed: var(--ink);
+  --amber: #8a5b00;
+  --blue: #8a5b00;
   --green: #17824f;
-  --muted-tone: #6a6f69;
+  --muted-tone: #676b65;
   --red: #c23d29;
 
   --qr-bg: #ffffff;
   --qr-fg: #0b0d0c;
-  --shadow: 0 1px 2px rgba(20, 20, 10, 0.04), 0 18px 40px -26px rgba(40, 30, 0, 0.22);
-  --grid-dot: rgba(0, 0, 0, 0.06);
+  --certificate: #fffdf7;
+  --certificate-ink: var(--ink);
+  --shadow: 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent);
+  --grid-dot: color-mix(in srgb, var(--ink) 6%, transparent);
+  --grain: 0.035;
 }
 
 /* ---------------------------------------------------------------- base */
@@ -96,12 +176,12 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  scroll-behavior: smooth;
+  background: var(--bg);
 }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -112,6 +192,18 @@ body {
   text-rendering: optimizeLegibility;
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+/* 3-6% grain over the whole page: a same-origin SVG tile (img-src 'self', never data:). */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-grain);
+  pointer-events: none;
+  background-image: url('/grain.svg');
+  background-size: 180px 180px;
+  opacity: var(--grain);
 }
 
 ::selection {
@@ -126,14 +218,13 @@ a {
   transition: color 0.15s var(--ease), text-decoration-color 0.15s var(--ease);
 }
 a:hover {
-  color: var(--accent-text);
   text-decoration-color: currentColor;
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--r-0);
 }
 
 h1,
@@ -162,7 +253,7 @@ code {
   background: var(--surface-3);
   border: 1px solid var(--line);
   padding: 0.08em 0.38em;
-  border-radius: 5px;
+  border-radius: var(--r-0);
   color: var(--text);
   overflow-wrap: anywhere;
 }
@@ -325,42 +416,43 @@ main {
   content: '';
   width: 18px;
   height: 1px;
-  background: var(--accent);
+  background: var(--muted);
 }
 .kicker.plain::before {
   display: none;
 }
 
-/* Instrument Serif ships one weight; never let the browser fake a bold. */
+/* Bodoni Moda: heavy verticals, hairline horizontals, like rails and rungs. Optical
+   sizing keeps hairlines alive small and razor-thin large; never synthesize. */
 .display,
 .h1,
 .h2,
 .done-title,
-.brand-word {
+.brand-word,
+.wordmark {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
   font-synthesis: none;
 }
 
 .display {
-  font-family: var(--font-display);
   font-weight: 400;
-  letter-spacing: -0.012em;
-  line-height: 1.02;
+  letter-spacing: -0.015em;
+  line-height: 1;
 }
 
 .h1 {
-  font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(2.5rem, 6.2vw, 5.1rem);
-  line-height: 1.02;
-  letter-spacing: -0.015em;
+  font-size: var(--fs-d1);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
 }
 
 .h2 {
-  font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(1.85rem, 3.6vw, 2.75rem);
-  line-height: 1.08;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-d2);
+  line-height: 1.04;
+  letter-spacing: -0.015em;
 }
 
 .h3 {
@@ -374,11 +466,27 @@ main {
   font-weight: 600;
 }
 
+/* Every <em> is Bodoni italic (Inter would be a faux italic). */
+em {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.06em;
+  font-optical-sizing: auto;
+  font-synthesis: none;
+}
+code em,
+.mono em,
+.kicker em,
+.tag em {
+  font-family: inherit;
+  font-size: inherit;
+}
 .display em,
 .h1 em,
-.h2 em {
-  font-style: italic;
-  color: var(--accent-text);
+.h2 em,
+.done-title em {
+  font-size: 1em;
+  color: inherit;
 }
 
 .lede {
@@ -439,10 +547,8 @@ main {
 .site-header {
   position: sticky;
   top: 0;
-  z-index: 40;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: saturate(140%) blur(14px);
-  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  z-index: var(--z-header);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   border-bottom: 1px solid var(--line);
 }
 
@@ -456,7 +562,7 @@ main {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   text-decoration: none;
   color: var(--text);
   flex-shrink: 0;
@@ -464,12 +570,14 @@ main {
 .brand:hover {
   color: var(--text);
 }
-.brand-word {
-  font-family: var(--font-display);
-  font-size: 25px;
-  letter-spacing: -0.01em;
+.brand-word,
+.wordmark {
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   line-height: 1;
-  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 .nav {
@@ -486,7 +594,7 @@ main {
   font-size: 14px;
   font-weight: 500;
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--r-0);
   white-space: nowrap;
   transition: color 0.15s var(--ease), background 0.15s var(--ease);
 }
@@ -574,7 +682,7 @@ main {
   height: 34px;
   display: inline-grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--r-0);
   border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--text-2);
@@ -588,7 +696,7 @@ main {
 
 .mock-banner {
   border-bottom: 1px solid var(--line);
-  background: repeating-linear-gradient(-45deg, var(--accent-soft) 0 10px, transparent 10px 20px);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--graphite) 9%, transparent) 0 10px, transparent 10px 20px);
   font-size: 12.5px;
   color: var(--text-2);
 }
@@ -711,8 +819,8 @@ main {
   margin-top: 2px;
 }
 .callout.warn {
-  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
-  background: color-mix(in srgb, var(--amber) 8%, var(--surface));
+  border-color: var(--line-control);
+  background: var(--surface-2);
 }
 .callout.danger {
   border-color: color-mix(in srgb, var(--red) 45%, transparent);
@@ -734,19 +842,21 @@ main {
 
 /* ---------------------------------------------------------------- buttons */
 
+/* Square-cut, 44 px. The press is transform only; one primary per view. */
 .btn {
-  --btn-bg: var(--surface-2);
+  --btn-bg: transparent;
   --btn-fg: var(--text);
-  --btn-line: var(--line-strong);
+  --btn-line: var(--line-control);
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 42px;
+  height: 44px;
   padding: 0 18px;
-  border-radius: var(--r);
+  border-radius: var(--r-0);
   border: 1px solid var(--btn-line);
-  background: var(--btn-bg);
+  background-color: var(--btn-bg);
   color: var(--btn-fg);
   font: inherit;
   font-size: 14.5px;
@@ -755,15 +865,23 @@ main {
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
-  transition: transform 0.12s var(--ease), background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+  transition:
+    transform var(--dur-roll) var(--ease-reveal),
+    background-color var(--dur-micro) var(--ease-toggle),
+    border-color var(--dur-micro) var(--ease-toggle),
+    color var(--dur-micro) var(--ease-toggle);
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn:hover {
+  --btn-bg: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--btn-fg);
   border-color: var(--muted);
 }
-.btn:active {
-  transform: translateY(1px);
+.btn:active:not(:disabled):not([aria-disabled='true']) {
+  transform: translateY(1px) scale(0.98);
+  transition-duration: var(--dur-press);
+  transition-timing-function: var(--ease-toggle);
 }
 .btn[disabled],
 .btn[aria-disabled='true'] {
@@ -771,16 +889,41 @@ main {
   cursor: not-allowed;
   transform: none;
 }
+/* The click hairline: a 1 px Release rule drawn under the label (main.tsx plays it). */
+.btn::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 7px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+}
+.btn .arrow {
+  transition: transform var(--dur-roll) var(--ease-reveal);
+}
+.btn:hover .arrow {
+  transform: translateX(3px);
+}
 
 .btn.primary {
   --btn-bg: var(--accent);
   --btn-fg: var(--accent-ink);
-  --btn-line: transparent;
-  box-shadow: 0 0 0 0 var(--accent-soft);
+  --btn-line: var(--accent);
 }
 .btn.primary:hover:not([disabled]) {
-  --btn-bg: #f8c74d;
-  box-shadow: 0 0 0 6px var(--accent-soft);
+  --btn-bg: color-mix(in srgb, var(--release) 88%, var(--ledger));
+  border-color: var(--btn-bg);
+}
+:root[data-theme='light'] .btn.primary {
+  --btn-line: color-mix(in srgb, var(--ink) 20%, transparent);
+}
+:root[data-theme='light'] .btn.primary:hover:not([disabled]) {
+  border-color: color-mix(in srgb, var(--ink) 20%, transparent);
 }
 
 .btn.ghost {
@@ -789,26 +932,36 @@ main {
   --btn-fg: var(--text-2);
 }
 .btn.ghost:hover {
-  --btn-bg: var(--surface-2);
+  --btn-bg: color-mix(in srgb, var(--text) 6%, transparent);
+  border-color: transparent;
 }
 
 .btn.danger {
-  --btn-bg: color-mix(in srgb, var(--red) 14%, var(--surface));
+  --btn-bg: color-mix(in srgb, var(--red) 10%, transparent);
   --btn-fg: var(--red);
   --btn-line: color-mix(in srgb, var(--red) 45%, transparent);
+}
+.btn.danger:hover {
+  --btn-bg: color-mix(in srgb, var(--red) 16%, transparent);
+  border-color: var(--red);
 }
 
 .btn.sm {
   height: 32px;
   padding: 0 12px;
   font-size: 13px;
-  border-radius: 8px;
+}
+.btn.sm::after {
+  bottom: 5px;
 }
 
 .btn.lg {
-  height: 50px;
+  height: 52px;
   padding: 0 24px;
   font-size: 15.5px;
+}
+.btn.lg::after {
+  bottom: 10px;
 }
 
 .btn.block {
@@ -820,11 +973,14 @@ main {
   border: 0;
   padding: 0;
   font: inherit;
-  color: var(--accent-text);
+  color: var(--text);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
-  text-decoration-color: var(--accent-line);
+  text-decoration-color: var(--line-control);
+}
+.link-btn:hover {
+  text-decoration-color: currentColor;
 }
 
 /* ---------------------------------------------------------------- forms */
@@ -856,12 +1012,12 @@ main {
   height: 42px;
   padding: 0 12px;
   border-radius: var(--r);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line-control);
   background: var(--bg-elev);
   color: var(--text);
   font: inherit;
   font-size: 14.5px;
-  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  transition: border-color var(--dur-micro) var(--ease-toggle);
   min-width: 0;
 }
 .input.mono {
@@ -870,9 +1026,9 @@ main {
 }
 .input:focus,
 .select:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-color: var(--muted);
 }
 .input[aria-invalid='true'] {
   border-color: var(--red);
@@ -897,7 +1053,7 @@ main {
   display: inline-flex;
   align-items: center;
   padding: 0 12px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line-control);
   border-left: 0;
   border-radius: 0 var(--r) var(--r) 0;
   background: var(--surface-2);
@@ -919,7 +1075,7 @@ main {
   display: inline-flex;
   padding: 3px;
   gap: 2px;
-  border-radius: 11px;
+  border-radius: var(--r-0);
   background: var(--surface-2);
   border: 1px solid var(--line);
   flex-wrap: wrap;
@@ -932,16 +1088,15 @@ main {
   font-size: 13px;
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--r-0);
   cursor: pointer;
   display: inline-flex;
   gap: 6px;
   align-items: center;
 }
 .segmented button[aria-pressed='true'] {
-  background: var(--surface);
+  background: var(--surface-3);
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .segmented .count {
   font-family: var(--font-mono);
@@ -980,14 +1135,21 @@ main {
   font-size: 12.5px;
   padding: 0 11px;
 }
+/* Sealed is a Ledger outline; due is a Release outline; broadcast (now) is a Release fill. */
 .badge.tone-sealed {
   --tone: var(--sealed);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--sealed) 40%, transparent);
 }
 .badge.tone-amber {
   --tone: var(--amber);
+  background: transparent;
+  border-color: var(--accent-line);
 }
 .badge.tone-blue {
-  --tone: var(--blue);
+  --tone: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .badge.tone-green {
   --tone: var(--green);
@@ -1003,7 +1165,7 @@ main {
 }
 
 .badge.live .dot {
-  animation: pulse-dot 1.6s ease-in-out infinite;
+  animation: pulse-dot var(--beat) var(--ease-toggle) infinite;
 }
 
 .tag {
@@ -1016,7 +1178,7 @@ main {
   text-transform: uppercase;
   color: var(--muted);
   border: 1px dashed var(--line-strong);
-  border-radius: 6px;
+  border-radius: var(--r-0);
   padding: 2px 7px;
 }
 
@@ -1211,7 +1373,7 @@ table.data tbody tr:hover {
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: var(--r-0);
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
@@ -1249,7 +1411,7 @@ table.data tbody tr:hover {
   display: inline-block;
   max-width: 100%;
   position: relative;
-  box-shadow: 0 0 0 1px var(--line), 0 30px 60px -30px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 1px var(--line);
 }
 .qr-frame svg {
   display: block;
@@ -1268,7 +1430,7 @@ table.data tbody tr:hover {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: var(--r-0);
   white-space: nowrap;
   font-weight: 600;
 }
@@ -1407,37 +1569,35 @@ table.data tbody tr:hover {
 
 /* ---------------------------------------------------------------- progress */
 
+/* Progress is drawn as rungs: a 1 px rule every 3 px, filled left to right. */
 .progress {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-3);
+  height: 8px;
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, var(--line-strong) 0 1px, transparent 1px 3px);
   overflow: hidden;
   position: relative;
 }
 .progress > span {
   display: block;
   height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), #f8d27a);
-  transition: width 0.25s var(--ease);
+  background: repeating-linear-gradient(90deg, var(--accent-graphic) 0 2px, transparent 2px 3px);
+  transition: width 0.25s var(--ease-toggle);
 }
 .progress.done > span {
-  background: var(--green);
-}
-.progress.running > span {
-  background-image: linear-gradient(90deg, var(--accent), #f8d27a, var(--accent));
-  background-size: 200% 100%;
-  animation: shimmer 1.4s linear infinite;
+  background: repeating-linear-gradient(90deg, var(--green) 0 2px, transparent 2px 3px);
 }
 
+/* Three bars blinking in turn, by opacity only. */
 .spinner {
   width: 16px;
   height: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--line-strong);
-  border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite;
   flex-shrink: 0;
+  background:
+    linear-gradient(currentColor, currentColor) 2px 3px / 3px 10px no-repeat,
+    linear-gradient(currentColor, currentColor) 6.5px 3px / 3px 10px no-repeat,
+    linear-gradient(currentColor, currentColor) 11px 3px / 3px 10px no-repeat;
+  color: var(--accent-graphic);
+  animation: spinner-blink 0.9s var(--ease-toggle) infinite;
 }
 
 /* ---------------------------------------------------------------- log */
@@ -1474,7 +1634,7 @@ table.data tbody tr:hover {
   color: var(--green);
 }
 .log .line.warn .msg {
-  color: var(--amber);
+  color: var(--text);
 }
 .log .empty {
   padding: 4px 14px;
@@ -1544,7 +1704,7 @@ details.disclosure > .body {
   margin-top: 2px;
 }
 .learn .yes svg {
-  color: var(--amber);
+  color: var(--text);
 }
 .learn .no svg {
   color: var(--green);
@@ -1778,7 +1938,7 @@ details.disclosure > .body {
   color: var(--red);
 }
 .compare-table .meh {
-  color: var(--amber);
+  color: var(--muted);
 }
 .compare-table th.hl,
 .compare-table td.hl {
@@ -2195,14 +2355,13 @@ details.disclosure > .body {
     opacity: 0.35;
   }
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+@keyframes spinner-blink {
+  0%,
+  100% {
+    opacity: 1;
   }
-}
-@keyframes shimmer {
-  to {
-    background-position: -200% 0;
+  50% {
+    opacity: 0.3;
   }
 }
 @keyframes flash {

@@ -67,7 +67,7 @@ export function Header() {
       <div className="container bar">
         <Link to="/" className="brand" aria-label="Cadence home">
           <Logo />
-          <span className="brand-word">Cadence</span>
+          <span className="brand-word">cadence</span>
         </Link>
         <nav className="nav" aria-label="Main">
           <Link to="/">Overview</Link>
@@ -130,9 +130,9 @@ export function Footer() {
       <div className="container cols">
         <div className="stack" style={{ ['--gap' as string]: '10px' }}>
           <Link to="/" className="brand" aria-label="Cadence home">
-            <Logo size={22} />
-            <span className="brand-word" style={{ fontSize: 21 }}>
-              Cadence
+            <Logo size={20} />
+            <span className="brand-word" style={{ fontSize: 23 }}>
+              cadence
             </span>
           </Link>
           <p>Pre-authorized shielded standing orders on Zcash Ironwood. ZECATHON 2026, Shielded Payments track.</p>
@@ -167,6 +167,9 @@ export function Footer() {
             </li>
             <li>
               <Link to="/decode/7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790">Decode a real S2 installment</Link>
+            </li>
+            <li>
+              <Link to="/brand">Brand and design system</Link>
             </li>
           </ul>
         </div>

@@ -10,9 +10,9 @@ function Svg({ size = 16, children, ...rest }: P) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      strokeWidth={1.5}
+      strokeLinecap="square"
+      strokeLinejoin="miter"
       aria-hidden="true"
       focusable="false"
       {...rest}
@@ -182,17 +182,15 @@ export const BoltIcon = (p: P) => (
   </Svg>
 );
 
-/** The Cadence mark: three evenly spaced strokes and the next beat. */
-export function Logo({ size = 26 }: { size?: number }) {
+/**
+ * The Cadence mark, "the pulled rung": three bars, and out of the first one the single
+ * rung that goes out next, in the only amber. On a 48 grid; minimum size 16 px.
+ */
+export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <rect width="32" height="32" rx="8" fill="var(--surface-3)" stroke="var(--line-strong)" />
-      <g fill="var(--accent)">
-        <rect x="7" y="9" width="3" height="14" rx="1.5" />
-        <rect x="12.5" y="9" width="3" height="14" rx="1.5" />
-        <rect x="18" y="9" width="3" height="14" rx="1.5" />
-        <circle cx="24.5" cy="16" r="2" />
-      </g>
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" focusable="false" className="logo">
+      <path fill="var(--text)" d="M14.5 8h7v21h-7zM14.5 32h7v8h-7zM25.5 8h7v32h-7zM36.5 8h7v32h-7z" />
+      <rect className="logo-rung" x="4.5" y="29" width="7" height="3" fill="var(--accent-graphic)" />
     </svg>
   );
 }

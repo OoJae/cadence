@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Shell } from './components/Layout';
 import { matchPath, useLocation } from './router';
 import { Landing } from './pages/Landing';
@@ -9,6 +10,9 @@ import { Manage } from './pages/Manage';
 import { Status } from './pages/Status';
 import { NotFound } from './pages/NotFound';
 
+// The brand book is a page for people looking at the design, not for paying: load it on demand.
+const Brand = lazy(() => import('./pages/Brand').then((m) => ({ default: m.Brand })));
+
 function Routes() {
   const { pathname } = useLocation();
   if (pathname === '/') return <Landing />;
@@ -17,6 +21,12 @@ function Routes() {
   if (pathname === '/sandbox') return <Sandbox />;
   if (pathname === '/manage') return <Manage />;
   if (pathname === '/status') return <Status />;
+  if (pathname === '/brand')
+    return (
+      <Suspense fallback={null}>
+        <Brand />
+      </Suspense>
+    );
   if (pathname === '/decode') return <Decode txid={null} />;
   const decode = matchPath('/decode/:txid', pathname);
   if (decode) return <Decode key={decode.txid} txid={decode.txid ?? null} />;
