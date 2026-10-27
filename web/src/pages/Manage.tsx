@@ -166,6 +166,9 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
   // The mock runner has no pocket endpoints; its subscription status stands in.
   const pocket = usePoll<PocketState | undefined>((signal) => (isMock ? Promise.resolve(undefined) : client.getPocket(kit.pocket_id, signal).then(checkPocketState)), 15_000, [kit.pocket_id]);
   const sub = usePoll<Subscription | undefined>((signal) => (kit.subscription_id ? client.getSubscription(kit.subscription_id, signal) : Promise.resolve(undefined)), 10_000, [kit.subscription_id]);
+  // A testnet sandbox runner: its offers pay the sandbox wallet, which can take a demo refund.
+  const runner = usePoll((signal) => (isMock ? Promise.resolve(undefined) : client.status(signal)), 0, [client]);
+  const sandboxRefund = runner.data?.sandbox && runner.data.network === 'test' && kit.network === 'test' ? kit.merchant_ua : undefined;
   const data = sub.data;
   // A stalled subscription (a missed or invalid installment) can still be cancelled.
   const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
@@ -251,6 +254,7 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
             signer={signer}
             network={kit.network}
             showDemo={isMock}
+            sandboxRefund={sandboxRefund}
             disabled={settled ? `This subscription is ${data!.status}; there is nothing left to cancel.` : undefined}
             onCancelled={(r) => store.set({ cancel: r })}
           />

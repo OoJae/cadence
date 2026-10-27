@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { CheatKind, Installment, Offer, SandboxCheatResponse, Subscription } from '../api/types';
+import type { CheatKind, Installment, Offer, RunnerStatus, SandboxCheatResponse, Subscription } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, PayerOffline, SigningView, StatusLink } from '../components/FlowViews';
@@ -332,9 +332,11 @@ function keyNote(key: CancelKeyState): string | null {
   }
 }
 
-function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined }) {
+function PayerPane({ s, sub, runner }: { s: SandboxState; sub: Subscription | undefined; runner: RunnerStatus | undefined }) {
   const closed = s.tabClosedAt !== null && !s.reopened;
   const settled = sub && (sub.status === 'completed' || sub.status === 'cancelled' || sub.status === 'stopped');
+  // A sandbox offer's merchant is the sandbox wallet: a refund address for judges without a testnet wallet.
+  const sandboxRefund = runner?.sandbox && runner.network === 'test' ? s.offer?.merchant_ua : undefined;
   return (
     <section className={`pane${closed ? ' closed' : ''}`} aria-label="Payer tab">
       <div className="pane-head">
@@ -380,6 +382,7 @@ function PayerPane({ s, sub }: { s: SandboxState; sub: Subscription | undefined 
               <CancelPanel
                 signer={s.signer}
                 showDemo={isMock}
+                sandboxRefund={sandboxRefund}
                 disabled={settled ? `The subscription is ${sub!.status}; nothing is left to cancel. Start over with more installments.` : undefined}
                 onCancelled={(r) => {
                   store.set({ cancel: r });
@@ -584,7 +587,7 @@ export function Sandbox() {
 
       <div className="stack" style={{ ['--gap' as string]: '20px', minWidth: 0 }}>
         <div className="grid cols-2" style={{ ['--gap' as string]: '20px', alignItems: 'start' }}>
-          <PayerPane s={s} sub={current} />
+          <PayerPane s={s} sub={current} runner={status.data} />
           <RunnerPane s={s} sub={current} />
         </div>
         {s.decodeTxid && <InlineDecode key={s.decodeTxid} txid={s.decodeTxid} />}

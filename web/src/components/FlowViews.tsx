@@ -300,6 +300,7 @@ export function CancelPanel({
   onCancelled,
   onNothingLeft,
   showDemo,
+  sandboxRefund,
   network = 'test',
 }: {
   signer: Signer;
@@ -308,6 +309,8 @@ export function CancelPanel({
   /** Every installment was released before the cancel could land. */
   onNothingLeft?: (message: string) => void;
   showDemo?: boolean;
+  /** On a testnet sandbox runner: the sandbox wallet's address (the offer's merchant), for judges with no testnet wallet of their own. */
+  sandboxRefund?: string;
   network?: NetworkId;
 }) {
   const [ua, setUa] = useState('');
@@ -367,6 +370,17 @@ export function CancelPanel({
           <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setUa(demoRefundUa())} disabled={!!disabled || busy}>
             Use a demo refund address
           </button>
+        )}
+        {sandboxRefund && (
+          <>
+            <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setUa(sandboxRefund)} disabled={!!disabled || busy || !!nothing}>
+              Refund to the sandbox faucet (demo only)
+            </button>
+            <span className="hint">
+              In this demo the sandbox wallet is both the faucet and the merchant, so the merchant's wallet receives the refund. On mainnet you refund to an address in your own
+              wallet.
+            </span>
+          </>
         )}
       </div>
       {disabled && <Callout kind="plain">{disabled}</Callout>}
