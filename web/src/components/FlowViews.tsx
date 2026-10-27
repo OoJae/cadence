@@ -3,7 +3,7 @@ import type { Offer } from '../api/types';
 import type { FlowState } from '../flow';
 import { BECH32_CHARS, isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundTime } from '../lib/drand';
-import { formatDateTime, formatRelative, nowSecs } from '../lib/time';
+import { formatDateTime, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, type NetworkId } from '../lib/zat';
 import { ANCHOR_CONFIRMATIONS, noteName, NothingToCancelError } from '../signer/cancel';
 import { PACKAGE_BYTES } from '../signer/mock';
@@ -162,6 +162,8 @@ export function DoneMoment({ offer, flow, children, closeable = true, notice }: 
   const finished = flow.finished ?? [];
   const first = finished[0];
   const firstAt = first ? roundTime(first.release_round) : null;
+  // Live, so the copy and the envelopes follow each round as it passes.
+  const now = useNow();
   return (
     <div className="stack" style={{ ['--gap' as string]: '26px' }}>
       <div className="done-hero">
@@ -177,7 +179,7 @@ export function DoneMoment({ offer, flow, children, closeable = true, notice }: 
           All {offer.count} installments are signed, sealed and with the runner. Each one opens only when drand publishes its round
           {firstAt ? (
             <>
-              ; the first is due <strong className="text-2">{formatRelative(firstAt - nowSecs())}</strong>
+              ; the first {firstAt > now ? 'opens' : 'opened'} <strong className="text-2">{formatRelative(firstAt - now)}</strong>
             </>
           ) : null}
           . Nothing on your side needs to keep running{closeable ? '.' : ': save your cancel key below, then close this tab.'}
@@ -190,7 +192,8 @@ export function DoneMoment({ offer, flow, children, closeable = true, notice }: 
           <div className="envelope" key={f.k} style={{ animationDelay: `${0.9 + i * 0.09}s` }}>
             <div className="k">
               <span>#{f.k}</span>
-              <LockIcon size={13} />
+              {/* Sealed until its round; then the runner can open it, so the lock goes. */}
+              {roundTime(f.release_round) > now ? <LockIcon size={13} /> : <span className="opened">opened</span>}
             </div>
             <div className="when">
               <Countdown at={roundTime(f.release_round)} />

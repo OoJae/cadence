@@ -2203,6 +2203,9 @@ html.motion-ok .envelope {
 .envelope .k svg {
   color: var(--sealed);
 }
+.envelope .k .opened {
+  color: var(--text-2);
+}
 .envelope .when {
   font-family: var(--font-mono);
   font-size: 12.5px;
