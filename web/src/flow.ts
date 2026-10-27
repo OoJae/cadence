@@ -173,5 +173,32 @@ export async function retrySigning(
   }
 }
 
+/**
+ * Watches for the payment again after the watch itself failed (the runner did not
+ * answer, say). The pocket and its key are unchanged in the signer, so a payment the
+ * payer already sent still lands in it; starting over would make a new pocket instead.
+ */
+export async function watchAgain(
+  offer: Offer,
+  signer: Signer,
+  s: FlowState,
+  update: (patch: Partial<FlowState>) => void,
+  opts: { signal?: AbortSignal; api?: CadenceClient } = {},
+): Promise<void> {
+  if (!canWatchAgain(s)) return;
+  try {
+    update({ phase: 'funding', error: undefined });
+    const funding = await signer.awaitFunding(s.totalZat!, { signal: opts.signal });
+    update({ funding, phase: 'signing' });
+    await signAndUpload(offer, signer, s.pocket!, funding, update, opts);
+  } catch (e) {
+    if (opts.signal?.aborted) return;
+    update({ phase: 'error', error: (e as Error).message });
+  }
+}
+
+/** Whether a failed flow has a pocket to pay but has not seen the payment, so it can watch again. */
+export const canWatchAgain = (s: FlowState): boolean => Boolean(s.pocket && s.totalZat !== undefined && !s.funding);
+
 /** Whether a failed flow is funded but has nothing sealed yet, so it can sign again. */
 export const canRetrySigning = (s: FlowState): boolean => Boolean(s.pocket && s.funding && !s.sealed && !s.subscriptionId);

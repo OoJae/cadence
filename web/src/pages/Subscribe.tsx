@@ -7,7 +7,7 @@ import { KeyIcon, ShieldCheckIcon, TabIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
 import { Timeline } from '../components/Timeline';
 import { Badge, Callout, CopyButton, ErrorNote, Round, Spinner, StatusBadge } from '../components/ui';
-import { canRetrySigning, canRetryUpload, retrySigning, retryUpload, runMandate, type FlowState } from '../flow';
+import { canRetrySigning, canRetryUpload, canWatchAgain, retrySigning, retryUpload, runMandate, watchAgain, type FlowState } from '../flow';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
 import { encodeOfferPayload, horizonProblem, parseOfferFragment } from '../lib/offer';
@@ -578,6 +578,18 @@ function SubscribeView({
                       Retry signing
                     </button>
                     <ForgetPocket label="Start over (abandons this funded pocket)" confirm="Start over and lose the funds" risk={forgetRisk(s)} onForget={() => resetSession(hash)} />
+                  </div>
+                </>
+              ) : canWatchAgain(s) && s.signer ? (
+                <>
+                  <span className="small text-2">
+                    The pocket and its key are unchanged in this tab, so a payment you have sent still reaches it. Keep this tab open and watch for it again.
+                  </span>
+                  <div className="row" style={{ ['--gap' as string]: '8px' }}>
+                    <button type="button" className="btn" onClick={() => void watchAgain(o, s.signer!, s, applyFlow, { signal: s.abort?.signal, api: s.runner?.api })}>
+                      Watch for the payment again
+                    </button>
+                    <ForgetPocket label="Start over" confirm="I have not paid: start over" risk={forgetRisk(s)} onForget={() => resetSession(hash)} />
                   </div>
                 </>
               ) : (

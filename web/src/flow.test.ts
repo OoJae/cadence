@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, uploadTimeoutMs, type CadenceClient } from './api/client';
 import type { Offer } from './api/types';
-import { canRetrySigning, canRetryUpload, retrySigning, retryUpload, runMandate, type FlowState } from './flow';
+import { canRetrySigning, canRetryUpload, canWatchAgain, retrySigning, retryUpload, runMandate, watchAgain, type FlowState } from './flow';
 import type { Signer } from './signer/types';
 
 const offer = { offer_id: 'off_t', network: 'test', amount_zat: 100_000, count: 4, name: 'Weekly' } as unknown as Offer;
@@ -91,5 +91,28 @@ describe('signing again after a failed signing', () => {
     const patches: Partial<FlowState>[] = [];
     await retrySigning(offer, signer, paid, (p) => patches.push(p));
     expect(patches.at(-1)).toEqual({ phase: 'error', error: 'a signer worker failed' });
+  });
+});
+
+describe('watching again after the funding watch failed', () => {
+  const unpaid: FlowState = { phase: 'error', pocket: held.pocket, totalZat: 440_000, error: 'could not reach the runner' };
+
+  it('is offered for a pocket whose payment has not been seen', () => {
+    expect(canWatchAgain(unpaid)).toBe(true);
+    expect(canWatchAgain({ ...unpaid, funding: held.funding })).toBe(false);
+    expect(canWatchAgain({ ...unpaid, pocket: undefined })).toBe(false);
+  });
+
+  it('watches the same pocket for the same amount, then signs and uploads', async () => {
+    const funding = { txid: 'bb'.repeat(32), value_zat: 440_000, status: 'mined' as const, mined_height: 5 };
+    const sealed = [{ k: 1, release_round: 10, sealed: 'AAAA' }];
+    const signer = { awaitFunding: vi.fn(async () => funding), presign: vi.fn(async () => sealed) } as unknown as Signer;
+    const api = { createSubscription: vi.fn(async () => ({ subscription_id: 'sub_w', status: 'active' })) } as unknown as CadenceClient;
+    const patches: Partial<FlowState>[] = [];
+    await watchAgain(offer, signer, unpaid, (p) => patches.push(p), { api });
+    expect(signer.awaitFunding).toHaveBeenCalledWith(440_000, expect.anything());
+    expect(patches[0]).toEqual({ phase: 'funding', error: undefined });
+    expect(patches[1]).toEqual({ funding, phase: 'signing' });
+    expect(patches.at(-1)).toEqual({ subscriptionId: 'sub_w', phase: 'done' });
   });
 });
