@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, uploadTimeoutMs, type CadenceClient } from './api/client';
 import type { Offer } from './api/types';
-import { canRetryUpload, retryUpload, type FlowState } from './flow';
+import { canRetryUpload, retryUpload, runMandate, type FlowState } from './flow';
+import type { Signer } from './signer/types';
 
 const offer = { offer_id: 'off_t', network: 'test', amount_zat: 100_000, count: 4, name: 'Weekly' } as unknown as Offer;
 const held: FlowState = {
@@ -50,5 +51,15 @@ describe('uploads', () => {
     expect(canRetryUpload(held)).toBe(true);
     expect(canRetryUpload({ ...held, sealed: undefined })).toBe(false);
     expect(canRetryUpload({ ...held, subscriptionId: 'sub_t' })).toBe(false);
+  });
+});
+
+describe('a plan past the horizon', () => {
+  it('is refused before any pocket exists', async () => {
+    const signer = { createPocket: vi.fn() } as unknown as Signer;
+    const patches: Partial<FlowState>[] = [];
+    await runMandate({ ...offer, period_secs: 2_592_000, count: 3 }, signer, (p) => patches.push(p));
+    expect(signer.createPocket).not.toHaveBeenCalled();
+    expect(patches).toEqual([{ phase: 'error', error: expect.stringMatching(/cannot yet seal a payment due more than 45 days/) }]);
   });
 });

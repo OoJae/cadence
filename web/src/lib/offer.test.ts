@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Offer } from '../api/types';
 import { bytesToBase64url, utf8Encode } from './base64url';
 import { QUICKNET } from './drand';
-import { buildShareUrl, encodeOfferPayload, parseOfferFragment } from './offer';
+import { buildShareUrl, encodeOfferPayload, horizonProblem, lastReleaseAfter, maxCountWithinHorizon, MAX_HORIZON_DAYS, parseOfferFragment } from './offer';
 import { seededBech32 } from './prng';
 
 const offer: Offer = {
@@ -97,5 +97,47 @@ describe('offer fragment', () => {
 
   it('refuses schedules that exceed the money supply', () => {
     expect(problemsOf(frag({ ...offer, amount_zat: 1_000_000 * 1e8, count: 60 }))).toEqual(['amount_zat']);
+  });
+});
+
+describe('offer horizon', () => {
+  const DAY = 86400;
+  const plan = (period_secs: number, count: number) => ({ period_secs, count });
+
+  it('measures from signing to the last release: the first lead, then count - 1 periods', () => {
+    expect(lastReleaseAfter(plan(30 * DAY, 1))).toBe(60);
+    expect(lastReleaseAfter(plan(30 * DAY, 2))).toBe(30 * DAY + 60);
+    // A period under a minute is also the first release's lead.
+    expect(lastReleaseAfter(plan(20, 8))).toBe(8 * 20);
+  });
+
+  it(`refuses a plan whose last installment falls more than ${MAX_HORIZON_DAYS} days after signing`, () => {
+    expect(horizonProblem(plan(30 * DAY, 2))).toBeNull();
+    expect(horizonProblem(plan(30 * DAY, 3))).toMatch(/cannot yet seal a payment due more than 45 days after signing.*about 60 days/);
+    expect(horizonProblem(plan(7 * DAY, 7))).toBeNull();
+    expect(horizonProblem(plan(7 * DAY, 8))).toMatch(/Ask the merchant for a shorter plan/);
+    // The edge: 44 days and a minute passes, 45 days and a minute does not.
+    expect(horizonProblem(plan(DAY, 45))).toBeNull();
+    expect(horizonProblem(plan(DAY, 46))).toMatch(/falls due just over 45 days after/);
+    // One installment releases a minute after signing, whatever its period.
+    expect(horizonProblem(plan(366 * DAY, 1))).toBeNull();
+    // The sandbox's plans are minutes long.
+    expect(horizonProblem(plan(180, 4))).toBeNull();
+  });
+
+  it('says how many installments a period allows', () => {
+    expect(maxCountWithinHorizon(30 * DAY)).toBe(2);
+    expect(maxCountWithinHorizon(7 * DAY)).toBe(7);
+    expect(maxCountWithinHorizon(DAY)).toBe(45);
+    expect(maxCountWithinHorizon(366 * DAY)).toBe(1);
+    for (const period of [10, 90, 3600, DAY, 7 * DAY, 30 * DAY, 60 * DAY]) {
+      const n = maxCountWithinHorizon(period);
+      expect(horizonProblem(plan(period, n))).toBeNull();
+      expect(horizonProblem(plan(period, n + 1))).not.toBeNull();
+    }
+  });
+
+  it('parses an offer past the horizon (the plan step refuses it, saying why)', () => {
+    expect(parseOfferFragment(frag({ ...offer, count: 3 })).ok).toBe(true);
   });
 });

@@ -4,6 +4,7 @@
  */
 import { ApiError, type CadenceClient } from './api/client';
 import type { Offer, SealedInstallment } from './api/types';
+import { horizonProblem } from './lib/offer';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
 import { buildZip321Uri } from './lib/zip321';
 import { nowSecs } from './lib/time';
@@ -48,6 +49,9 @@ export async function runMandate(
   } = {},
 ): Promise<void> {
   try {
+    // Refused before any pocket exists: the signer could not seal it, and the payer would have paid.
+    const horizon = horizonProblem(offer);
+    if (horizon) throw new Error(horizon);
     update({ phase: 'pocket', error: undefined });
     const pocket = await signer.createPocket(offer.network);
     const totalZat = totalPrepaidZat(offer.amount_zat, offer.count);

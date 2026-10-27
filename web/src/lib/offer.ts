@@ -13,6 +13,7 @@ import type { Offer } from '../api/types';
 import { base64urlToBytes, bytesToBase64url, utf8Decode, utf8Encode } from './base64url';
 import { isAgeRecipient, isUnifiedAddress } from './addresses';
 import { QUICKNET } from './drand';
+import { firstReleaseLead } from './schedule';
 import { MAX_MONEY_ZAT, totalPrepaidZat } from './zat';
 
 export const OFFER_PARAM = 'offer';
@@ -121,6 +122,35 @@ export function validateOffer(x: unknown): OfferParse {
       drand_chain: o.drand_chain as string,
     },
   };
+}
+
+/**
+ * How far after signing the last installment may fall due. Each installment is sealed
+ * as a ladder with one rung per candidate height, and the ladder grows with how far out
+ * the payment is: past about 53 days it no longer fits the sealed package's 64 MiB
+ * plaintext cap (crates/cadence-seal/src/seal.rs), and signing fails after the payer
+ * has paid. So the app refuses, before any pocket or QR, a plan that reaches past this.
+ */
+export const MAX_HORIZON_DAYS = 45;
+const MAX_HORIZON_SECS = MAX_HORIZON_DAYS * 86400;
+
+/** Seconds from signing to the last installment's release: the first release's lead, then count - 1 periods. */
+export function lastReleaseAfter(offer: Pick<Offer, 'period_secs' | 'count'>): number {
+  return firstReleaseLead(offer.period_secs) + (offer.count - 1) * offer.period_secs;
+}
+
+/** The most installments a plan with this period can have and still end within the horizon (at least 1). */
+export function maxCountWithinHorizon(periodSecs: number): number {
+  return Math.max(1, Math.floor((MAX_HORIZON_SECS - firstReleaseLead(periodSecs)) / periodSecs) + 1);
+}
+
+/** Why Cadence cannot sign this plan yet (its last installment is too far out), or null. */
+export function horizonProblem(offer: Pick<Offer, 'period_secs' | 'count'>): string | null {
+  const after = lastReleaseAfter(offer);
+  if (after <= MAX_HORIZON_SECS) return null;
+  const days = after / 86400;
+  const when = days < MAX_HORIZON_DAYS + 1 ? `just over ${MAX_HORIZON_DAYS}` : `about ${Math.round(days)}`;
+  return `Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after signing, and this plan's last installment falls due ${when} days after you would sign. Ask the merchant for a shorter plan: fewer installments, or a shorter period.`;
 }
 
 /** The base64url payload for `#offer=`. Field order is fixed so links are stable. */

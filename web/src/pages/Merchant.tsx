@@ -7,7 +7,7 @@ import { Badge, Callout, CopyButton, Countdown, ErrorNote, PageHead, Spinner, St
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundAt } from '../lib/drand';
-import { LIMITS, parseOfferFragment } from '../lib/offer';
+import { horizonProblem, LIMITS, MAX_HORIZON_DAYS, maxCountWithinHorizon, parseOfferFragment } from '../lib/offer';
 import { formatDate, formatPeriod } from '../lib/time';
 import { formatZec, parseZecToZat, totalPrepaidZat, unitFor, INSTALLMENT_FEE_ZAT } from '../lib/zat';
 import { Link } from '../router';
@@ -187,7 +187,8 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
   const [amount, setAmount] = useState('0.005');
   const [period, setPeriod] = useState(2592000);
   const [customPeriod, setCustomPeriod] = useState('60');
-  const [count, setCount] = useState('3');
+  // Two months, not three: the last installment must fall due within the signer's horizon.
+  const [count, setCount] = useState('2');
   const [ua, setUa] = useState(mockHooks?.demoMerchantUa ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
@@ -203,6 +204,11 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
   if (amountZat === null || amountZat < 1) problems.amount = 'A positive amount with at most 8 decimals.';
   if (!Number.isSafeInteger(periodSecs) || periodSecs < LIMITS.periodMin || periodSecs > LIMITS.periodMax) problems.period = `Between ${LIMITS.periodMin} seconds and 366 days.`;
   if (!Number.isSafeInteger(countN) || countN < LIMITS.countMin || countN > LIMITS.countMax) problems.count = `Between ${LIMITS.countMin} and ${LIMITS.countMax}.`;
+  const periodOk = !problems.period;
+  const maxCount = periodOk ? maxCountWithinHorizon(periodSecs) : null;
+  if (!problems.count && periodOk && horizonProblem({ period_secs: periodSecs, count: countN })) {
+    problems.count = `At most ${maxCount} ${formatPeriod(periodSecs)}: Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after the payer signs.`;
+  }
   const uaProblem = merchantUaProblem(ua.trim(), network);
   if (uaProblem) problems.ua = uaProblem;
   const valid = Object.keys(problems).length === 0;
@@ -256,7 +262,13 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
           <div className="field">
             <label htmlFor="o-count">Installments</label>
             <input id="o-count" className="input mono" inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value)} aria-invalid={!!show('count')} />
-            {show('count') && <span className="error-text">{show('count')}</span>}
+            {show('count') ? (
+              <span className="error-text">{show('count')}</span>
+            ) : (
+              <span className="hint">
+                The last must fall due within {MAX_HORIZON_DAYS} days of signing{maxCount ? `: at most ${maxCount} ${formatPeriod(periodSecs)}` : ''}.
+              </span>
+            )}
           </div>
         </div>
         <div className="field">

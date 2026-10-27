@@ -10,7 +10,7 @@ import { Badge, Callout, CopyButton, ErrorNote, Round, Spinner, StatusBadge } fr
 import { canRetryUpload, retryUpload, runMandate, type FlowState } from '../flow';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
-import { encodeOfferPayload, parseOfferFragment } from '../lib/offer';
+import { encodeOfferPayload, horizonProblem, parseOfferFragment } from '../lib/offer';
 import { planSchedule } from '../lib/schedule';
 import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
@@ -74,6 +74,8 @@ function resetSession(hash: string) {
 function start(offer: Offer, runner: Runner) {
   const s = session.get();
   if (s.phase !== 'idle' && s.phase !== 'error') return;
+  // The plan step offers no way to start such a plan; this is the backstop.
+  if (horizonProblem(offer)) return;
   s.signer?.destroy();
   const signer = createSigner(runner.api);
   const abort = new AbortController();
@@ -136,6 +138,7 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
   const now = useNow();
   const schedule = useMemo(() => planSchedule(offer, Math.floor(now / 10) * 10), [offer, Math.floor(now / 10)]);
   const total = totalPrepaidZat(offer.amount_zat, offer.count);
+  const horizon = horizonProblem(offer);
   return (
     <div className="stack" style={{ ['--gap' as string]: '22px' }}>
       <div>
@@ -212,6 +215,8 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
 
       {verified.status === 'bad' ? (
         <Callout kind="danger">{verified.message}</Callout>
+      ) : horizon ? (
+        <Callout kind="danger">{horizon}</Callout>
       ) : (
         <div className="stack" style={{ ['--gap' as string]: '10px' }}>
           <button type="button" className="btn primary lg" onClick={() => verified.runner && start(offer, verified.runner)} disabled={verified.status !== 'ok'}>
