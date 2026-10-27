@@ -4,6 +4,8 @@
 
 **Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is the independent app host, which shows its commit and bundle hash in the footer. The same app is also served by the runner at [sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox).
 
+**Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), signed two weeks before the upgrade, will be the first after NU7.
+
 **The 60-second judge path.** Starting takes a minute; the run then finishes on its own in several minutes of testnet blocks.
 
 1. Open the [sandbox](https://app-production-be97.up.railway.app/sandbox) and press **Create mandate and auto-fund**. The faucet pays a fresh pocket, and once that payment is mined your browser signs and seals all three installments and uploads them.
@@ -73,7 +75,7 @@ The runner software **cannot**:
 
 It also **checks every schedule it accepts**: the offer's count, a pocket funded for all of it, and installments that follow the offer's period, so a payer cannot stretch a plan. And it **checks every package before it broadcasts**: an installment goes out only if it pays the merchant exactly the offer's amount, with the default expiry for its height. When a subscription ends, the runner deletes the pocket's account, viewing key, funding transaction and sealed packages, with SQLite `secure_delete` on.
 
-## Status (Oct 26, 2026)
+## Status (Oct 27, 2026)
 
 | Milestone | Result |
 |---|---|
@@ -82,8 +84,8 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
 | Full service on testnet: offer → subscribe → fund → drand release → mined, cancel, and a run over Tor | ✅ [`evidence/E2E-service-testnet.md`](evidence/E2E-service-testnet.md) |
 | Public sandbox on Railway, signed in the browser with the WASM signer, cheats tried against the live runner | ✅ [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md) |
 | Upload check that refuses a stretched schedule; webhooks with Cadence and CipherPay signatures | ✅ in the code, with unit tests (`cargo test -p cadence-runner`) |
-| Web app on an app host the merchant does not control, with its build identity in the footer | Live at https://app-production-be97.up.railway.app (`VITE_API=runners`, `deploy/railway-app/`) |
-| Mainnet run funded from Zodl | ⏳ |
+| Web app on an app host of its own, separate from the runners, with its build identity in the footer | Live at https://app-production-be97.up.railway.app (`VITE_API=runners`, `deploy/railway-app/`) |
+| Mainnet run funded from Zodl | ✅ [`evidence/mainnet.md`](evidence/mainnet.md): a 3-payment short run, each payment mined in its target block, and a weekly mandate paying through judging |
 
 ## Evidence
 
@@ -95,6 +97,7 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
   - unreadable from its outgoing ciphertexts: 0 outputs open with the zero OVK, and 0 with the pocket's own OVKs.
 - **The service, testnet:** [`evidence/E2E-service-testnet.md`](evidence/E2E-service-testnet.md). A subscription runs to completion with the real runner and the CLI; a cancel stops it, and the cancel transaction decodes with 0 outputs recoverable under the pocket's own keys; in a third run the runner's sync, drand fetch and broadcasts all go over Tor.
 - **The public sandbox, testnet:** [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md). Three installments signed in a clean browser and released by the Railway runner; open-early and tamper attempts refused by the live runner. A first run showed a timing tell (installments mined 5 and 11 blocks after their targets); the runner now releases in the tick that opens each package, and the re-run, driven from the independent app host, landed 1 to 3 blocks after target with all four cheats refused.
+- **Mainnet:** [`evidence/mainnet.md`](evidence/mainnet.md). Two mandates subscribed from Zodl through the app host on Oct 27. Every structural field of a Cadence installment matches the payer's own Zodl send: v6, 2 Ironwood actions, the standard fee and proof, 0 transparent, 0 readable with the zero OVK. The weekly one keeps paying through judging.
 - **Fingerprint, mainnet sample:** 200 blocks (3,526,581–3,526,780) in [`evidence/fingerprint-mainnet-sample.json`](evidence/fingerprint-mainnet-sample.json).
   - The class "v6, Ironwood-only, 2 actions" is the most common shielded shape: 168 of 521 Orchard-family transactions.
   - Fee, flags, lock time, proof size and branch are identical across 100% of that class.

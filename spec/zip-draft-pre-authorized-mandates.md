@@ -720,12 +720,12 @@ This ZIP needs no consensus change. It requires:
 - a lightwalletd that serves Ironwood tree states;
 - drand quicknet.
 
-Status as of 2026-10-26:
+Status as of 2026-10-27:
 
 - On NU7 testnet, a view-only Runner has released three chained installments (`evidence/S2-testnet.md`).
 - The full service has run on NU7 testnet: subscribe, release, completion, cancellation, and a run with everything over Tor (`evidence/E2E-service-testnet.md`).
 - A public sandbox Runner on Railway has released three installments signed in a browser by the WASM signer, and refused early-opening and tampering attempts (`evidence/railway-sandbox.md`).
-- A mainnet run has not been done.
+- On Mainnet, two Mandates were funded from Zodl and signed in a browser: a three-installment run whose installments each mined in their target block, and a weekly Mandate whose third installment, already signed, will be the first after NU7 (`evidence/mainnet.md`).
 
 **NU7.** Windows may straddle activation, because each rung is signed with the branch for its own target height. The S1 test checks identical actions on both sides. A pre-NU7 rung that is broadcast but not mined by height 3,543,404 is dead at activation. A Runner SHOULD treat such a rung as expired at activation rather than waiting for its expiry, which for the last pre-NU7 rung (target 3,543,394, expiry 3,543,434) is 30 blocks, about 12.5 minutes, later. [impl: `service.rs::branch_passed` moves it back to `due` as soon as branch(tip + 1) differs from branch(*T*).]
 
