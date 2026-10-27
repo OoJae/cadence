@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BUILD_INFO_FILE, type BuildInfo } from '../config/buildInfo';
 import { usePoll } from '../hooks';
 import { shorten } from '../lib/addresses';
 import { Link, useLocation } from '../router';
 import { api, apiLabel, apiSetting, connectTargets, isMock, loadBuildInfo, mockHooks } from '../runtime';
 import { Logo, MoonIcon, SunIcon } from './Icons';
-import { CopyButton } from './ui';
+import { Callout, CopyButton } from './ui';
 
 type Theme = 'dark' | 'light';
 
@@ -212,7 +212,43 @@ export function Footer() {
   );
 }
 
+/**
+ * A page that throws while rendering (say, on a runner value it did not expect) shows
+ * the error inside the layout, so the header, the footer and the other pages stay up.
+ * "Try again" renders the page afresh; another page starts clean. The session stores
+ * live outside the page components, so a /subscribe pocket key survives either.
+ */
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown): { error: Error } {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  override render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div className="page container narrow">
+        <Callout kind="danger">
+          <div className="stack" style={{ ['--gap' as string]: '10px' }}>
+            <strong>This page stopped on an error.</strong>
+            <span className="small mono" style={{ overflowWrap: 'anywhere' }}>
+              {error.message || error.name}
+            </span>
+            <span className="small">Nothing was sent anywhere because of it. Anything this tab holds, such as a pocket key, is still in its memory.</span>
+            <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => this.setState({ error: null })}>
+              Try again
+            </button>
+          </div>
+        </Callout>
+      </div>
+    );
+  }
+}
+
 export function Shell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
   return (
     <>
       {/* The href serves no-JS readers. With JS, focus moves without touching the hash:
@@ -230,7 +266,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <Header />
       <MockBanner />
       <main id="main" tabIndex={-1}>
-        {children}
+        <PageBoundary key={pathname}>{children}</PageBoundary>
       </main>
       <Footer />
       {/* The pulled rung: router.tsx sweeps it up the screen during a page change. */}
