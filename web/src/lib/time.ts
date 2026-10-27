@@ -27,6 +27,7 @@ export function formatRelative(deltaSecs: number): string {
   return future ? `in ${text}` : `${text} ago`;
 }
 
+/** "3 Nov, 17:00:27 UTC": in the viewer's own time zone, named, since a payer may compare it with another device. */
 export function formatDateTime(unixSecs: number): string {
   return new Date(unixSecs * 1000).toLocaleString('en-GB', {
     day: 'numeric',
@@ -34,6 +35,7 @@ export function formatDateTime(unixSecs: number): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZoneName: 'short',
   });
 }
 
