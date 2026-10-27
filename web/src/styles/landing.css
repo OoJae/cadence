@@ -1,1 +1,1218 @@
-/* landing.css: see the redesign plan. */
+/* ============================================================================
+   The landing: a scroll story over a sticky 2.5D stage (testnet run 1's ladders).
+   Passages scroll up the left six columns while the stage holds the right side;
+   below 960 px the stage becomes a background the passages scroll over.
+   Hidden and pre-animation states live only under html.motion-ok.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- Lenis
+   node_modules/lenis/dist/lenis.css (1.3.27), copied verbatim: never @import. */
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+
+.lenis [data-lenis-prevent],
+.lenis [data-lenis-prevent-wheel],
+.lenis [data-lenis-prevent-touch],
+.lenis [data-lenis-prevent-vertical],
+.lenis [data-lenis-prevent-horizontal] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+.lenis.lenis-autoToggle {
+  transition-property: overflow;
+  transition-duration: 1ms;
+  transition-behavior: allow-discrete;
+}
+
+/* ---------------------------------------------------------------- grid */
+
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--grid-gap);
+  width: 100%;
+  max-width: var(--maxw-wide);
+  margin-inline: auto;
+  padding-inline: var(--margin);
+}
+
+.landing {
+  --header-h: 64px;
+  --stage-h: min(100svh, 1000px);
+  font-size: var(--fs-body);
+  /* clip, never hidden: hidden would make this a scroll container and break sticky. */
+  overflow-x: clip;
+}
+@media (max-width: 860px) {
+  .landing {
+    --header-h: 102px;
+  }
+}
+
+.landing .kicker {
+  font-size: var(--fs-label);
+  align-items: baseline;
+}
+/* When a kicker wraps, its rule stays with the first line. */
+.landing .kicker::before {
+  flex-shrink: 0;
+  transform: translateY(-0.32em);
+}
+
+.story {
+  position: relative;
+  overflow-x: clip;
+}
+
+/* ---------------------------------------------------------------- the stage */
+
+/* Behind the passages for the length of the story, taking no room in it. The layer sticks
+   inside the track, so it leaves with the story's last passage instead of overlaying the
+   next section (a sticky box with a negative margin outstays its container). */
+.stage-track {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.stage-layer {
+  position: sticky;
+  top: 0;
+  height: var(--stage-h);
+}
+
+.stage-frame {
+  position: relative;
+  overflow: clip;
+}
+/* Columns 7 to 12, bleeding past the right margin to the window's edge. Fog is a mask,
+   not a painted gradient, so the page's grain runs on unbroken behind the ladders. */
+.stage-layer > .stage-frame {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: calc(max(0px, (100% - var(--maxw-wide)) / 2) + var(--margin) + (min(100%, var(--maxw-wide)) - 2 * var(--margin)) / 2 + var(--grid-gap) / 2);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16%);
+}
+/* Narrow desktops: from column 8, so the hero's headline keeps clear of the first ladder. */
+@media (min-width: 960px) and (max-width: 1279px) {
+  .stage-layer > .stage-frame {
+    left: calc(max(0px, (100% - var(--maxw-wide)) / 2) + var(--margin) + (min(100%, var(--maxw-wide)) - 2 * var(--margin)) * 7 / 12 + var(--grid-gap) * 7 / 12);
+  }
+}
+/* From 1280 px the drand rail owns the right margin: the drawing fades out before it. */
+@media (min-width: 1280px) {
+  .stage-layer > .stage-frame {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, transparent calc(var(--margin) * 0.6), #000 calc(var(--margin) + 40px));
+    mask-image: linear-gradient(to bottom, transparent 0, #000 16%), linear-gradient(to left, transparent 0, transparent calc(var(--margin) * 0.6), #000 calc(var(--margin) + 40px));
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+}
+
+.stage-camera {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.stage-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.stage-svg .rails rect,
+.stage-svg .tower-rail {
+  fill: var(--text);
+}
+.stage-svg .rungs {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1;
+  stroke-opacity: 0.6;
+}
+.stage-svg .tower-rung {
+  fill: var(--text);
+  fill-opacity: 0.6;
+}
+.stage-svg .sheath {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1;
+  stroke-opacity: 0.4;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.stage-svg .tip-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.stage-svg .hollow-rails line {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.stage-svg .rung {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* The only amber on the stage. */
+.stage-svg .rung-amber rect {
+  fill: var(--accent-graphic);
+}
+.stage-svg .rung-past rect {
+  fill: var(--text);
+}
+
+.stage-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+.stage-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: clip;
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-size: var(--fs-label);
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-align: center;
+  white-space: pre;
+}
+.stage-label.vertical {
+  transform-origin: 0 0;
+}
+.stage-label.caption {
+  width: max-content;
+  max-width: min(46ch, 88vw);
+  white-space: normal;
+  text-wrap: balance;
+  color: var(--faint);
+}
+.label-inner {
+  display: block;
+}
+
+/* The drand rail, in the right margin from 1280 px; rotated to read down the page. */
+.round-rail {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-size: var(--fs-label);
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.round-rail .rail-label {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.round-rail .rail-round {
+  color: var(--text);
+}
+.round-rail .rail-foot {
+  display: block;
+  color: var(--faint);
+}
+.round-rail.rail {
+  display: none;
+}
+@media (min-width: 1280px) {
+  .round-rail.rail {
+    display: grid;
+    gap: 6px;
+    position: absolute;
+    top: 50%;
+    right: calc(var(--margin) / 2 + max(0px, (100% - var(--maxw-wide)) / 2));
+    transform: translate(50%, -50%) rotate(90deg);
+    white-space: nowrap;
+  }
+  /* The line in the hero stays for screen readers; the rail is the one people see. */
+  .round-rail.line {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.odometer {
+  display: inline-flex;
+}
+.odo-slot {
+  position: relative;
+  display: inline-block;
+  width: 1ch;
+  height: 1.35em;
+  overflow: clip;
+  vertical-align: bottom;
+}
+.odo-char {
+  display: block;
+  text-align: center;
+}
+.odo-char.out {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+html.motion-ok .odo-char.out {
+  animation: odo-out var(--dur-roll) var(--ease-toggle) both;
+}
+html.motion-ok .odo-char.in {
+  animation: odo-in var(--dur-roll) var(--ease-toggle) both;
+}
+@keyframes odo-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-100%);
+  }
+}
+@keyframes odo-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ---------------------------------------------------------------- reveals */
+
+/* Masks for lines: room above and below so ascenders and italic descenders aren't clipped. */
+.line {
+  display: block;
+  overflow: clip;
+  padding-block: 0.1em 0.14em;
+  margin-block: -0.1em -0.14em;
+}
+.line-inner {
+  display: block;
+}
+
+html.motion-ok [data-reveal='lines'][data-reveal-state='pending'] .line-inner {
+  opacity: 0;
+  transform: translateY(115%);
+}
+[data-reveal='lines'][data-reveal-state='in'] .line-inner {
+  transition:
+    transform var(--dur-reveal) var(--ease-reveal),
+    opacity var(--dur-reveal) var(--ease-reveal);
+  transition-delay: calc(var(--reveal-delay, 0ms) + var(--i, 0) * var(--stagger));
+}
+
+html.motion-ok [data-reveal='rise'][data-reveal-state='pending'],
+html.motion-ok [data-reveal='draw'][data-reveal-state='pending'] .chain-count,
+html.motion-ok [data-reveal='draw'][data-reveal-state='pending'] .chain-legend {
+  opacity: 0;
+  transform: translateY(12px);
+}
+[data-reveal='rise'][data-reveal-state='in'],
+[data-reveal='draw'][data-reveal-state='in'] .chain-count,
+[data-reveal='draw'][data-reveal-state='in'] .chain-legend {
+  transition:
+    opacity var(--dur-reveal) var(--ease-reveal),
+    transform var(--dur-reveal) var(--ease-reveal);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+html.motion-ok [data-reveal='draw'][data-reveal-state='pending'] .chain-strip {
+  transform: scaleX(0);
+}
+[data-reveal='draw'][data-reveal-state='in'] .chain-strip {
+  transition: transform var(--dur-reveal-l) var(--ease-reveal) var(--stagger-loose);
+}
+
+/* The hero enters once the display face is ready: done in 1.2 s. */
+html.motion-ok .story[data-enter='pending'] .hero-kicker,
+html.motion-ok .story[data-enter='pending'] .hero .round-rail {
+  opacity: 0;
+}
+html.motion-ok .story[data-enter='pending'] .hero-title .line-inner {
+  opacity: 0;
+  transform: translateY(115%);
+}
+html.motion-ok .story[data-enter='pending'] .hero-lede,
+html.motion-ok .story[data-enter='pending'] .hero-cta,
+html.motion-ok .story[data-enter='pending'] .hero-foot {
+  opacity: 0;
+  transform: translateY(12px);
+}
+html.motion-ok .story[data-enter='pending'] .stage-frame {
+  opacity: 0;
+}
+.story[data-enter='run'] .hero-kicker,
+.story[data-enter='run'] .hero .round-rail {
+  transition: opacity 0.6s var(--ease-reveal);
+}
+.story[data-enter='run'] .hero-title .line-inner {
+  transition:
+    transform var(--dur-page) var(--ease-reveal),
+    opacity var(--dur-page) var(--ease-reveal);
+  transition-delay: calc(var(--i, 0) * var(--stagger));
+}
+.story[data-enter='run'] .hero-lede,
+.story[data-enter='run'] .hero-cta,
+.story[data-enter='run'] .hero-foot {
+  transition:
+    opacity var(--dur-reveal) var(--ease-reveal) 0.3s,
+    transform var(--dur-reveal) var(--ease-reveal) 0.3s;
+}
+.story[data-enter='run'] .stage-frame {
+  transition: opacity var(--dur-reveal-l) var(--ease-reveal) 0.2s;
+}
+
+/* ---------------------------------------------------------------- passages */
+
+.beat {
+  position: relative;
+  z-index: 1;
+  scroll-margin-top: var(--header-h);
+}
+.beat:focus {
+  outline: none;
+}
+.beat > .grid-12 {
+  min-height: min(92svh, 920px);
+  align-content: center;
+  padding-block: clamp(72px, 12vh, 140px);
+}
+
+/* Headlines may run into column 7; running text keeps to about five columns. */
+.beat-body {
+  grid-column: 1 / span 7;
+  display: grid;
+  gap: var(--s-5);
+  align-content: center;
+}
+
+.beat-title,
+.hero-title,
+.closing-line,
+.hold-line {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  font-weight: 400;
+  margin: 0;
+}
+.beat-title em,
+.hero-title em,
+.closing-line em,
+.hold-line em {
+  font-size: 1em;
+  color: inherit;
+}
+
+.beat-title {
+  font-size: var(--fs-d1);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.beat-text {
+  max-width: 34rem;
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.beat-text.prose p + p {
+  margin-top: 0.9em;
+}
+
+/* ---------------------------------------------------------------- hero */
+
+.hero > .grid-12 {
+  min-height: calc(var(--stage-h) - var(--header-h));
+  grid-template-rows: 1fr auto;
+  padding-block: clamp(40px, 7vh, 88px) 0;
+}
+/* The mock-mode banner sits above the fold too. */
+html:has(.mock-banner) .hero > .grid-12 {
+  min-height: calc(var(--stage-h) - var(--header-h) - 42px);
+}
+
+/* The headline is the thesis: it runs across the stage's first columns, clear of the ladders. */
+.hero-text {
+  grid-column: 1 / span 9;
+  align-self: center;
+  display: grid;
+  justify-items: start;
+  gap: var(--s-5);
+}
+.hero .round-rail.line {
+  margin-bottom: var(--s-2);
+}
+.hero-title {
+  font-size: var(--fs-hero);
+  line-height: 0.92;
+  letter-spacing: -0.025em;
+  margin-block: var(--s-2) var(--s-3);
+}
+.hero-lede {
+  max-width: 31rem;
+  font-size: var(--fs-lede);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.hero-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4) var(--s-6);
+  flex-wrap: wrap;
+  margin-top: var(--s-7);
+  padding-block: var(--s-4);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+.fact-strip {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero';
+  font-size: var(--fs-label);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.scroll-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.scroll-cue:hover {
+  color: var(--text);
+}
+.scroll-cue .cue-arrow {
+  transform: rotate(90deg);
+  transition: transform var(--dur-roll) var(--ease-reveal);
+}
+.scroll-cue:hover .cue-arrow {
+  transform: translateY(2px) rotate(90deg);
+}
+
+/* ---------------------------------------------------------------- the gap */
+
+.compare-plate {
+  grid-column: 1 / -1;
+  margin-top: var(--s-8);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+.compare-table caption {
+  caption-side: top;
+  text-align: left;
+  padding: 18px 18px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.compare-table th[scope='row'] {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  color: var(--text-2);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.compare-table tr:last-child th[scope='row'] {
+  border-bottom: 0;
+}
+.compare-table thead th {
+  padding-inline: 18px;
+}
+.compare-table td {
+  padding: 14px 18px;
+}
+.compare-table .yes,
+.compare-table .no {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.compare-table .yes {
+  color: var(--text);
+}
+.compare-table .no,
+.compare-table .meh {
+  color: var(--muted);
+}
+.compare-table th.hl {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.compare-table th.hl,
+.compare-table td.hl {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  box-shadow:
+    inset 1px 0 0 var(--line-strong),
+    inset -1px 0 0 var(--line-strong);
+}
+
+@media (max-width: 700px) {
+  .compare-table thead {
+    display: none;
+  }
+  table.data.compare-table,
+  table.data.compare-table tbody,
+  table.data.compare-table th,
+  table.data.compare-table td {
+    display: block;
+    width: 100%;
+  }
+  .compare-table caption {
+    display: block;
+  }
+  table.data.compare-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px 14px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .compare-table tr:last-child {
+    border-bottom: 0;
+  }
+  table.data.compare-table th[scope='row'] {
+    grid-column: 1 / -1;
+    order: -2;
+    padding: 0;
+    border: 0;
+    font-size: 15px;
+    color: var(--text);
+  }
+  table.data.compare-table td {
+    padding: 0;
+    border: 0;
+  }
+  /* The Cadence answer first, then the others. */
+  table.data.compare-table td.hl {
+    grid-column: 1 / -1;
+    order: -1;
+    padding: 10px 12px;
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    border-radius: var(--r-0);
+  }
+  .compare-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
+
+/* ---------------------------------------------------------------- signing, sealing, hold */
+
+.count {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-4) 0 0;
+}
+.count-n {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-weight: 250;
+  font-size: var(--fs-figure);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--text);
+}
+.count figcaption {
+  max-width: 26ch;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.beat-body.tower {
+  grid-row: 2;
+  min-height: min(70svh, 700px);
+}
+.footnote {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.02em;
+  color: var(--faint);
+}
+
+.closing-line {
+  margin-top: var(--s-7);
+  font-size: var(--fs-d1);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.hold > .grid-12 {
+  min-height: min(70svh, 700px);
+}
+.hold .beat-body {
+  gap: var(--s-3);
+}
+.hold-line {
+  font-size: var(--fs-d2);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.hold-line.still {
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- release */
+
+.release-caption {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-size: var(--fs-small);
+  line-height: 1.7;
+  color: var(--muted);
+  padding-left: var(--s-4);
+  border-left: 1px solid var(--line-strong);
+}
+.release-caption .line:first-child {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- refusals */
+
+.refusals {
+  display: grid;
+  gap: var(--s-4);
+  width: 100%;
+  max-width: 34rem;
+}
+.refusal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.refusal {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 56px;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-control);
+  border-radius: var(--r-0);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-micro) var(--ease-toggle),
+    background-color var(--dur-micro) var(--ease-toggle),
+    transform var(--dur-press) var(--ease-toggle);
+}
+.refusal:hover {
+  border-color: var(--muted);
+}
+.refusal:active {
+  transform: scale(0.98);
+}
+.refusal[aria-pressed='true'] {
+  border-color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, var(--bg));
+}
+.refusal-mark {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--muted);
+  transition:
+    background-color var(--dur-micro) var(--ease-toggle),
+    border-color var(--dur-micro) var(--ease-toggle);
+}
+.refusal[aria-pressed='true'] .refusal-mark {
+  background: var(--text);
+  border-color: var(--text);
+}
+
+.refusal-status {
+  min-height: 6.5em;
+  padding-top: var(--s-2);
+}
+.refusal-idle {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.stamp {
+  display: grid;
+  justify-items: start;
+  gap: var(--s-3);
+}
+.stamp-layer {
+  padding: 3px 9px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-0);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+  transform-origin: left center;
+}
+.stamp-text {
+  color: var(--text-2);
+}
+html.motion-ok .stamp-layer {
+  animation: stamp var(--dur-roll) var(--ease-reveal) both;
+}
+html.motion-ok .stamp-text {
+  animation: rise var(--dur-reveal) var(--ease-reveal) 0.08s both;
+}
+@keyframes stamp {
+  from {
+    opacity: 0;
+    transform: scale(1.06) rotate(-2deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------- cancel: the certificate */
+
+.cert-specimen {
+  width: 100%;
+  max-width: 34rem;
+  margin: var(--s-4) 0 0;
+}
+.cert-paper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  border-radius: var(--r-1);
+  background: var(--certificate);
+  color: var(--certificate-ink);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--certificate-ink) 10%, transparent);
+  overflow: clip;
+}
+.cert-body {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-6) var(--s-6) var(--s-5);
+}
+.cert-rosette {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  right: -56px;
+  width: 280px;
+  height: 280px;
+  transform: translateY(-50%);
+  color: var(--certificate-ink);
+  opacity: 0.16;
+}
+.cert-kind {
+  margin-bottom: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--certificate-ink) 66%, var(--certificate));
+}
+.cert-lead {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-size: clamp(1.375rem, 1.15rem + 0.7vw, 1.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.cert-line {
+  margin-top: var(--s-2);
+  font-size: 14px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--certificate-ink) 80%, var(--certificate));
+}
+.cert-tx {
+  margin-top: var(--s-3);
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero';
+  font-size: 12px;
+  color: color-mix(in srgb, var(--certificate-ink) 70%, var(--certificate));
+}
+/* The stub: a counterfoil past a row of punched holes (2.5 px, 10 px apart). */
+.cert-stub {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-left: 1px dashed color-mix(in srgb, var(--certificate-ink) 18%, transparent);
+}
+.cert-stub::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 10px;
+  background: radial-gradient(circle, var(--bg) 2.5px, transparent 3px) center top / 10px 10px repeat-y;
+}
+.cert-stub span {
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--certificate-ink) 66%, var(--certificate));
+}
+.cert-foot {
+  margin-top: var(--s-3);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- on chain */
+
+.chain,
+.small-print,
+.close {
+  position: relative;
+  padding-block: var(--space-section);
+  border-top: 1px solid var(--line);
+}
+.chain-head,
+.chain-foot {
+  grid-column: 1 / span 6;
+  display: grid;
+  gap: var(--s-5);
+  justify-items: start;
+}
+.chain-figure {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--s-4);
+  margin: var(--s-8) 0 var(--s-7);
+}
+.chain-count {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero', 'tnum';
+  font-weight: 250;
+  font-size: var(--fs-figure);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.chain-of {
+  color: var(--muted);
+}
+.chain-strip {
+  display: block;
+  width: 100%;
+  height: clamp(72px, 9vw, 128px);
+  transform-origin: left center;
+}
+.chain-strip path {
+  fill: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.chain-strip .same {
+  stroke: var(--text);
+}
+.chain-strip .rest {
+  stroke: var(--muted);
+  stroke-opacity: 0.25;
+}
+.chain-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- small print */
+
+.sp-head {
+  grid-column: 1 / span 7;
+  display: grid;
+  gap: var(--s-5);
+  justify-items: start;
+  margin-bottom: var(--s-8);
+}
+.sp-lists {
+  grid-column: 1 / span 7;
+  display: grid;
+  gap: var(--s-7);
+  align-content: start;
+}
+.sp-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-6);
+}
+.sp-aside {
+  grid-column: 9 / -1;
+  grid-row: 2;
+}
+.sp-sticky {
+  position: sticky;
+  top: calc(var(--header-h) + var(--s-6));
+}
+.sp-title {
+  margin: 0;
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sp-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+  padding-block: var(--s-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.sp-list li > svg {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.sp-list strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.note-tag {
+  margin-top: 1px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 50%, transparent);
+  border-radius: var(--r-0);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.sp-aside .learn {
+  background: var(--surface);
+}
+
+/* ---------------------------------------------------------------- close */
+
+.close-body {
+  grid-column: 2 / span 10;
+  display: grid;
+  justify-items: center;
+  gap: var(--s-5);
+  text-align: center;
+}
+.close-body .beat-text {
+  max-width: 36rem;
+}
+.close-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+.close-manage {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  text-underline-offset: 4px;
+}
+.close-manage:hover {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- the release, as a specimen (/brand) */
+
+.release-specimen {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+}
+.release-specimen .stage-frame {
+  height: clamp(320px, 46vw, 560px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+/* ---------------------------------------------------------------- below 960 px: the stage behind */
+
+@media (max-width: 959px) {
+  /* The stage is the whole screen from the first frame, so the ladders rise from its
+     bottom edge rather than from under the header. */
+  .stage-track {
+    top: calc(-1 * var(--stage-h));
+  }
+  .stage-layer > .stage-frame {
+    --stage-layout: narrow;
+    left: 0;
+  }
+  .stage-layer .stage-label {
+    font-size: 10px;
+  }
+  .stage-layer > .stage-frame {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 30%);
+  }
+
+  .beat-body,
+  .hero-text,
+  .chain-head,
+  .chain-foot,
+  .sp-head,
+  .sp-lists,
+  .sp-aside,
+  .close-body {
+    grid-column: 1 / -1;
+  }
+
+  /* Passages scroll over the ladders on plates of the ground colour. */
+  .beat-body,
+  .hero-text,
+  .hero-foot {
+    margin-inline: calc(-1 * var(--margin));
+    padding-inline: var(--margin);
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+  }
+  .beat-body {
+    padding-block: var(--s-6);
+  }
+  .beat > .grid-12 {
+    min-height: min(100svh, 1000px);
+    padding-block: min(30svh, 300px);
+  }
+  .hold > .grid-12 {
+    min-height: min(70svh, 700px);
+  }
+
+  /* Text, then a window onto the ladders with the amber rung above the fold, then the facts. */
+  .hero > .grid-12 {
+    min-height: calc(var(--stage-h) - var(--header-h) + 72px);
+    grid-template-rows: auto 1fr auto;
+    padding-block: 0;
+  }
+  html:has(.mock-banner) .hero > .grid-12 {
+    min-height: calc(var(--stage-h) - var(--header-h) + 72px);
+  }
+  .hero-text {
+    align-self: start;
+    padding-block: var(--s-4);
+    gap: var(--s-3);
+  }
+  .hero-title {
+    margin-block: var(--s-1) var(--s-2);
+  }
+  .hero-foot {
+    grid-row: 3;
+    margin-top: 0;
+    padding-block: var(--s-4) var(--s-5);
+  }
+  .scroll-cue {
+    display: none;
+  }
+
+  .sp-aside {
+    grid-row: auto;
+    margin-top: var(--s-7);
+  }
+  .sp-sticky {
+    position: static;
+  }
+}
+
+@media (max-width: 600px) {
+  /* One line for the hero's kicker on a phone. */
+  .landing .hero-kicker {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+  }
+  .hero-cta {
+    display: grid;
+    width: 100%;
+  }
+  .hero-cta .btn {
+    width: 100%;
+  }
+  .refusal-grid,
+  .sp-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cert-body {
+    padding: var(--s-5) var(--s-5) var(--s-4);
+  }
+  .cert-rosette {
+    width: 220px;
+    height: 220px;
+    right: -70px;
+  }
+  .chain-legend {
+    flex-direction: column;
+    gap: var(--s-1);
+  }
+}
