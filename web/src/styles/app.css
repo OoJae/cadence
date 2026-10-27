@@ -2445,6 +2445,12 @@ details.disclosure > .body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  /* router.tsx starts none under reduced motion; this covers any other caller. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
   .done-mark .ring,
   .done-mark .check {
     stroke-dashoffset: 0;

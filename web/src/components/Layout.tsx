@@ -223,6 +223,8 @@ export function Shell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <Footer />
+      {/* The pulled rung: router.tsx sweeps it up the screen during a page change. */}
+      <div className="tip-line" aria-hidden="true" />
     </>
   );
 }
