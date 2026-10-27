@@ -1,7 +1,7 @@
 import { ArrowRightIcon } from '../../components/Icons';
 import { Lines } from '../../motion/Lines';
 import { Link } from '../../router';
-import { fmt, MAINNET_LIVE, MAINNET_SAMPLE, S2_TXID } from './data';
+import { fmt, MAINNET_LIVE, MAINNET_MANDATE, MAINNET_SAMPLE, S2_TXID } from './data';
 
 const PITCH = 2;
 const lines = (from: number, to: number) => {
@@ -51,7 +51,8 @@ export function ChainStrip() {
           </p>
           {MAINNET_LIVE && (
             <p className="beat-text" data-reveal="rise">
-              Also running on mainnet: one real standing order, released by a runner we've stopped changing.
+              Also running on mainnet: a real weekly standing order of {MAINNET_MANDATE.count} × {MAINNET_MANDATE.amount}, signed in the browser on {MAINNET_MANDATE.signed} and
+              released by a runner we've stopped changing, through {MAINNET_MANDATE.lastRelease}. <a href={MAINNET_MANDATE.statusUrl}>Watch it on the mainnet runner's status page</a>.
             </p>
           )}
           <p data-reveal="rise">

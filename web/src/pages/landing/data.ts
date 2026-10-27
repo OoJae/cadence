@@ -46,7 +46,17 @@ export const MAINNET_SAMPLE = {
 export const S2_TXID = '7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790';
 
 /** Flip to true only once a mainnet mandate is really running. */
-export const MAINNET_LIVE = false;
+export const MAINNET_LIVE = true;
+
+/** The live mainnet mandate: evidence/mainnet.md, "The live mandate". Its status page is the mainnet runner's own. */
+export const MAINNET_MANDATE = {
+  subscriptionId: 'sub_747f99039ba4f43c5234',
+  count: 4,
+  amount: '0.001 ZEC',
+  signed: '27 October',
+  lastRelease: '17 November',
+  statusUrl: 'https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234',
+} as const;
 
 export const shortTxid = (txid: string): string => `${txid.slice(0, 8)}…${txid.slice(-6)}`;
 export const fmt = (n: number): string => n.toLocaleString('en-US');
