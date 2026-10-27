@@ -182,7 +182,7 @@ export function Decode({ txid }: { txid: string | null }) {
               <div className="stack" style={{ ['--gap' as string]: '20px' }}>
                 <div className="row" style={{ ['--gap' as string]: '6px' }}>
                   {checks.map((c) => (
-                    <span key={c.id} className={`badge ${c.pass ? 'tone-green' : 'tone-red'}`} title={c.detail}>
+                    <span key={c.id} className={`badge check ${c.pass ? 'tone-green' : 'tone-red'}`} title={c.detail}>
                       {c.pass ? <CheckIcon size={11} /> : <XIcon size={11} />} {c.label}
                     </span>
                   ))}

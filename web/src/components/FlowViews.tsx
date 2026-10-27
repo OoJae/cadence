@@ -54,7 +54,7 @@ export function FundingView({ offer, flow, onSimulate, simulateLabel = 'Simulate
         <div className="panel row no-wrap" style={{ ['--gap' as string]: '10px' }} aria-live="polite">
           {flow.funding ? (
             <>
-              <CheckIcon size={16} className="accent" />
+              <CheckIcon size={16} />
               <span className="small">
                 Payment seen {flow.funding.status === 'mempool' ? 'in the mempool' : 'on chain'}: <Txid value={flow.funding.txid} link={false} />
               </span>
@@ -169,7 +169,7 @@ export function DoneMoment({ offer, flow, children, closeable = true, notice }: 
           <span className="halo" />
           <svg viewBox="0 0 92 92">
             <circle className="ring" cx="46" cy="46" r="44" />
-            <path className="check" d="M28 47.5 41 60l23-27" />
+            <path className="mark" d="M34.6 26.8h8.4v25.2h-8.4zM34.6 55.6h8.4v9.6h-8.4zM47.8 26.8h8.4v38.4h-8.4zM61 26.8h8.4v38.4h-8.4zM22.6 52h8.4v3.6h-8.4z" />
           </svg>
         </div>
         <h2 className="done-title">{closeable ? 'You can close this tab now.' : 'Signed and uploaded. One step left.'}</h2>
