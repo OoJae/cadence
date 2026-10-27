@@ -2,7 +2,9 @@
  * /status#sub=sub_…: a demo view of one subscription as this origin's runner reports
  * it. The id comes from the URL fragment. The page polls GET /api/subscriptions/:id
  * every 30 seconds and decodes each mined installment once with GET /api/decode/:txid,
- * keeping the results in this tab's memory only.
+ * keeping the results in this tab's memory only. On an app host, a subscription the
+ * default runner does not know (404) is asked of the other runners, and the page says
+ * which one holds it; that runner then answers every request for it.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
@@ -16,43 +18,54 @@ import { subscriptionStatusInfo } from '../lib/states';
 import { formatDateTime, formatRelative } from '../lib/time';
 import { formatZec } from '../lib/zat';
 import { navigate, useLocation } from '../router';
-import { api } from '../runtime';
+import type { CadenceClient } from '../api/client';
+import { askRunners, defaultRunner, manyRunners, runnerName, runnersText, type Runner } from '../runtime';
 
 const POLL_MS = 30_000;
 const n = (x: number) => x.toLocaleString('en-US');
 
 /** Decoded shapes of mined installments, in memory only. A failed decode is dropped so a later poll retries it. */
 const shapes = new Map<string, Promise<Shape>>();
-function decodeOnce(txid: string): Promise<Shape> {
+function decodeOnce(txid: string, client: CadenceClient): Promise<Shape> {
   let p = shapes.get(txid);
   if (!p) {
-    p = api.decode(txid);
+    p = client.decode(txid);
     shapes.set(txid, p);
     p.catch(() => shapes.delete(txid));
   }
   return p;
 }
 
-/** The decode of `txid`, asked again (from the cache) whenever `poll` changes. */
-function useShape(txid: string | undefined, poll: unknown): { shape?: Shape; error?: Error } {
+/** The runner that answered for each subscription id, in memory only, so later polls go straight to it. */
+const holders = new Map<string, Runner>();
+async function fetchSubscription(id: string, signal: AbortSignal): Promise<{ sub: Subscription; runner: Runner }> {
+  const known = holders.get(id);
+  if (known) return { sub: await known.api.getSubscription(id, signal), runner: known };
+  const { value, runner } = await askRunners((c) => c.getSubscription(id, signal));
+  holders.set(id, runner);
+  return { sub: value, runner };
+}
+
+/** The decode of `txid` by the subscription's runner, asked again (from the cache) whenever `poll` changes. */
+function useShape(txid: string | undefined, client: CadenceClient, poll: unknown): { shape?: Shape; error?: Error } {
   const [state, setState] = useState<{ shape?: Shape; error?: Error }>({});
   useEffect(() => {
     if (!txid) return;
     let alive = true;
-    decodeOnce(txid).then(
+    decodeOnce(txid, client).then(
       (shape) => alive && setState({ shape }),
       (error: Error) => alive && setState((s) => (s.shape ? s : { error })),
     );
     return () => {
       alive = false;
     };
-  }, [txid, poll]);
+  }, [txid, client, poll]);
   return state;
 }
 
-function ShapeCell({ inst, network, poll }: { inst: Installment; network: NetworkId | undefined; poll: unknown }) {
+function ShapeCell({ inst, network, client, poll }: { inst: Installment; network: NetworkId | undefined; client: CadenceClient; poll: unknown }) {
   const mined = inst.state === 'mined' && inst.txid ? inst.txid : undefined;
-  const { shape, error } = useShape(mined, poll);
+  const { shape, error } = useShape(mined, client, poll);
   if (!mined) return <span className="faint">—</span>;
   if (shape && network) {
     const s = summarizeShape(shape, network);
@@ -71,7 +84,7 @@ function ShapeCell({ inst, network, poll }: { inst: Installment; network: Networ
   return <Spinner />;
 }
 
-function InstallmentRows({ sub, network, crossing, poll }: { sub: Subscription; network: NetworkId | undefined; crossing: Nu7Crossing; poll: unknown }) {
+function InstallmentRows({ sub, network, crossing, client, poll }: { sub: Subscription; network: NetworkId | undefined; crossing: Nu7Crossing; client: CadenceClient; poll: unknown }) {
   return (
     <div className="table-wrap">
       <table className="data stackable">
@@ -130,7 +143,7 @@ function InstallmentRows({ sub, network, crossing, poll }: { sub: Subscription; 
                 {i.mined_height ? n(i.mined_height) : <span className="faint">—</span>}
               </td>
               <td data-label="Shape">
-                <ShapeCell inst={i} network={network} poll={poll} />
+                <ShapeCell inst={i} network={network} client={client} poll={poll} />
               </td>
             </tr>
           ))}
@@ -219,11 +232,15 @@ function useSubscriptionId(): { id: string | null; malformed: boolean } {
 export function Status() {
   useDocumentTitle('Subscription status');
   const { id, malformed } = useSubscriptionId();
-  const sub = usePoll<Subscription | undefined>((signal) => (id ? api.getSubscription(id, signal) : Promise.resolve(undefined)), id ? POLL_MS : 0, [id]);
-  const status = usePoll((signal) => api.status(signal), POLL_MS);
-  const data = sub.data?.subscription_id === id ? sub.data : undefined;
-  const network = status.data?.network;
-  const crossing = data ? nu7Crossing(data, network, status.data?.tip) : ({ kind: 'none' } as const);
+  const sub = usePoll((signal) => (id ? fetchSubscription(id, signal) : Promise.resolve(undefined)), id ? POLL_MS : 0, [id]);
+  const answered = sub.data?.sub.subscription_id === id ? sub.data : undefined;
+  const data = answered?.sub;
+  // The network and tip are the answering runner's own: on an app host a mainnet subscription is the mainnet runner's.
+  const runner = answered?.runner ?? defaultRunner;
+  const status = usePoll(async (signal) => ({ runner, status: await runner.api.status(signal) }), POLL_MS, [runner]);
+  const ownStatus = status.data?.runner === runner ? status.data.status : undefined;
+  const network = ownStatus?.network;
+  const crossing = data ? nu7Crossing(data, network, ownStatus?.tip) : ({ kind: 'none' } as const);
   const missing = sub.error instanceof ApiError && sub.error.status === 404;
   const { paid, total } = data ? paidOf(data) : { paid: 0, total: 0 };
 
@@ -232,7 +249,7 @@ export function Status() {
       <PageHead
         kicker="Demo"
         title="Subscription status"
-        lede="One subscription as this runner reports it, refreshed every 30 seconds. The id is read from the link's fragment (#sub=…); the page keeps nothing in your browser."
+        lede={`One subscription as ${manyRunners ? 'its' : 'this'} runner reports it, refreshed every 30 seconds. The id is read from the link's fragment (#sub=…); the page keeps nothing in your browser.`}
       >
         {!id && <SubscriptionForm />}
       </PageHead>
@@ -253,9 +270,10 @@ export function Status() {
               {data && <StatusBadge status={data.status} lg />}
             </div>
             {data && <p className="small text-2">{subscriptionStatusInfo(data.status).description}</p>}
+            {data && manyRunners && <p className="tiny muted">Reported by {runnerName(runner, network)}.</p>}
 
             {missing ? (
-              <Callout kind="warn">This runner has no subscription with that id.</Callout>
+              <Callout kind="warn">{manyRunners ? `No runner this app knows (${runnersText}) has a subscription with that id.` : 'This runner has no subscription with that id.'}</Callout>
             ) : (
               sub.error && <ErrorNote error={sub.error} retry={sub.refresh} />
             )}
@@ -268,7 +286,7 @@ export function Status() {
                 <Stat
                   label="Network"
                   value={network ? (network === 'main' ? 'Mainnet' : 'Testnet') : '…'}
-                  sub={status.data ? `runner tip ${n(status.data.tip)}` : status.error ? 'runner status unavailable' : undefined}
+                  sub={ownStatus ? `runner tip ${n(ownStatus.tip)}` : status.error ? 'runner status unavailable' : undefined}
                 />
               </div>
             )}
@@ -281,7 +299,7 @@ export function Status() {
               <h2 id="status-installments" className="h3">
                 Installments
               </h2>
-              <InstallmentRows sub={data} network={network} crossing={crossing} poll={sub.data} />
+              <InstallmentRows sub={data} network={network} crossing={crossing} client={runner.api} poll={sub.data} />
               <p className="tiny muted">
                 Each installment is a package time-locked to a drand round: it opens at that round (the drand network's threshold assumption), and the release time is when drand
                 publishes it. Missed: {MISSED_NOTE.charAt(0).toLowerCase() + MISSED_NOTE.slice(1)} Txids open in this app's decoder.

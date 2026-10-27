@@ -17,7 +17,7 @@ import { ApiError, CadenceClient, type Transport } from './api/client';
 import { HttpTransport } from './api/http';
 import { parseApiSetting } from './config/apiSetting';
 import { BUILD_INFO_FILE, parseBuildInfo, type BuildInfo } from './config/buildInfo';
-import { listRunners, matchRunner, unknownRunnerMessage } from './config/runners';
+import { askInTurn, listRunners, matchRunner, unknownRunnerMessage } from './config/runners';
 import { MockSigner, UnavailableSigner } from './signer/mock';
 import type { Signer } from './signer/types';
 
@@ -93,6 +93,25 @@ export function runnerFor(url: string): Runner | null {
 /** The client for a known runner, by its URL or origin; null for a runner this build may not talk to. */
 export function apiFor(url: string): CadenceClient | null {
   return runnerFor(url)?.api ?? null;
+}
+
+/** Whether this build knows more than one runner (an app host), so pages say which one answered. */
+export const manyRunners: boolean = runners.length > 1;
+
+/**
+ * Asks the runners this build knows, `first` (default: the default runner) and then the
+ * others, until one does not answer 404, and says which one answered: on an app host a
+ * subscription or a txid may be another runner's, such as the mainnet runner's. A build
+ * with one runner asks only that one, as before.
+ */
+export function askRunners<T>(ask: (client: CadenceClient) => Promise<T>, first: Runner = defaultRunner): Promise<{ value: T; runner: Runner }> {
+  const order = [first, ...runners.filter((r) => r !== first)];
+  return askInTurn(order, (r) => ask(r.api), (e) => e instanceof ApiError && e.status === 404);
+}
+
+/** "the mainnet runner (host)", from what its status says; just "the runner at host" before that. */
+export function runnerName(runner: Runner, network: 'main' | 'test' | undefined): string {
+  return network ? `the ${network === 'main' ? 'mainnet' : 'testnet'} runner (${runner.label})` : `the runner at ${runner.label}`;
 }
 
 export type RunnerPick = { ok: true; runner: Runner } | { ok: false; message: string };

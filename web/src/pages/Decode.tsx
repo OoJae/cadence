@@ -8,7 +8,7 @@ import { STOCK_SEND_REFERENCE, type ShapeProfile } from '../data/stockReference'
 import { useDocumentTitle, usePoll } from '../hooks';
 import { cadenceChecks, impliedTarget, stockShapeAt } from '../lib/shape';
 import { Link, navigate, useLocation } from '../router';
-import { api, isMock } from '../runtime';
+import { askRunners, defaultRunner, isMock, manyRunners, runnerName, type Runner } from '../runtime';
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -95,13 +95,26 @@ function Examples() {
   );
 }
 
-/** A runner on another network cannot find the S2 testnet txids; their decodes ship with the app. */
-function decodeOrEvidence(txid: string, signal: AbortSignal): Promise<Shape> {
-  return api.decode(txid, signal).catch((e: unknown) => {
-    const s2 = findS2Shape(txid);
-    if (s2 && !signal.aborted) return s2;
-    throw e;
-  });
+/** A decode, and the runner that made it (null for a decode that ships with the app). */
+interface Decoded {
+  shape: Shape;
+  runner: Runner | null;
+}
+
+/**
+ * The runner that knows the txid decodes it: the default runner, then, on an app host,
+ * the others (a mainnet txid is the mainnet runner's). A runner on another network
+ * cannot find the S2 testnet txids; their decodes ship with the app.
+ */
+function decodeOrEvidence(txid: string, signal: AbortSignal): Promise<Decoded> {
+  return askRunners((c) => c.decode(txid, signal)).then(
+    ({ value, runner }) => ({ shape: value, runner }),
+    (e: unknown) => {
+      const s2 = findS2Shape(txid);
+      if (s2 && !signal.aborted) return { shape: s2, runner: null };
+      throw e;
+    },
+  );
 }
 
 export function Decode({ txid }: { txid: string | null }) {
@@ -110,17 +123,20 @@ export function Decode({ txid }: { txid: string | null }) {
   const valid = txid !== null && HEX64.test(txid);
   useDocumentTitle(txid ? `Decode ${txid.slice(0, 8)}…` : 'Decoder');
 
-  const shape = usePoll((signal) => (valid ? decodeOrEvidence(txid!, signal) : Promise.reject(new Error('not a txid'))), 0, [txid]);
+  const decoded = usePoll((signal) => (valid ? decodeOrEvidence(txid!, signal) : Promise.reject(new Error('not a txid'))), 0, [txid]);
+  const shape = { ...decoded, data: decoded.data?.shape };
   const compare = usePoll(
-    (signal) => (compareTxid && HEX64.test(compareTxid) ? api.decode(compareTxid, signal) : Promise.resolve(null)),
+    (signal) => (compareTxid && HEX64.test(compareTxid) ? askRunners((c) => c.decode(compareTxid, signal)) : Promise.resolve(null)),
     0,
     [compareTxid],
   );
   // The runner decodes through its own lightwalletd, so its network is the transaction's: the
-  // fee rule and the stock reference depend on it.
-  const status = usePoll((signal) => api.status(signal), 0);
+  // fee rule and the stock reference depend on it. That is the runner that answered.
+  const runner = decoded.data?.runner ?? defaultRunner;
+  const status = usePoll(async (signal) => ({ runner, status: await runner.api.status(signal) }), 0, [runner]);
+  const ownStatus = status.data?.runner === runner ? status.data.status : undefined;
   const evidence = valid && !!findS2Shape(txid!);
-  const network: NetworkId | undefined = evidence ? 'test' : status.data?.network;
+  const network: NetworkId | undefined = evidence ? 'test' : ownStatus?.network;
 
   const profile: ShapeProfile | null = useMemo(() => {
     if (!compareTxid) {
@@ -130,7 +146,8 @@ export function Decode({ txid }: { txid: string | null }) {
       return { ...STOCK_SEND_REFERENCE, shape: stockShapeAt(STOCK_SEND_REFERENCE.shape, network, target) };
     }
     if (!compare.data) return null;
-    return { shape: compare.data, title: `Transaction ${compareTxid.slice(0, 10)}…`, source: 'decoded', note: `Decoded by the runner from ${compareTxid}` };
+    const by = manyRunners ? `the runner at ${compare.data.runner.label}` : 'the runner';
+    return { shape: compare.data.value, title: `Transaction ${compareTxid.slice(0, 10)}…`, source: 'decoded', note: `Decoded by ${by} from ${compareTxid}` };
   }, [compareTxid, compare.data, shape.data, network]);
 
   const checks = shape.data && network ? cadenceChecks(shape.data, network) : [];
@@ -164,7 +181,7 @@ export function Decode({ txid }: { txid: string | null }) {
                     ? 'Real decode from evidence/S2-testnet.md (cadence-decode against NU7 testnet).'
                     : isMock
                       ? 'Synthesised by the mock runner with the same rules as the S2 evidence.'
-                      : "Decoded by the runner from its lightwalletd's copy of the transaction."}
+                      : `Decoded by ${manyRunners && decoded.data?.runner ? runnerName(decoded.data.runner, ownStatus?.network) : 'the runner'} from its lightwalletd's copy of the transaction.`}
                 </span>
               </div>
               {shape.data && network && (

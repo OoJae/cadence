@@ -73,6 +73,23 @@ describe('runtime on an app host (VITE_API=runners)', () => {
     expect(seen.map((r) => r.path)).toEqual(['/api/status']);
   });
 
+  it('asks the other runner when the default does not know an id, and says which one answered', async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url.startsWith(MAIN) ? new Response(JSON.stringify({ subscription_id: 'sub_x' }), { status: 200 }) : new Response(JSON.stringify({ error: 'no such subscription' }), { status: 404 }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const rt = await runtimeWith(env);
+    expect(rt.manyRunners).toBe(true);
+    const r = await rt.askRunners((c) => c.getSubscription('sub_x'));
+    expect(r.runner.origin).toBe(MAIN);
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual([`${SANDBOX}/api/subscriptions/sub_x`, `${MAIN}/api/subscriptions/sub_x`]);
+    expect(rt.runnerName(r.runner, 'main')).toBe('the mainnet runner (main-production-d975.up.railway.app)');
+    // Asked from the runner that answered, it goes there first.
+    fetch.mockClear();
+    await rt.askRunners((c) => c.decode('ab'.repeat(32)), r.runner);
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual([`${MAIN}/api/decode/${'ab'.repeat(32)}`]);
+  });
+
   it('makes no request when loaded, and reads build.json from its own origin only, once', async () => {
     const fetch = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetch);
@@ -94,6 +111,15 @@ describe('runtime with one runner', () => {
     expect(rt.pickRunner(`${rt.runnerUrl}/`, 'offer').ok).toBe(true);
     const other = rt.pickRunner(MAIN, 'offer');
     expect(!other.ok && other.message).toBe(`This offer names the runner ${MAIN}, but this page is built to talk only to ${rt.runnerUrl}. Open the link on that runner's own page.`);
+  });
+
+  it('a 404 from the one runner stands: there is no other to ask', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: 'no such subscription' }), { status: 404 }));
+    vi.stubGlobal('fetch', fetch);
+    const rt = await runtimeWith({ VITE_API: 'self' });
+    expect(rt.manyRunners).toBe(false);
+    await expect(rt.askRunners((c) => c.getSubscription('sub_x'))).rejects.toMatchObject({ status: 404, message: 'no such subscription' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('VITE_API=<url>: that runner, path included', async () => {
