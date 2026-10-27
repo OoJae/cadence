@@ -3,7 +3,8 @@ import { formatDateTime } from './time';
 
 const tz = process.env.TZ;
 afterEach(() => {
-  process.env.TZ = tz;
+  if (tz === undefined) delete process.env.TZ;
+  else process.env.TZ = tz;
 });
 
 describe('dates and times', () => {

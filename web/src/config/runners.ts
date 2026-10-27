@@ -27,21 +27,24 @@ export function matchRunner<T extends KnownRunner>(known: readonly T[], named: s
 }
 
 /**
- * Asks each runner in `order` until one answers with anything but "not found", and says
- * which one answered. Any other failure stops there. If no runner knows it, the first
- * runner's "not found" stands.
+ * Asks each runner in `order` until one answers, and says which one answered. A runner
+ * that is down does not stop the search: a healthy runner further on may know it. If none
+ * answers, the first failure other than "not found" stands (the page says a runner could
+ * not be reached), else the first runner's "not found". An abort stops at once.
  */
 export async function askInTurn<R, T>(order: readonly R[], ask: (runner: R) => Promise<T>, notFound: (e: unknown) => boolean): Promise<{ value: T; runner: R }> {
   let missing: unknown = new Error('there is no runner to ask');
+  let failed: unknown;
   for (const [i, runner] of order.entries()) {
     try {
       return { value: await ask(runner), runner };
     } catch (e) {
-      if (!notFound(e)) throw e;
-      if (i === 0) missing = e;
+      if ((e as Error | undefined)?.name === 'AbortError') throw e;
+      if (!notFound(e)) failed ??= e;
+      else if (i === 0) missing = e;
     }
   }
-  throw missing;
+  throw failed ?? missing;
 }
 
 /** "A", "A and B", "A, B and C" (or "A or B", …). */

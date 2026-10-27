@@ -78,10 +78,22 @@ describe('asking runners in turn', () => {
     expect(r).toEqual({ value: 'shape', runner: MAIN });
   });
 
-  it('stops at any other failure', async () => {
-    const asked: string[] = [];
+  it('asks on past a runner that is down, and reports the failure only if none answers', async () => {
     const down = Object.assign(new Error('could not reach the runner'), { status: 0 });
-    await expect(askInTurn(known, async (k) => { asked.push(k.url); throw down; }, notFound)).rejects.toBe(down);
+    const r = await askInTurn(known, async (k) => {
+      if (k === SANDBOX) throw down;
+      return 'shape';
+    }, notFound);
+    expect(r).toEqual({ value: 'shape', runner: MAIN });
+    const asked: string[] = [];
+    await expect(askInTurn(known, async (k) => { asked.push(k.url); throw k === SANDBOX ? down : missing('main'); }, notFound)).rejects.toBe(down);
+    expect(asked).toEqual([SANDBOX.url, MAIN.url]);
+  });
+
+  it('stops at an abort', async () => {
+    const asked: string[] = [];
+    const abort = new DOMException('aborted', 'AbortError');
+    await expect(askInTurn(known, async (k) => { asked.push(k.url); throw abort; }, notFound)).rejects.toBe(abort);
     expect(asked).toEqual([SANDBOX.url]);
   });
 

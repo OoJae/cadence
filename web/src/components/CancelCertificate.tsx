@@ -14,7 +14,10 @@ import { Callout, Spinner, Txid } from './ui';
 const short = (hex: string) => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
 
 /** "the runner at host" for a runner named by its host; "the in-page mock runner" for one named in words. */
-const runnerName = (label: string) => (label.includes(' ') ? `the ${label}` : `the runner at ${label}`);
+const reporterName = (label: string) => (label.includes(' ') ? `the ${label}` : `the runner at ${label}`);
+
+/** The host a saved certificate names: a same-origin runner is this page's own host. */
+const reporterOf = (label: string) => (label === 'same-origin runner' ? location.host : label);
 
 /**
  * After a cancel: waits until it is mined and the decoder shows it revealing the
@@ -38,7 +41,7 @@ export function CancelCertificate({
   count: number;
 }) {
   const decoded = usePoll((signal) => client.decode(receipt.txid, signal), 20_000, [receipt.txid]);
-  const runner = client.transport.label;
+  const runner = reporterOf(client.transport.label);
   const cert = useMemo<Certificate | null>(
     () => certify(receipt, decoded.data, { network, subscription_id: subscriptionId, count, runner }, Math.floor(nowSecs())),
     [receipt, decoded.data, network, subscriptionId, count, runner],
@@ -77,7 +80,7 @@ export function CancelCertificate({
             : voids.length === 1
               ? `Installment ${voids[0]} spends exactly that note, so no node will accept it.`
               : `Installment ${voids[0]} spends exactly that note, so no node will accept it, and ${voids.length === 2 ? 'installment' : 'installments'} ${installmentRange(voids.slice(1))} would spend change that installment ${voids[0]} can now never make. Installments ${installmentRange(voids)} can never be valid.`}{' '}
-          Mined, as reported by {runnerName(cert.reported_by)} (seen {formatDateTime(cert.confirmed_at)}).
+          Mined, as reported by {reporterName(cert.reported_by)} (seen {formatDateTime(cert.confirmed_at)}).
         </span>
         <div className="row" style={{ ['--gap' as string]: '10px' }}>
           <Link to={`/decode/${cert.cancel_txid}?nf=${cert.spent_nullifier}`} className="link-btn small">

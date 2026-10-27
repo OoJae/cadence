@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, uploadTimeoutMs, type CadenceClient } from './api/client';
 import type { Offer } from './api/types';
 import { canRetrySigning, canRetryUpload, canWatchAgain, retrySigning, retryUpload, runMandate, watchAgain, type FlowState } from './flow';
-import type { Signer } from './signer/types';
+import { SignerError, type Signer } from './signer/types';
 
 const offer = { offer_id: 'off_t', network: 'test', amount_zat: 100_000, count: 4, name: 'Weekly' } as unknown as Offer;
 const held: FlowState = {
@@ -101,6 +101,16 @@ describe('watching again after the funding watch failed', () => {
     expect(canWatchAgain(unpaid)).toBe(true);
     expect(canWatchAgain({ ...unpaid, funding: held.funding })).toBe(false);
     expect(canWatchAgain({ ...unpaid, pocket: undefined })).toBe(false);
+  });
+
+  it('is not offered after the signer refused the payment it saw, which would repeat', async () => {
+    const underpaid = 'the pocket received 400000 zats; this schedule needs 440000 (installments plus fees)';
+    const signer = { awaitFunding: vi.fn(async () => { throw new SignerError(underpaid); }) } as unknown as Signer;
+    const patches: Partial<FlowState>[] = [];
+    await watchAgain(offer, signer, unpaid, (p) => patches.push(p));
+    expect(patches.at(-1)).toEqual({ phase: 'error', error: underpaid, refused: true });
+    const after = Object.assign({}, unpaid, ...patches) as FlowState;
+    expect(canWatchAgain(after)).toBe(false);
   });
 
   it('watches the same pocket for the same amount, then signs and uploads', async () => {

@@ -9,7 +9,7 @@ import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
 import { buildZip321Uri } from './lib/zip321';
 import { nowSecs } from './lib/time';
 import { api } from './runtime';
-import type { FundingTx, PocketInfo, PresignProgress, Signer } from './signer/types';
+import { SignerError, type FundingTx, type PocketInfo, type PresignProgress, type Signer } from './signer/types';
 
 export type FlowPhase = 'idle' | 'pocket' | 'funding' | 'signing' | 'uploading' | 'done' | 'error';
 
@@ -26,6 +26,8 @@ export interface FlowState {
   signedAt?: number;
   subscriptionId?: string;
   error?: string;
+  /** The signer refused what it saw (an underpaid pocket, say), so watching again would repeat the error. */
+  refused?: boolean;
 }
 
 /** The memo the payer's own wallet shows for the funding payment. Opaque to everyone else. */
@@ -52,7 +54,7 @@ export async function runMandate(
     // Refused before any pocket exists: the signer could not seal it, and the payer would have paid.
     const horizon = horizonProblem(offer);
     if (horizon) throw new Error(horizon);
-    update({ phase: 'pocket', error: undefined });
+    update({ phase: 'pocket', error: undefined, refused: undefined });
     const pocket = await signer.createPocket(offer.network);
     const totalZat = totalPrepaidZat(offer.amount_zat, offer.count);
     update({ pocket, totalZat, uri: fundingUri(offer, pocket.ua), phase: 'funding' });
@@ -63,7 +65,7 @@ export async function runMandate(
     await signAndUpload(offer, signer, pocket, funding, update, opts);
   } catch (e) {
     if (opts.signal?.aborted) return;
-    update({ phase: 'error', error: (e as Error).message });
+    update({ phase: 'error', error: (e as Error).message, ...(e instanceof SignerError ? { refused: true } : {}) });
   }
 }
 
@@ -143,7 +145,7 @@ export async function retryUpload(
     update({ subscriptionId, phase: 'done' });
   } catch (e) {
     if (opts.signal?.aborted) return;
-    update({ phase: 'error', error: (e as Error).message });
+    update({ phase: 'error', error: (e as Error).message, ...(e instanceof SignerError ? { refused: true } : {}) });
   }
 }
 
@@ -169,7 +171,7 @@ export async function retrySigning(
     await signAndUpload(offer, signer, s.pocket!, s.funding!, update, opts);
   } catch (e) {
     if (opts.signal?.aborted) return;
-    update({ phase: 'error', error: (e as Error).message });
+    update({ phase: 'error', error: (e as Error).message, ...(e instanceof SignerError ? { refused: true } : {}) });
   }
 }
 
@@ -187,18 +189,18 @@ export async function watchAgain(
 ): Promise<void> {
   if (!canWatchAgain(s)) return;
   try {
-    update({ phase: 'funding', error: undefined });
+    update({ phase: 'funding', error: undefined, refused: undefined });
     const funding = await signer.awaitFunding(s.totalZat!, { signal: opts.signal });
     update({ funding, phase: 'signing' });
     await signAndUpload(offer, signer, s.pocket!, funding, update, opts);
   } catch (e) {
     if (opts.signal?.aborted) return;
-    update({ phase: 'error', error: (e as Error).message });
+    update({ phase: 'error', error: (e as Error).message, ...(e instanceof SignerError ? { refused: true } : {}) });
   }
 }
 
-/** Whether a failed flow has a pocket to pay but has not seen the payment, so it can watch again. */
-export const canWatchAgain = (s: FlowState): boolean => Boolean(s.pocket && s.totalZat !== undefined && !s.funding);
+/** Whether a failed flow has a pocket to pay but has not seen the payment, so it can watch again; not after a refusal, which would repeat. */
+export const canWatchAgain = (s: FlowState): boolean => Boolean(s.pocket && s.totalZat !== undefined && !s.funding && !s.refused);
 
 /** Whether a failed flow is funded but has nothing sealed yet, so it can sign again. */
 export const canRetrySigning = (s: FlowState): boolean => Boolean(s.pocket && s.funding && !s.sealed && !s.subscriptionId);

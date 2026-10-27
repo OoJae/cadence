@@ -111,13 +111,14 @@ export function seedMockRunner(runner: MockRunner, chain: MockChain, now: number
   };
   runner.addRecord(s2);
 
-  // 2. A monthly plan: first month paid, two still sealed for weeks.
+  // 2. A monthly plan: first month paid, the second still sealed for weeks. Two, as the
+  //    45-day horizon allows (lib/offer.ts).
   seedPlan(runner, chain, {
     id: 'press_monthly',
     name: 'Shielded Press · monthly',
     amount_zat: 500_000,
     period_secs: 30 * DAY,
-    count: 3,
+    count: 2,
     first_release: now - 9 * DAY - 3 * 3600,
     provenance: 'Synthetic mock data.',
   });

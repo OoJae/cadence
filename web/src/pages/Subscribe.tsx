@@ -53,9 +53,13 @@ const needsCancelKey = (s: Session) => s.signer?.implementation === 'wasm';
  * schedule is uploaded.
  */
 function pocketAtRisk(s: Session): boolean {
-  if (!s.funding || s.cancel) return false;
+  if (s.cancel) return false;
+  if (!s.funding) return refusedPayment(s);
   return needsCancelKey(s) ? !cancelKeySettled(s.key) : s.phase !== 'done';
 }
+
+/** The signer saw a payment it refused (an underpaid pocket): the funds are in the pocket, and its key only in this tab. */
+const refusedPayment = (s: Session) => Boolean(s.refused && s.pocket && !s.funding);
 
 /** What the payer must finish before this tab may close. */
 const keepUntil = (s: Session) => (needsCancelKey(s) ? 'you have saved your cancel key' : 'the schedule is signed and uploaded');
@@ -195,6 +199,7 @@ function forgetRisk(s: Session): ForgetRisk {
     if (s.key.step === 'verified') return null;
     return s.key.step === 'downloaded' || (s.key.step === 'skipped' && s.key.kit) ? 'unchecked' : 'paid';
   }
+  if (refusedPayment(s)) return 'paid';
   return s.pocket ? 'maybe' : null;
 }
 
@@ -592,6 +597,13 @@ function SubscribeView({
                     <ForgetPocket label="Start over" confirm="I have not paid: start over" risk={forgetRisk(s)} onForget={() => resetSession(hash)} />
                   </div>
                 </>
+              ) : refusedPayment(s) ? (
+                <>
+                  <span className="small text-2">
+                    The payment is in the pocket, and its key exists only in this tab. This page cannot sign a schedule the payment does not cover, and cannot yet return it either.
+                  </span>
+                  <ForgetPocket label="Start over" confirm="Start over and lose the funds" risk={forgetRisk(s)} onForget={() => resetSession(hash)} className="btn" />
+                </>
               ) : (
                 <ForgetPocket label="Start over" confirm="Start over anyway" risk={forgetRisk(s)} onForget={() => resetSession(hash)} className="btn" />
               )}
@@ -622,7 +634,7 @@ function SubscribeView({
             </span>
             <span className="text-2">
               The offer was read from the link's # fragment, which your browser never sends to a server.
-              {isMock ? '' : ' To check it, this page asked the runner for its copy by id, so that runner saw your IP address open this offer.'}
+              {isMock || !verified.runner ? '' : ' To check it, this page asked the runner for its copy by id, so that runner saw your IP address open this offer.'}
             </span>
           </div>
         </aside>

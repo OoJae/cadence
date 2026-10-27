@@ -13,6 +13,9 @@ import { formatZec, parseZecToZat, totalPrepaidZat, unitFor, INSTALLMENT_FEE_ZAT
 import { Link } from '../router';
 import { api, isMock, mockHooks } from '../runtime';
 
+/** The most installments the runner's `POST /api/offers` accepts (crates/cadence-runner/src/api.rs, create_offer). */
+const OFFER_COUNT_MAX = 12;
+
 /** The merchant's bearer token: in this tab's memory only, never persisted. */
 const session = createStore(() => ({ token: isMock ? 'mock-merchant-token' : '' }));
 
@@ -203,11 +206,12 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
   if (name.length > LIMITS.nameMax) problems.name = `At most ${LIMITS.nameMax} characters.`;
   if (amountZat === null || amountZat < 1) problems.amount = 'A positive amount with at most 8 decimals.';
   if (!Number.isSafeInteger(periodSecs) || periodSecs < LIMITS.periodMin || periodSecs > LIMITS.periodMax) problems.period = `Between ${LIMITS.periodMin} seconds and 366 days.`;
-  if (!Number.isSafeInteger(countN) || countN < LIMITS.countMin || countN > LIMITS.countMax) problems.count = `Between ${LIMITS.countMin} and ${LIMITS.countMax}.`;
+  if (!Number.isSafeInteger(countN) || countN < LIMITS.countMin || countN > OFFER_COUNT_MAX) problems.count = `Between ${LIMITS.countMin} and ${OFFER_COUNT_MAX}.`;
   const periodOk = !problems.period;
-  const maxCount = periodOk ? maxCountWithinHorizon(periodSecs) : null;
+  const maxCount = periodOk ? Math.min(maxCountWithinHorizon(periodSecs), OFFER_COUNT_MAX) : null;
+  const atMost = maxCount ? `at most ${maxCount} installment${maxCount === 1 ? '' : 's'}, one ${formatPeriod(periodSecs)}` : '';
   if (!problems.count && periodOk && horizonProblem({ period_secs: periodSecs, count: countN })) {
-    problems.count = `At most ${maxCount} ${formatPeriod(periodSecs)}: Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after the payer signs.`;
+    problems.count = `Make it ${atMost}: Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after the payer signs.`;
   }
   const uaProblem = merchantUaProblem(ua.trim(), network);
   if (uaProblem) problems.ua = uaProblem;
@@ -266,7 +270,7 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
               <span className="error-text">{show('count')}</span>
             ) : (
               <span className="hint">
-                The last must fall due within {MAX_HORIZON_DAYS} days of signing{maxCount ? `: at most ${maxCount} ${formatPeriod(periodSecs)}` : ''}.
+                The last must fall due within {MAX_HORIZON_DAYS} days of signing{atMost ? `: ${atMost}` : ''}.
               </span>
             )}
           </div>

@@ -251,7 +251,11 @@ export function StatusLink({ subscriptionId, closeable }: { subscriptionId: stri
   return (
     <div className="panel stack" style={{ ['--gap' as string]: '6px' }}>
       <span className="small text-2">
-        {closeable ? 'Watch it from any device, then close this tab:' : 'Once your cancel key is saved, watch it from any device, then close this tab:'}
+        {isMock
+          ? "Watch it on this subscription's status page:"
+          : closeable
+            ? 'Watch it from any device, then close this tab:'
+            : 'Once your cancel key is saved, watch it from any device, then close this tab:'}
       </span>
       <div className="row no-wrap" style={{ ['--gap' as string]: '6px' }}>
         {isMock ? (
