@@ -8,13 +8,14 @@ the pocket key: see "Build identity" and `docs/threat-model.md`, §6.
 
 | Route | What it is |
 |---|---|
-| `/` | The pull-vs-push gap on one screen, how it works, what the runner can and cannot do, honest limits, and what the merchant learns. |
+| `/` | The story as you scroll, over a stage drawn from testnet run 1's real rung ladders: the pull-vs-push gap, signing a rung for every block, sealing to a drand round, the one release, the four refusals, cancelling, the on-chain shape, then what the runner can and cannot do, honest limits and what the merchant learns. |
 | `/merchant` | Subscriptions and installments (sealed, due, broadcast, mined, cancelled, missed). Each has a live countdown to its drand round, and each txid links to the decoder. Also a "create offer" form whose share link carries the offer in the URL fragment. |
 | `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "save your cancel key, then check it opens" (WASM signer: re-pick the file, retype the passphrase), "You can close this tab now", then manage or cancel. |
 | `/manage` | Cancel after the tab is gone: load the saved cancel key and its passphrase, see the pocket and subscription, cancel and refund to your own address. Shows the `cadence sweep` fallback when the runner cannot help. |
 | `/decode/:txid` | The public shape of a transaction as a table, with a stock-wallet comparison column and red/green badges for what a chain observer can and cannot tell. Its checks follow the runner's network, the transaction's branch and its height (see below). |
 | `/status#sub=<subscription_id>` | A demo view of one subscription: status, k of n paid, the next installment due, and per installment its state, release time and drand round, txid and mined height, with a short shape summary of each mined one and a note where a plan crosses NU7. It polls `GET /api/subscriptions/:id` and `GET /api/status` every 30 s and decodes mined installments with `GET /api/decode/:txid`, keeping results in memory only. The id is in the fragment, so it is not part of the page request, but the page does send it to the runner. |
 | `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has four cheat cards: open early, tamper, rebroadcast a paid installment, and stretch the plan. |
+| `/brand` | The brand book, which is also the design system: the mark, the wordmark, colour, type, motion, components, textures, downloads and the social card, each the real component or token. |
 
 ![Landing](screenshots/01-landing.png)
 
@@ -32,9 +33,10 @@ pnpm build:wasm   # build the real signer (crates/cadence-wasm) into src/wasm/ (
 pnpm verify:wasm  # after build:wasm: the WASM signer end to end in headless Chromium
 ```
 
-Node 20 or newer works; this was built with Node 26 and pnpm 11. There are no runtime dependencies
-beyond React and `uqr`, the QR encoder, which is bundled. The fonts (Inter, JetBrains Mono and
-Instrument Serif, all OFL) are bundled from npm, Latin subset only.
+Node 20 or newer works; this was built with Node 26 and pnpm 11. The runtime dependencies are React,
+`uqr` (the QR encoder), `lenis` (eased wheel scrolling on the landing and /brand) and `three` (core
+only, for the landing's WebGL stage, in a lazy chunk), all bundled. The fonts (Inter, JetBrains Mono
+and Bodoni Moda, all OFL) are bundled from npm, Latin subset only.
 
 Serve `dist/` as a single-page app: every path that is not a file falls back to `index.html`.
 Routes use the History API, never the hash, because the hash carries offer data.
@@ -477,20 +479,38 @@ comment lists the checks.
 - the whole sharded pipeline against `mandate::presign` over full windows;
 - a cancel proved and extracted natively.
 
+## Design
+
+The look is "the pulled rung": the landing's stage is testnet run 1's three rung ladders at their real
+counts, and at each drand round exactly one rung, the one for the next block, is pulled out in amber
+and the rest can never be used. Amber marks only what happens next. `/brand` documents the system;
+the tokens live at the top of `src/styles/app.css` (`src/motion/tokens.ts` mirrors the motion ones, and
+a test keeps the two in step).
+
+The stage is built twice from one timeline (`src/stage/timeline.ts`). The SVG tier always ships and is
+what phones, reduced motion and headless browsers see. On desktops with a capable GPU, a WebGL tier
+(`src/stage/GlStage.ts`, three.js core) loads once the page is idle and fades in over it; it renders on
+demand, steps down or hands back to the SVG if frames run long, and disposes its context when you
+leave. Only transform and opacity animate; with reduced motion every reveal and the release show their
+end state. Page changes run as view transitions where the browser has them.
+
 ## Screenshots
 
 `pnpm verify` regenerates `screenshots/`:
 
-- the landing page in dark and light;
+- the landing page in dark and light, and its release moment (`07-landing-release`);
+- the brand book (`08-brand`);
 - the merchant dashboard;
 - the decoder;
 - every payer step;
 - the sandbox: close the tab, three installments landed, an inline decode, then cancelled with the
   first three cheats rejected;
-- mobile views.
+- mobile views, and every route at 375 px (`33-375-*`).
 
-The committed set is from commit `98246ad` (Oct 23). It predates the four-card cheat grid, the
-cancel-key check, `/status` and the footer's build line.
+It also checks that no route scrolls sideways at 375 px and that, with reduced motion, nothing
+animates. `VERIFY_HEADED=1` runs it in a visible browser, so the WebGL stage loads.
+`pnpm verify:judge` walks the judge path on the deployed app host and the live sandbox runner; it
+spends testnet TAZ from the faucet, so run it once per deploy.
 
 ## Layout
 
@@ -501,7 +521,11 @@ src/signer/     Signer interface, MockSigner, WasmSigner (wasm.ts) with its work
 src/wasm/       wasm-bindgen output of pnpm build:wasm (gitignored)
 src/lib/        offer fragment, ZIP 321, drand, amounts, states, shape checks, runner log formats
 src/components/ UI pieces: tables, QR, timeline, flow views, disclosure panel
-src/pages/      Landing, Merchant, Subscribe, Manage, Status, Decode, Sandbox
+src/pages/      Landing (and landing/), Merchant, Subscribe, Manage, Status, Decode, Sandbox, Brand
+src/stage/      the landing's stage: the shared timeline and geometry, the SVG driver, the WebGL tier
+src/motion/     reveals, beats, smooth scrolling and the motion tokens
+src/brand/      the round rail, the drawn ladders, the outlined wordmark, contrast maths
 src/config/     VITE_API, VITE_RUNNERS and VITE_SIGNER parsing, the CSP and build identity (shared with vite.config.ts)
-scripts/        verify-and-screenshot.mjs, build-wasm.sh, wasm-smoke.mjs + wasm-smoke/ (harness page), app-host-smoke.mjs
+scripts/        verify-and-screenshot.mjs, build-wasm.sh, wasm-smoke.mjs + wasm-smoke/ (harness page), app-host-smoke.mjs,
+                judge-path.mjs, brand/ (wordmark outliner, social card and icon export)
 ```

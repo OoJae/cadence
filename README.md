@@ -111,7 +111,7 @@ crates/cadence-runner  merchant service: drand scheduler, release, confirmations
 crates/cadence-cli     payer: subscribe / resume / cancel / sweep (runner and chain over Tor), dev pocket tools
 crates/cadence-decode  public-shape decoder and mainnet fingerprint scanner
 crates/cadence-wasm    browser signer (Web Worker pool)
-web/                   payer flow, merchant dashboard, decoder, judge sandbox (strict CSP, zero third-party requests)
+web/                   landing, payer flow, merchant dashboard, decoder, judge sandbox, brand book (strict CSP, zero third-party requests)
 ```
 
 ### How a rung ladder works
@@ -164,7 +164,7 @@ The runner only ever broadcasts transactions the payer already signed.
 - **Unscheduled network upgrades invalidate rungs.** Each signature commits to the consensus branch, so a schedule that runs past an upgrade unknown at signing time must be signed again (cancel, then subscribe again; there is no in-place re-sign yet). Known boundaries are handled: windows skip the last blocks before NU7, and fees follow ZIP 2009 from height 3,590,000, which leaves the 8,000 zats each later installment saves in the pocket for `cadence sweep`.
 - **The pocket is a software key.** Hardware wallets can fund it but cannot sign ladders.
 - **Timing is public.** Short demo cadences are visible as a schedule. Monthly ones are a few ordinary transactions among thousands a day, but Cadence adds no jitter yet.
-- **Whoever serves the web app serves the code that holds your pocket key.** On the live demo the runner serves it, so a dishonest merchant could serve code that steals the key; the runner software cannot. A `VITE_API=runners` build served from an origin the merchant does not control, with its commit and bundle sha256 in the footer to check against a build of your own, removes that risk, and so does the CLI. The build mode is supported (`web/README.md`, `deploy/railway-app/`) but no such host is deployed yet.
+- **Whoever serves the web app serves the code that holds your pocket key.** A runner that serves the app could serve code that steals the key; the runner software cannot. A `VITE_API=runners` build served from an origin the merchant does not control, with its commit and bundle sha256 in the footer to check against a build of your own, removes that risk, and so does the CLI. The live demo has such a host ([app-production-be97.up.railway.app](https://app-production-be97.up.railway.app), `deploy/railway-app/`), but we also run the demo's runners, so it shows the mode working, not independence from the merchant.
 - **The hosting edge sees your IP.** The live demo runs on Railway, which sees the address of every browser that loads it, unless you use Tor Browser.
 - **Webhooks are best-effort.** Three attempts from memory and no outbox; merchants reconcile from the API (`docs/merchant.md`).
 
