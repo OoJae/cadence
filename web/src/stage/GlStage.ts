@@ -83,6 +83,8 @@ const FRAME_Y: Record<BeatId, number> = { hero: 0.1, gap: 0.1, sign: 0, tower: 0
  * a plate.
  */
 const FRAME_Y_NARROW: Record<BeatId, number> = { hero: -0.1, gap: -0.1, sign: -0.2, tower: -0.2, seal: -0.1, hold: -0.1, release: 0.28, refusals: 0.28, cancel: -0.1 };
+/** Looking up the tower from further back, its rungs foreshorten below a pixel: there the lens stays at the timeline's distance. */
+const DOLLY: Partial<Record<BeatId, number>> = { tower: 1 };
 const FOG = { near: 8 * LENS.dolly, far: 34 * LENS.dolly } as const;
 const MAX_DPR = 1.75;
 
@@ -269,7 +271,8 @@ const ANCHORS: Record<string, Anchor> = {
   'count-3': { at: [LADDER_X[2], 0, 0], px: [0, 14] },
   'run-1': { at: [0, 0, 0], px: [0, 44] },
   installment: { at: [LADDER_X[0] - RAIL_X - 0.06, 0.9, 0] },
-  tower: { at: [TOWER_X + RAIL_X + 0.08, 13.2, 0] },
+  // Left of the tower: its right runs into the drand rail's margin.
+  tower: { at: [TOWER_X - RAIL_X - 0.08, 13.2, 0], align: [-1, -0.5] },
   tip: {
     at: [TIP.x - TIP.w / 2, RELEASED * P, 0],
     px: [0, 6],
@@ -474,7 +477,8 @@ export async function createGlStage(frame: HTMLElement, ctx: GlContext, hooks: G
     const c: Camera3D = BEATS[b].camera;
     const [tx, ty, tz] = c.target;
     const [px, py, pz] = c.position;
-    return [tx + (px - tx) * LENS.dolly, ty + (py - ty) * LENS.dolly, tz + (pz - tz) * LENS.dolly, tx, ty, tz, FRAME_Y[b], FRAME_Y_NARROW[b]];
+    const d = DOLLY[b] ?? LENS.dolly;
+    return [tx + (px - tx) * d, ty + (py - ty) * d, tz + (pz - tz) * d, tx, ty, tz, FRAME_Y[b], FRAME_Y_NARROW[b]];
   };
   const ch = {
     camera: new Channel(lens('hero')),
