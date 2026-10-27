@@ -247,7 +247,7 @@ export function ShapeTable({ shape, compare, network = 'test' }: { shape: Shape;
         </div>
       )}
       <div className="table-wrap">
-        <table className="data stackable">
+        <table className="data stackable spec">
           <thead>
             <tr>
               <th scope="col">Field</th>
@@ -276,7 +276,7 @@ export function ShapeTable({ shape, compare, network = 'test' }: { shape: Shape;
                   </td>
                 )}
                 <td data-label="Chain observer" className="wide">
-                  <span title={r.observerNote}>
+                  <span className="observer" title={r.observerNote}>
                     {r.observer === 'hidden' ? (
                       <Badge tone="green">
                         <EyeOffIcon size={12} /> reveals nothing
@@ -326,7 +326,7 @@ export function ObserverSummary({ fee }: { fee?: number | null }) {
     ['The network path', 'The first node to hear a broadcast sees where it came from. The runner broadcasts over Tor by default.'],
   ];
   return (
-    <div className="grid cols-3" style={{ ['--gap' as string]: '16px' }}>
+    <div className="grid cols-3 observer-summary" style={{ ['--gap' as string]: '16px' }}>
       <div className="card flat">
         <div className="row" style={{ marginBottom: 14 }}>
           <Badge tone="red" lg>
@@ -363,14 +363,14 @@ export function ObserverSummary({ fee }: { fee?: number | null }) {
       </div>
       <div className="card flat">
         <div className="row" style={{ marginBottom: 14 }}>
-          <Badge tone="amber" lg>
+          <Badge tone="sealed" lg>
             Honest caveats
           </Badge>
         </div>
         <ul className="observer-list">
           {caveats.map(([a, b]) => (
             <li key={a}>
-              <span className="badge tone-amber" style={{ height: 20, padding: '0 6px' }}>
+              <span className="badge tone-sealed" style={{ height: 20, padding: '0 6px' }}>
                 !
               </span>
               <span>

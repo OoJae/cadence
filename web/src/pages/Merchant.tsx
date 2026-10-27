@@ -86,7 +86,7 @@ function SubscriptionCard({ sub, defaultOpen, onChanged }: { sub: Subscription; 
           <div className="row" style={{ ['--gap' as string]: '10px' }}>
             <span className="title">{offer?.name ?? sub.offer_id}</span>
             <StatusBadge status={sub.status} />
-            {provenance?.startsWith('Real') && <Badge tone="accent">evidence</Badge>}
+            {provenance?.startsWith('Real') && <Badge tone="sealed">evidence</Badge>}
           </div>
           <div className="sub-meta">
             <span>{sub.subscription_id}</span>
@@ -327,8 +327,8 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
             </Badge>
           </div>
           <div className="code-block" style={{ maxHeight: 120, overflow: 'auto' }}>
-            <span className="text-2">{result.share_url.split('#')[0]}</span>
-            <span className="accent">#{result.share_url.split('#')[1]}</span>
+            <span className="muted">{result.share_url.split('#')[0]}</span>
+            <span className="text-2">#{result.share_url.split('#')[1]}</span>
           </div>
           <div className="row" style={{ ['--gap' as string]: '8px' }}>
             <CopyButton text={result.share_url} label="Copy share link" />
@@ -374,7 +374,7 @@ function Integrate() {
         </p>
         <div className="code-block tiny">X-Cadence-Signature: t=&lt;unix&gt;,v1=&lt;hex HMAC-SHA256(secret, "&lt;t&gt;.&lt;body&gt;")&gt;</div>
         <div className="code-block tiny">X-CipherPay-Signature: &lt;hex HMAC-SHA256(secret, "&lt;X-CipherPay-Timestamp&gt;.&lt;body&gt;")&gt;</div>
-        <table className="data">
+        <table className="data events">
           <tbody>
             <tr>
               <td className="mono">invoice.confirmed · confirmed</td>

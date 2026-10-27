@@ -100,7 +100,7 @@ function InstallmentRows({ sub, network, crossing, poll }: { sub: Subscription; 
                 <span className="row" style={{ ['--gap' as string]: '6px' }}>
                   <StateBadge state={i.state} />
                   {crossing.kind === 'crossed' && crossing.k === i.k && (
-                    <Badge tone="accent" title={`This mandate's first installment mined at or after NU7 activation (height ${n(crossing.nu7)})`}>
+                    <Badge tone="sealed" title={`This mandate's first installment mined at or after NU7 activation (height ${n(crossing.nu7)})`}>
                       first Cadence installment after NU7
                     </Badge>
                   )}

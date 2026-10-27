@@ -319,7 +319,9 @@ main {
 
 .page {
   padding-block: clamp(28px, 5vw, 56px) 80px;
-  animation: page-in 0.45s var(--ease-out) both;
+}
+html.motion-ok .page {
+  animation: page-in var(--dur-page) var(--ease-reveal) both;
 }
 
 .stack {
@@ -770,10 +772,17 @@ code em,
   padding: 0;
 }
 
-/* The "save your cancel key" card: the one thing to do before closing the tab. */
+/* The cancel key is a stub torn from the subscription: a tinted strip on the left
+   and a row of 2.5 px holes at a 10 px pitch along the tear. Gradients only. */
 .card.key-card {
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 1px var(--accent-line), var(--shadow);
+  --stub: 20px;
+  position: relative;
+  padding-left: calc(var(--stub) + clamp(18px, 2.4vw, 26px));
+  border-color: var(--line-strong);
+  background:
+    radial-gradient(circle at 50% 5px, var(--bg) 0 2.5px, var(--line-strong) 2.5px 3.2px, transparent 3.4px) var(--stub) 0 / 10px 10px repeat-y,
+    linear-gradient(90deg, var(--surface-2) 0 calc(var(--stub) + 5px), var(--surface) 0);
+  background-origin: border-box;
 }
 .card.key-card > .row > svg {
   flex-shrink: 0;
@@ -831,8 +840,96 @@ code em,
   background: color-mix(in srgb, var(--green) 7%, var(--surface));
 }
 .callout.info {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.callout.info > svg,
+.callout.warn > svg {
+  color: var(--text);
+}
+
+/* The cancellation certificate: a document on Paper in both themes. The light
+   palette is set locally, so the txid, copy button and links inside read as ink. */
+.callout.certificate {
+  --text: var(--certificate-ink);
+  --text-2: #3d413d;
+  --muted: #5f635d;
+  --faint: #676b65;
+  --line: #d6d1c4;
+  --line-strong: #bfb9ab;
+  --line-control: #8c897d;
+  --surface-3: color-mix(in srgb, var(--ink) 7%, var(--certificate));
+  --green: #17824f;
+  --focus: #8a5b00;
+  position: relative;
+  overflow: hidden;
+  display: block;
+  padding: clamp(20px, 3vw, 30px);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-0);
+  background: var(--certificate);
+  color: var(--text-2);
+  font-size: 14px;
+  /* A perforated top edge: the stub torn from the plan. */
+  -webkit-mask: radial-gradient(circle at 5px 0, transparent 0 2.5px, #000 3px) 0 0 / 10px 100% repeat-x;
+  mask: radial-gradient(circle at 5px 0, transparent 0 2.5px, #000 3px) 0 0 / 10px 100% repeat-x;
+}
+/* The hairline frame, inset like an engraved border. */
+.callout.certificate::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid color-mix(in srgb, var(--certificate-ink) 22%, transparent);
+  pointer-events: none;
+}
+.callout.certificate > .guilloche {
+  position: absolute;
+  top: -64px;
+  right: -64px;
+  width: 220px;
+  height: auto;
+  margin: 0;
+  color: var(--certificate-ink);
+  opacity: 0.2;
+  pointer-events: none;
+}
+.callout.certificate > div {
+  position: relative;
+}
+.certificate .kicker {
+  color: var(--muted);
+}
+.certificate-title {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  font-weight: 400;
+  font-size: var(--fs-title);
+  line-height: 1.15;
+  color: var(--text);
+}
+.certificate-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 20px;
+  margin: 4px 0;
+  padding-block: 12px;
+  border-block: 1px solid var(--line);
+}
+.certificate-figures dt {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.certificate-figures dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-weight: 300;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 .dot-grid {
@@ -1164,8 +1261,43 @@ code em,
   --tone: var(--accent-text);
 }
 
+/* The one endless motion: a live dot pulses once per drand round, brightest as the
+   round begins (ui.tsx sets the phase). It is amber because a round is what comes next. */
 .badge.live .dot {
+  background: var(--accent-graphic);
+}
+.badge.tone-blue .dot {
+  background: currentColor;
+}
+html.motion-ok .badge.live .dot {
   animation: pulse-dot var(--beat) var(--ease-toggle) infinite;
+}
+
+/* A passed check in a spec sheet: Ledger text, a green tick. */
+.badge.check.tone-green {
+  --tone: var(--text-2);
+  background: transparent;
+  border-color: var(--line-strong);
+}
+.badge.check.tone-green svg {
+  color: var(--green);
+}
+
+/* What a chain observer can read, in monochrome: "reveals nothing" in Ledger, "visible" in Graphite. */
+.observer .badge,
+.observer-summary .badge {
+  background: transparent;
+}
+.observer .badge.tone-green,
+.observer-summary .badge.tone-green {
+  --tone: var(--text);
+  border-color: color-mix(in srgb, var(--text) 38%, transparent);
+}
+.observer .badge.tone-red,
+.observer-summary .badge.tone-red {
+  --tone: var(--muted);
+  border-style: dashed;
+  border-color: var(--line-control);
 }
 
 .tag {
@@ -1222,11 +1354,42 @@ table.data td.mono,
 table.data .mono {
   font-size: 12.5px;
 }
-table.data tbody tr {
-  transition: background 0.15s var(--ease);
-}
 table.data tbody tr:hover {
   background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+/* The webhook events: name over meaning, so the narrow column reads. */
+table.data.events tr {
+  display: block;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+table.data.events tr:last-child {
+  border-bottom: 0;
+}
+table.data.events td {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+table.data.events td + td {
+  margin-top: 2px;
+}
+
+/* The decoder's spec sheet: labels left, values in mono, hairline rules, top-aligned rows. */
+table.data.spec td {
+  vertical-align: top;
+  padding-block: 14px;
+}
+table.data.spec td:first-child .h4 {
+  font-size: 13.5px;
+}
+table.data.spec td .mono {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+table.data.spec .match {
+  margin-top: 1px;
 }
 
 /* Installment table collapses to cards on small screens. */
@@ -1306,17 +1469,24 @@ table.data tbody tr:hover {
 }
 .stat .label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
+/* A value you can check: mono, light, tabular. */
 .stat .value {
   font-family: var(--font-mono);
-  font-size: 19px;
+  font-weight: 300;
+  font-size: var(--fs-title);
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.stat .value .mono {
+  font-weight: inherit;
 }
 .stat .sub {
   font-size: 12px;
@@ -1325,14 +1495,15 @@ table.data tbody tr:hover {
 
 .stat-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-1);
   background: var(--surface);
   overflow: hidden;
 }
 .stat-strip > .stat {
-  padding: 16px 18px;
+  padding: 18px 20px;
   border-right: 1px solid var(--line);
 }
 .stat-strip > .stat:last-child {
@@ -1340,6 +1511,7 @@ table.data tbody tr:hover {
 }
 @media (max-width: 760px) {
   .stat-strip {
+    grid-auto-flow: row;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .stat-strip > .stat:nth-child(2) {
@@ -1379,7 +1551,6 @@ table.data tbody tr:hover {
   color: var(--muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s var(--ease), color 0.15s var(--ease);
 }
 .copy-btn:hover {
   background: var(--surface-3);
@@ -1404,27 +1575,36 @@ table.data tbody tr:hover {
 
 /* ---------------------------------------------------------------- QR */
 
+/* The QR sits on Paper, a slip with perforated top and bottom edges. The edges are a
+   mask, so the holes show whatever is behind. --qr-bg and --qr-fg draw the code itself. */
 .qr-frame {
-  background: var(--qr-bg);
-  border-radius: var(--r-lg);
-  padding: 8px;
+  --perf: radial-gradient(circle at 5px 0, transparent 0 2.5px, #000 3px);
+  --perf-b: radial-gradient(circle at 5px 100%, transparent 0 2.5px, #000 3px);
+  background: var(--paper);
+  border-radius: var(--r-0);
+  padding: 14px;
   display: inline-block;
   max-width: 100%;
   position: relative;
-  box-shadow: 0 0 0 1px var(--line);
+  -webkit-mask: var(--perf) 0 0 / 10px 51% repeat-x, var(--perf-b) 0 100% / 10px 51% repeat-x;
+  mask: var(--perf) 0 0 / 10px 51% repeat-x, var(--perf-b) 0 100% / 10px 51% repeat-x;
 }
 .qr-frame svg {
   display: block;
   width: 100%;
   height: auto;
 }
+/* The mask clips anything outside the slip, so the ribbon sits on its bottom margin. */
+.qr-frame:has(.qr-ribbon) {
+  padding-bottom: 38px;
+}
 .qr-frame .qr-ribbon {
   position: absolute;
   left: 50%;
-  bottom: -11px;
+  bottom: 11px;
   transform: translateX(-50%);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--ink);
+  color: var(--paper);
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.1em;
@@ -1432,7 +1612,7 @@ table.data tbody tr:hover {
   padding: 3px 10px;
   border-radius: var(--r-0);
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .fit-grid {
@@ -1450,52 +1630,85 @@ table.data tbody tr:hover {
 
 /* ---------------------------------------------------------------- stepper */
 
+/* Steps are rungs standing on a rail: done in Ledger, the current one in Release,
+   the rest in Hairline. The rail fills in Ledger as steps are done. The mono numbers
+   are a CSS counter (a done step's ✓ stays in the text for screen readers). */
 .stepper {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 0;
   list-style: none;
-  margin: 0;
+  margin: 6px 0 0;
   padding: 0;
   counter-reset: step;
-  flex-wrap: wrap;
 }
 .stepper li {
+  counter-increment: step;
+  position: relative;
+  flex: 1 1 auto;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
+  padding: 2px 18px 10px 12px;
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
+  line-height: 1.35;
   color: var(--faint);
-  padding: 6px 12px 6px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
+}
+.stepper li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 0;
+  width: 2px;
+  background: var(--line-strong);
+  transform-origin: 50% 100%;
+}
+@media (max-width: 560px) {
+  .stepper {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stepper li {
+    padding-right: 10px;
+  }
 }
 .stepper .n {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
   font-family: var(--font-mono);
+  font-size: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+.stepper .n::before {
+  content: counter(step, decimal-leading-zero);
   font-size: 11px;
-  background: var(--surface-3);
+  letter-spacing: 0.04em;
+}
+.stepper li[data-state='done'] {
+  color: var(--text-2);
+  border-bottom-color: var(--text);
+}
+.stepper li[data-state='done']::before {
+  background: var(--text);
+}
+.stepper li[data-state='done'] .n {
   color: var(--muted);
 }
 .stepper li[data-state='current'] {
   color: var(--text);
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
+  font-weight: 500;
+}
+.stepper li[data-state='current']::before {
+  background: var(--accent-graphic);
 }
 .stepper li[data-state='current'] .n {
-  background: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-text);
+  font-weight: 500;
 }
-.stepper li[data-state='done'] {
-  color: var(--text-2);
-}
-.stepper li[data-state='done'] .n {
-  background: color-mix(in srgb, var(--green) 18%, transparent);
-  color: var(--green);
+/* The rung for the step that just became current rises onto the rail. */
+html.motion-ok .stepper li[data-state='current']::before {
+  animation: rung-rise var(--dur-roll) var(--ease-reveal) both;
 }
 
 .vsteps {
@@ -1503,58 +1716,49 @@ table.data tbody tr:hover {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 2px;
+  gap: 0;
+  counter-reset: step;
 }
 .vsteps li {
+  counter-increment: step;
   display: grid;
   grid-template-columns: 26px 1fr;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--r);
+  padding: 10px 12px 10px 14px;
   position: relative;
   color: var(--faint);
+  border-left: 1px solid var(--line);
 }
-.vsteps li .n {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  position: relative;
-  z-index: 1;
-}
-.vsteps li:not(:last-child)::after {
+.vsteps li::before {
   content: '';
   position: absolute;
-  left: 24.5px;
-  top: 36px;
-  bottom: -12px;
-  width: 1px;
-  background: var(--line);
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--line-strong);
+}
+.vsteps li .n {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 26px;
+  font-variant-numeric: tabular-nums;
 }
 .vsteps li[data-state='done'] {
   color: var(--text-2);
+  border-left-color: var(--text);
 }
-.vsteps li[data-state='done'] .n {
-  background: color-mix(in srgb, var(--green) 16%, var(--surface));
-  border-color: color-mix(in srgb, var(--green) 50%, transparent);
-  color: var(--green);
-}
-.vsteps li[data-state='done']::after {
-  background: color-mix(in srgb, var(--green) 40%, transparent);
+.vsteps li[data-state='done']::before {
+  background: var(--text);
 }
 .vsteps li[data-state='current'] {
-  background: var(--accent-soft);
   color: var(--text);
 }
+.vsteps li[data-state='current']::before {
+  background: var(--accent-graphic);
+}
 .vsteps li[data-state='current'] .n {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-text);
 }
 .vsteps .t {
   font-size: 14px;
@@ -1596,8 +1800,14 @@ table.data tbody tr:hover {
     linear-gradient(currentColor, currentColor) 2px 3px / 3px 10px no-repeat,
     linear-gradient(currentColor, currentColor) 6.5px 3px / 3px 10px no-repeat,
     linear-gradient(currentColor, currentColor) 11px 3px / 3px 10px no-repeat;
-  color: var(--accent-graphic);
+  color: var(--muted);
+}
+html.motion-ok .spinner {
   animation: spinner-blink 0.9s var(--ease-toggle) infinite;
+}
+/* In a working installment's icon it takes the row's tone. */
+.tl-item .ico .spinner {
+  color: inherit;
 }
 
 /* ---------------------------------------------------------------- log */
@@ -1619,7 +1829,9 @@ table.data tbody tr:hover {
   grid-template-columns: 70px minmax(0, 1fr);
   gap: 10px;
   padding: 1px 14px;
-  animation: line-in 0.35s var(--ease-out) both;
+}
+html.motion-ok .log .line {
+  animation: line-in var(--dur-roll) var(--ease-reveal) both;
 }
 .log .line .ts {
   color: var(--faint);
@@ -1707,12 +1919,12 @@ details.disclosure > .body {
   color: var(--text);
 }
 .learn .no svg {
-  color: var(--green);
+  color: var(--faint);
 }
 .learn .group-label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--faint);
   margin-bottom: 8px;
@@ -1958,6 +2170,7 @@ details.disclosure > .body {
   gap: 18px;
   padding-block: 20px 8px;
 }
+/* The mark in a hairline ring: everything is signed and sealed. Nothing past is amber. */
 .done-mark {
   width: 92px;
   height: 92px;
@@ -1970,28 +2183,27 @@ details.disclosure > .body {
 }
 .done-mark .ring {
   fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 290;
-  stroke-dashoffset: 290;
-  animation: draw 0.9s var(--ease-out) 0.1s forwards;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
 }
-.done-mark .check {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 60;
-  stroke-dashoffset: 60;
-  animation: draw 0.5s var(--ease-out) 0.75s forwards;
+.done-mark .mark {
+  fill: var(--text);
+  transform-box: fill-box;
+  transform-origin: center;
 }
 .done-mark .halo {
-  position: absolute;
-  inset: -18px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
-  animation: halo 2.8s ease-in-out 1.2s infinite;
+  display: none;
+  animation: none;
+  opacity: 0;
+}
+html.motion-ok .done-mark .ring {
+  animation: seal-in var(--dur-reveal) var(--ease-reveal) 0.1s both;
+}
+html.motion-ok .done-mark .mark {
+  animation: stamp var(--dur-roll) var(--ease-reveal) 0.45s both;
 }
 .done-title {
   font-family: var(--font-display);
@@ -1999,10 +2211,13 @@ details.disclosure > .body {
   font-size: clamp(2.4rem, 6vw, 4rem);
   line-height: 1.02;
   letter-spacing: -0.015em;
-  animation: rise 0.7s var(--ease-out) 0.55s both;
+  text-wrap: balance;
 }
-.done-sub {
-  animation: rise 0.7s var(--ease-out) 0.7s both;
+html.motion-ok .done-title {
+  animation: rise var(--dur-page) var(--ease-reveal) 0.3s both;
+}
+html.motion-ok .done-sub {
+  animation: rise var(--dur-reveal) var(--ease-reveal) 0.45s both;
 }
 .pane .done-title {
   font-size: clamp(2rem, 3.2vw, 2.9rem);
@@ -2011,6 +2226,7 @@ details.disclosure > .body {
   font-size: 15.5px;
 }
 
+/* Sealed packages: identical sheaths, because every package is the same size sealed. */
 .envelopes {
   display: flex;
   gap: 10px;
@@ -2018,15 +2234,32 @@ details.disclosure > .body {
   flex-wrap: wrap;
 }
 .envelope {
+  position: relative;
   width: 132px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--sealed) 35%, var(--line));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--sealed) 9%, var(--surface)) 0%, var(--surface) 100%);
-  padding: 12px;
+  height: 92px;
+  border-radius: var(--r-0);
+  border: 1px solid color-mix(in srgb, var(--sealed) 42%, transparent);
+  background: var(--bg-elev);
+  padding: 14px 12px 10px;
   display: grid;
+  align-content: start;
   gap: 6px;
   text-align: left;
-  animation: drop-in 0.6s var(--ease-out) both;
+  overflow: hidden;
+}
+/* The seal: a closed band of rungs across the top of every sheath. */
+.envelope::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--sealed) 55%, transparent) 0 1px, transparent 1px 3px);
+  border-bottom: 1px solid color-mix(in srgb, var(--sealed) 30%, transparent);
+}
+html.motion-ok .envelope {
+  animation: seal-in var(--dur-reveal) var(--ease-reveal) both;
 }
 .envelope .k {
   font-family: var(--font-mono);
@@ -2043,6 +2276,7 @@ details.disclosure > .body {
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--text);
+  white-space: nowrap;
 }
 .envelope .round {
   font-family: var(--font-mono);
@@ -2053,36 +2287,31 @@ details.disclosure > .body {
 /* ---------------------------------------------------------------- sandbox */
 
 .pane {
+  position: relative;
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-2);
   background: var(--surface);
   overflow: hidden;
   min-width: 0;
 }
+/* A mono strip, not a browser window: the pane says which side it is. */
 .pane-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 6px 10px;
+  min-height: 40px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface-2);
+  background: var(--bg-elev);
   font-family: var(--font-mono);
   font-size: 11.5px;
+  letter-spacing: 0.02em;
   color: var(--muted);
   flex-wrap: wrap;
 }
 .pane-head .lights {
-  display: inline-flex;
-  gap: 6px;
-  margin-right: 8px;
-}
-.pane-head .lights i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--line-strong);
-  display: block;
+  display: none;
 }
 .pane-body {
   padding: clamp(16px, 2.2vw, 22px);
@@ -2092,19 +2321,59 @@ details.disclosure > .body {
   place-items: center;
   min-height: 240px;
   text-align: center;
-  background: repeating-linear-gradient(-45deg, var(--bg-elev) 0 12px, var(--surface) 12px 24px);
+}
+/* Closing the payer tab seals the pane: a hairline sheath settles over it once. It
+   never dims what is inside, so the reopen button stays crisp and clickable. */
+.pane.closed::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--r-2) - 5px);
+  pointer-events: none;
+}
+html.motion-ok .pane.closed::after {
+  animation: pane-seal 0.6s var(--ease-reveal) both;
 }
 
 .cheat {
   display: grid;
   gap: 10px;
-  padding: 14px;
-  border-radius: var(--r);
+  padding: 16px;
+  border-radius: var(--r-1);
   border: 1px solid var(--line);
   background: var(--surface-2);
 }
-.cheat .result {
-  animation: line-in 0.3s var(--ease-out) both;
+/* What each cheat is expected to hit: a prediction, so a dashed tag rather than an alarm. */
+.cheat > .badge {
+  justify-self: start;
+  --tone: var(--muted);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--line-control);
+}
+/* The refusal lands like a stamp, in Ledger. */
+.cheat .result .badge.tone-green {
+  --tone: var(--text);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-0);
+  border: 1.5px solid var(--text);
+  background: transparent;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.cheat .result .badge.tone-green .dot {
+  border-radius: 0;
+  width: 5px;
+  height: 5px;
+}
+html.motion-ok .cheat .result {
+  animation: rise var(--dur-roll) var(--ease-reveal) both;
+}
+html.motion-ok .cheat .result .badge {
+  transform-origin: 0 50%;
+  animation: stamp var(--dur-roll) var(--ease-reveal) both;
 }
 .cheat .log {
   max-height: none;
@@ -2113,57 +2382,82 @@ details.disclosure > .body {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* ---------------------------------------------------------------- timeline */
+
 .timeline-list {
   display: grid;
   gap: 8px;
 }
+/* Each installment takes its state's tone: sealed Ledger, due a Release outline,
+   broadcast a Release fill, mined Settled green, cancelled Graphite and struck,
+   missed or invalid Refused red. */
 .tl-item {
+  --tone: var(--muted-tone);
+  --edge: var(--line);
+  position: relative;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  border: 1px solid var(--edge);
   background: var(--bg-elev);
-  transition: border-color 0.3s var(--ease), background 0.3s var(--ease);
 }
 .tl-item .ico {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--r-0);
   display: grid;
   place-items: center;
-  --tone: var(--muted-tone);
   color: var(--tone);
-  background: color-mix(in srgb, var(--tone) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  background: transparent;
 }
-.tl-item[data-state='sealed'] .ico {
+.tl-item .ico > svg {
+  width: 20px;
+  height: 20px;
+}
+.tl-item[data-state='pending'] .ico {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--faint);
+}
+.tl-item[data-state='sealed'] {
   --tone: var(--sealed);
 }
+.tl-item[data-state='due'] {
+  --tone: var(--accent-graphic);
+  --edge: var(--accent-line);
+}
 .tl-item[data-state='due'] .ico {
-  --tone: var(--amber);
+  border-color: var(--accent-graphic);
+}
+.tl-item[data-state='broadcast'] {
+  --tone: var(--accent-graphic);
+  --edge: var(--accent-line);
 }
 .tl-item[data-state='broadcast'] .ico {
-  --tone: var(--blue);
-}
-.tl-item[data-state='mined'] .ico {
-  --tone: var(--green);
-}
-.tl-item[data-state='missed'] .ico,
-.tl-item[data-state='invalid'] .ico {
-  --tone: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 .tl-item[data-state='mined'] {
-  border-color: color-mix(in srgb, var(--green) 30%, var(--line));
+  --tone: var(--green);
+  --edge: color-mix(in srgb, var(--green) 30%, var(--line));
 }
-.tl-item[data-state='due'],
-.tl-item[data-state='broadcast'] {
-  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+.tl-item[data-state='cancelled'] {
+  --tone: var(--muted-tone);
+}
+.tl-item[data-state='missed'],
+.tl-item[data-state='invalid'] {
+  --tone: var(--red);
+  --edge: color-mix(in srgb, var(--red) 35%, var(--line));
 }
 .tl-item[data-state='cancelled'] .title {
   text-decoration: line-through;
-  text-decoration-color: var(--faint);
+  text-decoration-color: var(--muted);
+  color: var(--text-2);
 }
 .tl-item .title {
   font-size: 14px;
@@ -2175,8 +2469,22 @@ details.disclosure > .body {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.tl-item.flash {
-  animation: flash 1.2s var(--ease-out);
+/* A change of state sweeps one hairline in the new tone along the foot of the row. */
+.tl-item::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--tone);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  pointer-events: none;
+}
+html.motion-ok .tl-item.flash::after {
+  animation: sweep var(--dur-reveal-l) var(--ease-reveal) both;
 }
 
 @media (max-width: 560px) {
@@ -2185,6 +2493,7 @@ details.disclosure > .body {
   }
   .tl-item > :last-child {
     grid-column: 2;
+    justify-content: flex-start !important;
   }
 }
 
@@ -2192,7 +2501,7 @@ details.disclosure > .body {
 
 .sub-card {
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-1);
   background: var(--surface);
   overflow: hidden;
 }
@@ -2229,37 +2538,41 @@ details.disclosure > .body {
   color: var(--muted);
   margin-top: 4px;
 }
+/* One rung per installment, standing in a row, in the state tones. */
 .sub-progress {
   display: flex;
   gap: 4px;
-  align-items: center;
+  align-items: flex-end;
+  height: 22px;
 }
 .sub-progress i {
-  width: 16px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--surface-3);
+  width: 3px;
+  height: 22px;
+  border-radius: 0;
   display: block;
-  --tone: var(--surface-3);
+  background: var(--line-strong);
 }
 .sub-progress i[data-state='mined'] {
   background: var(--green);
 }
 .sub-progress i[data-state='broadcast'] {
-  background: var(--blue);
+  background: var(--accent-graphic);
 }
 .sub-progress i[data-state='due'] {
-  background: var(--amber);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent-graphic);
 }
 .sub-progress i[data-state='sealed'] {
-  background: color-mix(in srgb, var(--sealed) 45%, var(--surface-3));
+  background: color-mix(in srgb, var(--sealed) 60%, transparent);
 }
 .sub-progress i[data-state='missed'],
 .sub-progress i[data-state='invalid'] {
   background: var(--red);
 }
+/* Void: a cancelled rung shrinks to a stub. */
 .sub-progress i[data-state='cancelled'] {
-  background: var(--line-strong);
+  height: 6px;
+  background: var(--muted-tone);
 }
 .sub-body {
   border-top: 1px solid var(--line);
@@ -2286,6 +2599,26 @@ details.disclosure > .body {
   text-align: center;
   padding: 40px 16px;
   color: var(--muted);
+}
+/* Not found: an empty ladder, its rungs void. Decorative, drawn with gradients. */
+.empty-state.lost {
+  gap: 16px;
+  padding-block: clamp(40px, 8vw, 96px);
+}
+.empty-state.lost::before {
+  content: '';
+  width: 44px;
+  height: 96px;
+  margin-bottom: 8px;
+  border-inline: 3px solid var(--line-strong);
+  background: repeating-linear-gradient(180deg, transparent 0 5px, color-mix(in srgb, var(--graphite) 30%, transparent) 5px 6px);
+}
+.empty-state.lost .h2 {
+  color: var(--text);
+  text-wrap: balance;
+}
+.empty-state.lost p {
+  max-width: 46ch;
 }
 
 /* ---------------------------------------------------------------- motion */
@@ -2330,22 +2663,6 @@ details.disclosure > .body {
     transform: none;
   }
 }
-@keyframes draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-@keyframes halo {
-  0%,
-  100% {
-    opacity: 0.6;
-    transform: scale(0.94);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.04);
-  }
-}
 @keyframes pulse-dot {
   0%,
   100% {
@@ -2364,12 +2681,58 @@ details.disclosure > .body {
     opacity: 0.3;
   }
 }
-@keyframes flash {
+/* A sheath closing: in from slightly larger, as on the landing's sealing beat. */
+@keyframes seal-in {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pane-seal {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* A refusal or a seal set down on the page. */
+@keyframes stamp {
+  from {
+    opacity: 0;
+    transform: scale(1.06) rotate(-2deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sweep {
   0% {
-    background: color-mix(in srgb, var(--accent) 18%, var(--bg-elev));
+    opacity: 1;
+    transform: scaleX(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scaleX(1);
   }
   100% {
-    background: var(--bg-elev);
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+@keyframes rung-rise {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: none;
   }
 }
 

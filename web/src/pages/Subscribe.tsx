@@ -158,14 +158,14 @@ function PlanStep({ offer, verified }: { offer: Offer; verified: ReturnType<type
         <dd className="mono small">{isMock ? 'in-page mock runner' : offer.runner_endpoint}</dd>
         <dt>Network</dt>
         <dd>
-          <Badge tone={offer.network === 'main' ? 'accent' : 'blue'}>{offer.network === 'main' ? 'Mainnet' : 'Testnet'}</Badge>
+          <Badge tone={offer.network === 'main' ? 'sealed' : 'muted'}>{offer.network === 'main' ? 'Mainnet' : 'Testnet'}</Badge>
         </dd>
         <dt>Offer check</dt>
         <dd>
           {verified.status === 'checking' && <Spinner label="Asking the runner for its copy…" />}
           {verified.status === 'ok' && (
             <span className="row small" style={{ ['--gap' as string]: '6px' }}>
-              <ShieldCheckIcon size={15} className="accent" /> Matches the runner's copy of {offer.offer_id}
+              <ShieldCheckIcon size={15} /> Matches the runner's copy of {offer.offer_id}
             </span>
           )}
           {verified.status === 'bad' && <span className="small" style={{ color: 'var(--red)' }}>Failed</span>}

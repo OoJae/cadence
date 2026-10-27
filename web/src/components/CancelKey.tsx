@@ -147,7 +147,7 @@ function Skip({ mode, label, cost, onSkip, disabled }: { mode: 'quick' | 'confir
 function KeyCardHead({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="row no-wrap top" style={{ ['--gap' as string]: '10px' }}>
-      <KeyIcon size={20} className="accent" />
+      <KeyIcon size={20} />
       <div className="stack" style={{ ['--gap' as string]: '4px' }}>
         <h2 id="cancel-key-title" className="h3">
           {title}

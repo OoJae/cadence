@@ -99,7 +99,7 @@ function LoadKey() {
   const [pass, setPass] = useState('');
   return (
     <form
-      className="card stack"
+      className="card key-card stack"
       style={{ ['--gap' as string]: '16px' }}
       onSubmit={(e) => {
         e.preventDefault();
@@ -108,7 +108,7 @@ function LoadKey() {
       }}
     >
       <div className="row no-wrap top" style={{ ['--gap' as string]: '10px' }}>
-        <KeyIcon size={20} className="accent" />
+        <KeyIcon size={20} />
         <div className="stack" style={{ ['--gap' as string]: '4px' }}>
           <h2 className="h3">Load your cancel key</h2>
           <p className="small text-2">
