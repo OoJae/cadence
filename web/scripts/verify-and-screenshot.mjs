@@ -78,12 +78,29 @@ async function shot(page, name, fullPage = true) {
     ['/merchant', '02-merchant'],
     [`/decode/${S2}`, '03-decoder'],
     ['/manage', '06-manage'],
+    ['/brand', '08-brand'],
   ]) {
     await page.goto(ORIGIN + path, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1200);
     await shot(page, name);
     await audit(page, path);
   }
+  // The landing's scroll story: step down the page like a reader (reveals arm on the
+  // first scroll), then hold the release beat until its moment has played.
+  await page.goto(ORIGIN + '/', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  for (let y = 600; y < (await page.evaluate(() => document.documentElement.scrollHeight)); y += 600) {
+    await page.mouse.wheel(0, 600);
+    await page.waitForTimeout(120);
+  }
+  const release = page.locator('[data-moment="release"]');
+  if (await release.count()) {
+    await release.first().evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await page.waitForTimeout(1800);
+    await shot(page, '07-landing-release', false);
+  } else problems.push('landing: no [data-moment="release"]');
+  await audit(page, '/ scrolled');
+
   await page.goto(ORIGIN + '/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /Switch to light theme/ }).click();
   await page.waitForTimeout(300);
@@ -185,6 +202,53 @@ async function shot(page, name, fullPage = true) {
   if (overflow > 1) problems.push(`horizontal page overflow on mobile decoder: ${overflow}px`);
   await audit(page, 'mobile');
   await page.context().close();
+}
+
+// ------------------------------------------------------------ 375 px: every route, no horizontal overflow
+{
+  const page = await newPage({ width: 375, height: 812 });
+  for (const [path, name] of [
+    ['/', 'landing'],
+    ['/sandbox', 'sandbox'],
+    ['/merchant', 'merchant'],
+    ['/decode', 'decoder-empty'],
+    [`/decode/${S2}`, 'decoder'],
+    ['/manage', 'manage'],
+    ['/status', 'status'],
+    ['/subscribe', 'subscribe-empty'],
+    ['/brand', 'brand'],
+    ['/no-such-page', 'not-found'],
+  ]) {
+    await page.goto(ORIGIN + path, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (overflow > 1) problems.push(`horizontal page overflow at 375 px on ${path}: ${overflow}px`);
+    await shot(page, `33-375-${name}`, false);
+    await audit(page, `${path} at 375 px`);
+  }
+  await page.context().close();
+}
+
+// ------------------------------------------------------------ reduced motion: everything visible, nothing moving
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    window.__csp = [];
+    document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
+  page.on('request', (r) => new URL(r.url()).origin !== ORIGIN && problems.push(`off-origin request (reduced motion): ${r.url()}`));
+  page.on('console', (m) => m.type() === 'error' && problems.push(`console error (reduced motion) on ${page.url()}: ${m.text()}`));
+  page.on('pageerror', (e) => problems.push(`page error (reduced motion) on ${page.url()}: ${e.message}`));
+  for (const path of ['/', '/sandbox', '/brand']) {
+    await page.goto(ORIGIN + path, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => document.documentElement.classList.contains('motion-ok'))) problems.push(`reduced motion: html.motion-ok set on ${path}`);
+    const running = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running' && (a.effect?.getComputedTiming().duration ?? 0) > 1).length);
+    if (running) problems.push(`reduced motion: ${running} animation(s) running on ${path}`);
+    await audit(page, `${path} (reduced motion)`);
+  }
+  await ctx.close();
 }
 
 await browser.close();

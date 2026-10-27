@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify": "node scripts/verify-and-screenshot.mjs",
     "verify:wasm": "node scripts/wasm-smoke.mjs",
-    "verify:app-host": "node scripts/app-host-smoke.mjs"
+    "verify:app-host": "node scripts/app-host-smoke.mjs",
+    "verify:judge": "node scripts/judge-path.mjs"
   },
   "dependencies": {
     "@fontsource-variable/bodoni-moda": "5.3.0",
