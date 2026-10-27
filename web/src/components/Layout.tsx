@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BUILD_INFO_FILE, type BuildInfo } from '../config/buildInfo';
 import { usePoll } from '../hooks';
 import { shorten } from '../lib/addresses';
@@ -61,7 +61,27 @@ function PolledRunnerPill() {
   );
 }
 
+const NAV = [
+  { to: '/', label: 'Overview' },
+  { to: '/sandbox', label: 'Judge sandbox' },
+  { to: '/merchant', label: 'Merchant' },
+  { to: '/decode', label: 'Decoder' },
+  { to: '/manage', label: 'Manage' },
+] as const;
+
 export function Header() {
+  const { pathname } = useLocation();
+  const navRef = useRef<HTMLElement>(null);
+  // Below 860 px the nav scrolls sideways: bring the current page's link into view.
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const link = nav?.querySelector('[aria-current="page"]');
+    if (!nav || !link || nav.scrollWidth <= nav.clientWidth) return;
+    const n = nav.getBoundingClientRect();
+    const l = link.getBoundingClientRect();
+    if (l.left >= n.left && l.right <= n.right) return;
+    nav.scrollLeft += l.left - n.left - (n.width - l.width) / 2;
+  }, [pathname]);
   return (
     <header className="site-header">
       <div className="container bar">
@@ -69,12 +89,18 @@ export function Header() {
           <Logo />
           <span className="brand-word">cadence</span>
         </Link>
-        <nav className="nav" aria-label="Main">
-          <Link to="/">Overview</Link>
-          <Link to="/sandbox">Judge sandbox</Link>
-          <Link to="/merchant">Merchant</Link>
-          <Link to="/decode">Decoder</Link>
-          <Link to="/manage">Manage</Link>
+        <nav className="nav" aria-label="Main" ref={navRef}>
+          {NAV.map(({ to, label }) => {
+            // A decoded transaction is still the decoder.
+            const current = pathname === to || (to !== '/' && pathname.startsWith(`${to}/`));
+            return (
+              <Link key={to} to={to} aria-current={current ? 'page' : undefined}>
+                {label}
+                {/* The current page's underline: it glides to the next link on a page change. */}
+                {current && <span className="nav-mark" aria-hidden="true" />}
+              </Link>
+            );
+          })}
         </nav>
         <div className="header-tools">
           <RunnerPill />
@@ -128,18 +154,16 @@ export function Footer() {
   return (
     <footer className="site-footer">
       <div className="container cols">
-        <div className="stack" style={{ ['--gap' as string]: '10px' }}>
+        <div className="footer-brand">
           <Link to="/" className="brand" aria-label="Cadence home">
             <Logo size={20} />
-            <span className="brand-word" style={{ fontSize: 23 }}>
-              cadence
-            </span>
+            <span className="brand-word">cadence</span>
           </Link>
           <p>Pre-authorized shielded standing orders on Zcash Ironwood. ZECATHON 2026, Shielded Payments track.</p>
           <p className="faint">Testnet software. Not audited. Do not use it with funds you cannot afford to lose.</p>
         </div>
         <div>
-          <h4>This page</h4>
+          <h2>This page</h2>
           <ul>
             <li>No analytics, trackers or crash reporting.</li>
             <li>No third-party requests: fonts and code are served from this origin.</li>
@@ -153,8 +177,8 @@ export function Footer() {
             <BuildLine />
           </ul>
         </div>
-        <div>
-          <h4>Explore</h4>
+        <nav aria-labelledby="footer-explore">
+          <h2 id="footer-explore">Explore</h2>
           <ul>
             <li>
               <Link to="/sandbox">Judge sandbox</Link>
@@ -172,7 +196,7 @@ export function Footer() {
               <Link to="/brand">Brand and design system</Link>
             </li>
           </ul>
-        </div>
+        </nav>
       </div>
     </footer>
   );
@@ -181,7 +205,16 @@ export function Footer() {
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <>
-      <a className="skip-link" href="#main">
+      {/* The href serves no-JS readers. With JS, focus moves without touching the hash:
+          on /subscribe the hash is the offer, and changing it would end the session. */}
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById('main')?.focus();
+        }}
+      >
         Skip to content
       </a>
       <Header />
@@ -190,6 +223,8 @@ export function Shell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <Footer />
+      {/* The pulled rung: router.tsx sweeps it up the screen during a page change. */}
+      <div className="tip-line" aria-hidden="true" />
     </>
   );
 }

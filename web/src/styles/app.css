@@ -270,21 +270,32 @@ hr {
   margin: 0;
 }
 
+/* Your next action when you arrive by keyboard, so it wears Release. Fixed, so it never
+   moves the page; parked above the viewport by transform until it has focus. */
 .skip-link {
-  position: absolute;
-  left: 12px;
-  top: -48px;
-  z-index: 100;
+  position: fixed;
+  left: var(--gutter);
+  top: var(--s-3);
+  z-index: calc(var(--z-tip) + 1);
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: var(--r-0);
   background: var(--accent);
   color: var(--accent-ink);
-  padding: 8px 14px;
-  border-radius: var(--r);
+  font-size: 14.5px;
   font-weight: 600;
+  letter-spacing: -0.005em;
   text-decoration: none;
-  transition: top 0.15s var(--ease);
+  transform: translateY(calc(-100% - var(--s-5)));
+  transition: transform var(--dur-micro) var(--ease-reveal);
 }
 .skip-link:focus {
-  top: 12px;
+  transform: none;
+}
+:root[data-theme='light'] .skip-link {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 20%, transparent);
 }
 
 .sr-only {
@@ -558,7 +569,7 @@ code em,
   height: 64px;
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: clamp(20px, 2.6vw, 40px);
 }
 
 .brand {
@@ -571,6 +582,13 @@ code em,
 }
 .brand:hover {
   color: var(--text);
+}
+/* Hovering the mark sets its pulled rung back in its slot; leaving pulls it out again. */
+.brand .logo-rung {
+  transition: transform var(--dur-roll) var(--ease-toggle);
+}
+html.motion-ok .brand:hover .logo-rung {
+  transform: translateX(10px);
 }
 .brand-word,
 .wordmark {
@@ -591,22 +609,31 @@ code em,
 }
 
 .nav a {
+  --nav-pad: 12px;
+  position: relative;
   text-decoration: none;
   color: var(--muted);
   font-size: 14px;
   font-weight: 500;
-  padding: 7px 12px;
+  padding: 7px var(--nav-pad);
   border-radius: var(--r-0);
   white-space: nowrap;
-  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+  transition: color var(--dur-micro) var(--ease-toggle);
 }
-.nav a:hover {
-  color: var(--text);
-  background: var(--surface-2);
-}
+.nav a:hover,
 .nav a[aria-current='page'] {
   color: var(--text);
-  background: var(--surface-3);
+}
+/* The current page: a 1 px Ledger rule under the label, never amber (it is where you
+   are, not what happens next). motion.css glides it between links on a page change. */
+.nav-mark {
+  position: absolute;
+  left: var(--nav-pad);
+  right: var(--nav-pad);
+  bottom: 3px;
+  height: 1px;
+  background: var(--text);
+  pointer-events: none;
 }
 
 .header-tools {
@@ -641,7 +668,8 @@ code em,
     display: none;
   }
   .nav a {
-    padding: 6px 10px;
+    --nav-pad: 10px;
+    padding-block: 6px;
     font-size: 13.5px;
   }
 }
@@ -689,10 +717,14 @@ code em,
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
-  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  transition:
+    background-color var(--dur-micro) var(--ease-toggle),
+    border-color var(--dur-micro) var(--ease-toggle),
+    color var(--dur-micro) var(--ease-toggle);
 }
 .icon-btn:hover {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-color: var(--muted);
   color: var(--text);
 }
 
@@ -716,37 +748,67 @@ code em,
 
 /* ---------------------------------------------------------------- footer */
 
+/* A colophon: the lockup, then mono labels over hairlines. */
 .site-footer {
   border-top: 1px solid var(--line);
-  padding-block: 36px 48px;
+  padding-block: var(--s-8) var(--s-7);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-small);
+  line-height: 1.6;
 }
 .site-footer .cols {
   display: grid;
   grid-template-columns: 1.3fr 1fr 1fr;
-  gap: 32px;
+  gap: var(--s-7) clamp(24px, 4vw, 64px);
+  align-items: start;
 }
 @media (max-width: 760px) {
   .site-footer .cols {
     grid-template-columns: 1fr;
   }
 }
-.site-footer h4 {
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  max-width: 44ch;
+}
+.footer-brand .brand {
+  align-self: flex-start;
+  margin-bottom: var(--s-2);
+}
+.site-footer .brand-word {
+  font-size: 23px;
+}
+.site-footer h2 {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--faint);
+  font-size: var(--fs-label);
   font-weight: 500;
-  margin-bottom: 10px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line);
 }
 .site-footer ul {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--s-2);
+}
+.site-footer nav a {
+  color: var(--text-2);
+  text-decoration-color: transparent;
+}
+.site-footer nav a:hover {
+  color: var(--text);
+  text-decoration-color: currentColor;
+}
+.site-footer nav a[aria-current='page'] {
+  color: var(--text);
 }
 
 /* ---------------------------------------------------------------- surfaces */
@@ -2745,6 +2807,12 @@ html.motion-ok .tl-item.flash::after {
     animation-delay: 0ms !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  /* router.tsx starts none under reduced motion; this covers any other caller. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
   .done-mark .ring,
   .done-mark .check {

@@ -1,1 +1,108 @@
-/* motion.css: see the redesign plan. */
+/* ============================================================================
+   Page changes. router.tsx runs one view transition per push to another page:
+   the masthead holds still, the old page steps up and out, the new one rises in,
+   the current page's underline glides to its new link, and the tip line (the
+   pulled rung) crosses the screen from bottom to top. Back, replaces, hash and
+   query changes, reduced motion and browsers without the API swap at once.
+   ========================================================================== */
+
+/* Named only while a page change is in flight (html.vt-nav), so no page carries a
+   stacking context it did not ask for: the landing's sticky stage lives in <main>. */
+html.vt-nav main {
+  view-transition-name: page;
+}
+html.vt-nav .site-header {
+  view-transition-name: masthead;
+}
+html.vt-nav .nav-mark {
+  view-transition-name: nav-mark;
+}
+html.vt-nav .tip-line {
+  view-transition-name: tip-line;
+}
+
+/* Clicks reach the live page underneath from the first frame. */
+::view-transition {
+  pointer-events: none;
+}
+
+/* The masthead is the same on every page: the new one shows, live, from the first frame. */
+::view-transition-group(masthead),
+::view-transition-new(masthead) {
+  animation: none;
+}
+::view-transition-old(masthead) {
+  display: none;
+}
+
+/* The page box takes the new page's geometry at once; only its two images move. The old
+   one is shifted by the scroll it was captured at (router.tsx), so it leaves from where
+   you were reading, not from its top. */
+::view-transition-group(page) {
+  animation: none;
+  overflow: clip;
+}
+::view-transition-old(page) {
+  translate: 0 var(--vt-scroll, 0px);
+  animation: vt-out var(--dur-page-out) var(--ease-toggle) both;
+}
+/* The new page rises once the old one is nine tenths gone, so the two never read as one. */
+::view-transition-new(page) {
+  animation: vt-in var(--dur-page) var(--ease-reveal) calc(var(--dur-page-out) * 0.7) both;
+}
+
+/* The current page is not "what happens next", so its mark is Ledger and only glides. */
+::view-transition-group(nav-mark) {
+  animation-duration: 0.42s;
+  animation-timing-function: var(--ease-toggle);
+}
+/* Fill the box on both axes: with the default auto height a stretched line would thicken. */
+::view-transition-old(nav-mark),
+::view-transition-new(nav-mark) {
+  block-size: 100%;
+}
+
+/* router.tsx moves the real tip line; its group follows it frame by frame. */
+::view-transition-group(tip-line),
+::view-transition-new(tip-line) {
+  animation: none;
+}
+::view-transition-old(tip-line) {
+  display: none;
+}
+
+/* Everything else (the mock banner, the footer, the grain) crossfades quickly. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-page-out);
+}
+
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+/* The .page entrance stays only where view transitions don't exist. */
+html.vt .page {
+  animation: none;
+}
+
+/* A 1 px rule across the viewport, invisible until router.tsx sweeps it. */
+.tip-line {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: var(--z-tip);
+  height: 1px;
+  background: var(--accent-graphic);
+  opacity: 0;
+  pointer-events: none;
+}
