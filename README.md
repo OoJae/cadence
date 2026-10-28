@@ -12,7 +12,7 @@
 2. Save the cancel key (or skip it), then press **Close the payer tab**. From here only the runner acts: installments fall due 90 s apart.
 3. While they land, press **Try it** on the four cheat cards: open a package early, raise an amount, rebroadcast a paid installment, stretch the plan. The runner really attempts each one and shows the error of the layer that stops it: drand, the payer's signature, the node, or the runner's schedule check.
 4. Decode a mined installment from the timeline, or one from the last public run: [`70646526…`](https://app-production-be97.up.railway.app/decode/706465269dd006492028d65987d9972b0bc9303d47cfbc72b5cb87a6d527d3e4).
-5. Optional: before the last installment lands, open **Manage** with your saved cancel key and cancel, refunding to your own testnet address or with **Refund to the sandbox faucet (demo only)**. Once the cancel is mined you get a cancellation certificate: the note it spent, that note's nullifier on chain, and the installments that can now never be valid.
+5. Optional: to try a cancel, create the mandate with **4** installments every **300 seconds**, which leaves room between payments, and keep the tab in front. Right after an installment is mined, open **Manage** with your saved cancel key (or **Reopen and unlock to cancel** in the payer pane) and cancel, refunding to your own testnet address or with **Refund to the sandbox faucet (demo only)**. Once the cancel is mined you get a cancellation certificate: the note it spent, that note's nullifier on chain, and the installments that can now never be valid.
 
 **Why it doesn't leak:**
 
@@ -42,6 +42,8 @@ Shielded Zcash can only *push*: a payment happens only while the payer's wallet 
 4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept, and the payer gets a certificate saying so. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved.
 
 The payee needs only a Zcash address. A runner (the merchant's own, or a hosted one) releases each payment, and it arrives in the payee's wallet with a memo such as "Cadence · Pro plan · payment 2 of 4". That suits stipends, donations and salaries as well as subscriptions.
+
+Payments are converging on the same pattern: authorise once, within limits, and let payments happen later without you. Card and bank mandates do it, and so does Google's [Agent Payments Protocol (AP2)](https://github.com/google-agentic-commerce/AP2), whose signed mandates let an agent pay when the user isn't present. Cadence does it for shielded Zcash, with no custodian and without showing the public who pays whom.
 
 | | Card or bank mandate | Pull payments on Ethereum or Bitcoin Cash | Zcash today (CipherPay, BLINK) | Cadence |
 |---|---|---|---|---|
