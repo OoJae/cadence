@@ -208,7 +208,9 @@ async fn fund_pocket(app: &App, funder: &Funder, req: &SandboxFund) -> ApiResult
     let mut broadcaster = app.broadcast_client.clone();
     let result = {
         let mut db = app.wallet.lock().await;
-        wallet::pay(
+        // Payers' installments and refunds come back as small notes: combine them
+        // once no single note can pay a pocket.
+        wallet::pay_combining(
             &mut client,
             &mut broadcaster,
             &mut db,
@@ -222,8 +224,8 @@ async fn fund_pocket(app: &App, funder: &Funder, req: &SandboxFund) -> ApiResult
         .await
     };
     match result {
-        Ok((txid, nf)) => {
-            funder.in_flight.lock().unwrap().push(nf);
+        Ok((txid, spent)) => {
+            funder.in_flight.lock().unwrap().extend(spent);
             Ok(Json(json!({ "txid": txid.to_string(), "mined_height": null })))
         }
         Err(e) => {

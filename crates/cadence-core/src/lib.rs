@@ -19,4 +19,4 @@ pub mod rung;
 pub mod seed;
 
 pub use pocket::Pocket;
-pub use rung::{build_rung, ActionFingerprint, Installment, Rung};
+pub use rung::{build_payment, build_rung, ActionFingerprint, Installment, Rung};

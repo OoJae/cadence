@@ -198,10 +198,16 @@ pub fn complete(pczt: Pczt, anchor: Anchor, witness: MerklePath) -> Result<Trans
         .iter()
         .position(|a| a.spend().witness().is_none())
         .context("the PCZT has no deferred spend")?;
+    complete_spends(pczt, anchor, vec![(spend_action, witness)])
+}
+
+/// [`complete`] for a PCZT with several spends: `witnesses` pairs each spend's action
+/// with its note's path to `anchor`.
+pub fn complete_spends(pczt: Pczt, anchor: Anchor, witnesses: Vec<(usize, MerklePath)>) -> Result<Transaction> {
     let pczt = Updater::new(pczt)
         .set_ironwood_anchor(anchor)
         .map_err(|e| anyhow!("setting anchor: {e:?}"))?
-        .set_ironwood_spend_witnesses([(spend_action, witness)])
+        .set_ironwood_spend_witnesses(witnesses)
         .map_err(|e| anyhow!("setting witness: {e:?}"))?
         .finish();
     let rng = UnwrapErr(SysRng);
@@ -268,6 +274,70 @@ pub async fn pay(
         .map_err(|e| anyhow!("building payment: {e:?}"))?;
     let tx = tokio::task::spawn_blocking(move || complete(rung.pczt, anchor, witness)).await??;
     Ok((broadcast(broadcaster, &tx).await?, nf))
+}
+
+/// The most notes [`pay_combining`] spends in one payment.
+pub const MAX_PAYMENT_INPUTS: usize = 20;
+
+/// [`pay`], but when no single note covers `amount` and its fee, from the fewest of
+/// the largest notes that do, up to [`MAX_PAYMENT_INPUTS`]. A wallet that pays out
+/// and is paid back in small amounts, as the sandbox faucet is, otherwise ends up
+/// holding plenty in notes each too small to pay with. Returns every note it spent.
+#[allow(clippy::too_many_arguments)]
+pub async fn pay_combining(
+    client: &mut lwd::Client,
+    broadcaster: &mut lwd::Client,
+    db: &mut Db,
+    params: &Params,
+    account: AccountUuid,
+    pocket: &cadence_core::Pocket,
+    to: orchard::Address,
+    amount: zcash_protocol::value::Zatoshis,
+    exclude: &[Nullifier],
+) -> Result<(TxId, Vec<Nullifier>)> {
+    match pay(client, broadcaster, db, params, account, pocket, to, amount, exclude).await {
+        Err(e) if e.to_string() == "no anchor-deep note large enough" => {}
+        other => return other.map(|(txid, nf)| (txid, vec![nf])),
+    }
+    let tip = lwd::tip(client).await?;
+    let target = tip + 1;
+    let anchor_height = target - ANCHOR_CONFIRMATIONS;
+    let mut notes: Vec<_> = unspent_notes(db, account, target)?
+        .into_iter()
+        .filter(|n| n.mined <= anchor_height)
+        .filter(|n| !exclude.contains(&n.note.nullifier(pocket.fvk())))
+        .collect();
+    notes.sort_by_key(|n| std::cmp::Reverse(n.note.value().inner()));
+    notes.truncate(MAX_PAYMENT_INPUTS);
+    let mut fresh = [0u8; 32];
+    rand::fill(&mut fresh);
+    // Add the next largest note until the inputs cover the amount and the fee, which
+    // grows with the number of spends.
+    let (pczt, spends, chosen) = (2..=notes.len())
+        .find_map(|k| {
+            let inputs: Vec<_> = notes[..k].iter().map(|n| n.note).collect();
+            match cadence_core::build_payment(params, target, pocket, &inputs, to, amount, fresh) {
+                Err(cadence_core::rung::Error::Value) => None,
+                built => Some(built.map(|(pczt, spends)| (pczt, spends, k))),
+            }
+        })
+        .context("no anchor-deep notes large enough, even together")?
+        .map_err(|e| anyhow!("building payment: {e:?}"))?;
+    let mut anchor = None;
+    let mut witnesses = Vec::with_capacity(chosen);
+    for (n, action) in notes[..chosen].iter().zip(spends) {
+        let (a, witness) = anchor_and_witness(db, n.position, anchor_height)?;
+        if anchor.is_some_and(|prev| prev != a) {
+            bail!("the wallet gave two anchors for one height");
+        }
+        anchor = Some(a);
+        witnesses.push((action, witness));
+    }
+    let anchor = anchor.context("no inputs")?;
+    check_anchor(client, &anchor, anchor_height).await?;
+    let spent: Vec<_> = notes[..chosen].iter().map(|n| n.note.nullifier(pocket.fvk())).collect();
+    let tx = tokio::task::spawn_blocking(move || complete_spends(pczt, anchor, witnesses)).await??;
+    Ok((broadcast(broadcaster, &tx).await?, spent))
 }
 
 #[cfg(test)]

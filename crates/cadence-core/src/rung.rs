@@ -188,6 +188,67 @@ pub fn build_rung<P: Parameters + Clone>(
     })
 }
 
+/// A payment from several of `pocket`'s notes at once, which an installment never is:
+/// the sandbox faucet's, once no single note it holds covers what a payer asks for.
+/// The `inputs` are spent in order and the change goes back to the pocket. Returns the
+/// signed PCZT, still without anchor, witnesses or proof, and the action of each
+/// input's spend, in the same order. [`Error::Value`] means the inputs do not cover
+/// `amount` and the fee.
+pub fn build_payment<P: Parameters + Clone>(
+    params: &P,
+    target_height: BlockHeight,
+    pocket: &Pocket,
+    inputs: &[Note],
+    to: Address,
+    amount: Zatoshis,
+    seed: [u8; 32],
+) -> Result<(Pczt, Vec<usize>), Error> {
+    let fee_rule = fee_rule_at(params, target_height);
+    let mut builder = DeferredPcztBuilder::new::<Infallible>(
+        params.clone(),
+        target_height,
+        BundlePadding::DEFAULT,
+        BundlePadding::DEFAULT,
+    )
+    .map_err(build_err)?;
+    let mut total = Zatoshis::ZERO;
+    for note in inputs {
+        builder
+            .add_ironwood_spend::<Infallible>(pocket.fvk().clone(), *note)
+            .map_err(build_err)?;
+        total = (total + Zatoshis::from_u64(note.value().inner()).map_err(|_| Error::Value)?).ok_or(Error::Value)?;
+    }
+    builder
+        .add_ironwood_output::<Infallible>(None, to, amount, MemoBytes::empty())
+        .map_err(build_err)?;
+    // Two outputs never outnumber the spends, or the padding, so change adds no fee.
+    let fee = builder.get_fee(&fee_rule).map_err(build_err)?;
+    let change = (total - amount).and_then(|v| v - fee).ok_or(Error::Value)?;
+    if !change.is_zero() {
+        builder
+            .add_ironwood_output::<Infallible>(None, pocket.change_address(), change, MemoBytes::empty())
+            .map_err(build_err)?;
+    }
+
+    let res = builder
+        .build_for_pczt(ChaCha20Rng::from_seed(seed), &fee_rule)
+        .map_err(build_err)?;
+    let spends = (0..inputs.len())
+        .map(|i| res.ironwood_meta.spend_action_index(i).ok_or(Error::MissingActionIndex))
+        .collect::<Result<Vec<_>, _>>()?;
+    let pczt = Creator::build_from_parts(res.pczt_parts).ok_or(Error::PcztCreate)?;
+    let pczt = IoFinalizer::new(pczt)
+        .finalize_io(rand::rng())
+        .map_err(|e| Error::IoFinalize(format!("{e:?}")))?;
+    let mut signer = Signer::new(pczt).map_err(|e| Error::Sign(format!("{e:?}")))?;
+    for &action in &spends {
+        signer
+            .sign_ironwood(rand::rng(), action, &pocket.ask())
+            .map_err(|e| Error::Sign(format!("{e:?}")))?;
+    }
+    Ok((signer.finish(), spends))
+}
+
 fn fingerprint(action: &orchard::pczt::Action) -> ActionFingerprint {
     let note = action.output().encrypted_note();
     ActionFingerprint {
