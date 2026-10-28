@@ -24,6 +24,7 @@ use zcash_primitives::transaction::TxId;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
 use crate::{
+    refund,
     store::{Funding, Installment, Store, Subscription},
     webhook::{self, Event},
 };
@@ -67,6 +68,17 @@ pub struct App {
     pub recipient: String,
     pub chain: DrandChain,
     pub tip: AtomicU32,
+    /// Signs access passes (`pass.rs`).
+    pub pass_key: ed25519_dalek::SigningKey,
+    /// Payer signatures already accepted (`payer_auth.rs`).
+    pub payer_replays: crate::payer_auth::Replays,
+}
+
+impl App {
+    /// The testnet sandbox: a public demo with its own faucet wallet.
+    pub fn sandbox(&self) -> bool {
+        self.funder.is_some() && self.cfg.network_name == "test"
+    }
 }
 
 pub fn now() -> u64 {
@@ -105,6 +117,9 @@ pub async fn run(app: Arc<App>) {
 }
 
 async fn tick(app: &App) -> Result<()> {
+    if let Err(e) = refund::expire(app, now()).await {
+        eprintln!("shredding kept pockets: {e:#}");
+    }
     let mut client = app.sync_client.clone();
     let tip = lwd::tip(&mut client).await?;
     app.tip.store(u32::from(tip), Ordering::Relaxed);
@@ -118,6 +133,9 @@ async fn tick(app: &App) -> Result<()> {
     }
     record_fundings(app, &mut client, tip).await?;
     forget_abandoned(app).await?;
+    if let Err(e) = refund::watch(app, tip, now()).await {
+        eprintln!("watching kept pockets: {e:#}");
+    }
 
     let round_now = cadence_seal::round_at(&app.chain, now());
     let subs = app.store.lock().unwrap().subscriptions(true)?;
@@ -359,8 +377,10 @@ async fn release(
         if u32::from(target) > last {
             drop(db);
             println!("{} #{}: no rung for target {target}: missed", sub.subscription_id, inst.k);
-            app.store.lock().unwrap().set_state(&sub.subscription_id, inst.k, "missed")?;
-            app.store.lock().unwrap().set_status(&sub.subscription_id, "stalled")?;
+            app.store
+                .lock()
+                .unwrap()
+                .stall(&sub.subscription_id, inst.k, "missed", now() + refund::REFUND_KEEP_SECS)?;
             send_webhook(app, Event::expired(sub, inst));
         }
         return Ok(());
@@ -447,9 +467,10 @@ async fn record_mined(app: &App, sub: &Subscription, inst: &Installment, height:
 /// and subscribe again (there is no re-signing flow).
 fn reject(app: &App, sub: &Subscription, inst: &Installment, why: &str) -> Result<()> {
     eprintln!("{} #{}: refusing the package: {why}", sub.subscription_id, inst.k);
-    let store = app.store.lock().unwrap();
-    store.set_state(&sub.subscription_id, inst.k, "invalid")?;
-    store.set_status(&sub.subscription_id, "stalled")?;
+    app.store
+        .lock()
+        .unwrap()
+        .stall(&sub.subscription_id, inst.k, "invalid", now() + refund::REFUND_KEEP_SECS)?;
     send_webhook(app, Event::expired(sub, inst));
     Ok(())
 }
@@ -464,31 +485,70 @@ pub fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> 
 }
 
 /// Ends a subscription and shreds everything that could still open: sealed
-/// packages, beacons, and the pocket's account in the wallet.
+/// packages, beacons, and the pocket's account in the wallet. A stop keeps the
+/// account for the payer's refund, and a sandbox cancel keeps it with the packages
+/// it voided, for a while (`refund.rs`).
 pub async fn finish(app: &App, sub: &Subscription, status: &str, at: Option<&Installment>) -> Result<()> {
+    let t = now();
+    let keep = match status {
+        "stopped" => Some(t + refund::REFUND_KEEP_SECS),
+        "cancelled" if app.sandbox() => Some(t + refund::VOIDED_KEEP_SECS),
+        _ => None,
+    };
+    // A stalled pocket emptied by the payer is their refund after the miss: read
+    // what spent it before the account goes.
+    let refund = match (status, sub.status.as_str()) {
+        ("cancelled", "stalled") => refund::refund_of(app, sub).await.unwrap_or_else(|e| {
+            eprintln!("{}: finding the refund: {e:#}", sub.subscription_id);
+            None
+        }),
+        _ => None,
+    };
     let pocket = {
         let store = app.store.lock().unwrap();
         store.set_status(&sub.subscription_id, status)?;
         if status != "completed" {
             store.close_remaining(&sub.subscription_id, "cancelled")?;
         }
-        store.shred(&sub.subscription_id)?;
+        if let Some(refund) = &refund {
+            store.set_refund(&sub.subscription_id, refund)?;
+        }
+        match keep {
+            Some(until) => {
+                if status == "cancelled" {
+                    store.shred_but_voided(&sub.subscription_id)?;
+                } else {
+                    store.shred(&sub.subscription_id)?;
+                }
+                store.keep_until(&sub.subscription_id, until)?;
+            }
+            None => {
+                store.shred(&sub.subscription_id)?;
+                store.set_released(&sub.subscription_id, t)?;
+            }
+        }
         store.pocket_for_subscription(&sub.subscription_id)?
     };
-    let account = parse_account(&pocket.account)?;
-    app.wallet.lock().await.delete_account(account)?;
+    if keep.is_none() {
+        let account = parse_account(&pocket.account)?;
+        app.wallet.lock().await.delete_account(account)?;
+    }
     if status == "cancelled" {
         if let Some(inst) = at {
             send_webhook(app, Event::cancelled(sub, inst));
         }
     }
-    println!("{}: {status}; pocket data deleted", sub.subscription_id);
+    match (keep, status) {
+        (None, _) => println!("{}: {status}; pocket data deleted", sub.subscription_id),
+        (Some(_), "cancelled") => println!("{}: cancelled; voided packages and pocket kept for an hour", sub.subscription_id),
+        (Some(_), _) => println!("{}: {status}; packages deleted, pocket kept for the refund", sub.subscription_id),
+    }
     Ok(())
 }
 
 /// Hands the event to its own task, which retries it (`webhook::deliver`); the tick
 /// goes on at once, and no lock is held while the merchant answers.
-fn send_webhook(app: &App, event: Event) {
+pub(crate) fn send_webhook(app: &App, event: Event) {
     if let (Some(url), Some(secret)) = (app.cfg.webhook_url.clone(), app.cfg.webhook_secret.clone()) {
         tokio::spawn(webhook::deliver(url, secret, event));
     }

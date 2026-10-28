@@ -21,6 +21,7 @@ use pczt::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use zcash_client_backend::data_api::WalletRead;
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::transaction::{
     builder::{BundlePadding, DeferredPcztBuilder},
@@ -34,9 +35,10 @@ use zcash_protocol::{
 };
 
 use crate::{
-    api::{bad, check_schedule, insert_offer, not_found, ApiError, ApiResult},
-    service::{fetch_beacon, now, parse_txid, App, Funder},
-    store::{Installment, Subscription},
+    api::{bad, check_extras, check_schedule, insert_offer, not_found, ApiError, ApiResult, NewOffer},
+    refund,
+    service::{fetch_beacon, now, parse_account, parse_nullifier, parse_txid, App, Funder},
+    store::{Installment, Quote, Subscription},
 };
 
 fn funder(app: &App) -> ApiResult<&Funder> {
@@ -53,6 +55,10 @@ pub struct SandboxOffer {
     count: u32,
     period_secs: u64,
     amount_zat: u64,
+    #[serde(default)]
+    trial_secs: u64,
+    #[serde(default)]
+    quote: Option<Quote>,
 }
 
 /// An offer whose merchant is the sandbox wallet itself, so judges' installments
@@ -68,8 +74,17 @@ pub async fn offer(
     if !(10_000..=200_000).contains(&req.amount_zat) {
         return Err(bad("sandbox installments are 10,000-200,000 zats"));
     }
-    let merchant = funder.pocket.funding_ua(&app.cfg.network);
-    let created = insert_offer(&app, "Sandbox standing order".into(), req.amount_zat, req.period_secs, req.count, merchant)?;
+    check_extras(req.trial_secs, req.quote.as_ref()).map_err(bad)?;
+    let offer = NewOffer {
+        name: "Sandbox standing order".into(),
+        amount_zat: req.amount_zat,
+        period_secs: req.period_secs,
+        count: req.count,
+        merchant_ua: funder.pocket.funding_ua(&app.cfg.network),
+        trial_secs: req.trial_secs,
+        quote: req.quote,
+    };
+    let created = insert_offer(&app, offer)?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -184,6 +199,12 @@ pub async fn cheat(State(app): State<Arc<App>>, Json(req): Json<Cheat>) -> ApiRe
         "stretch_schedule" => stretch_schedule(&app, &sub),
         // The old name: the node refuses the copy whether or not the payer cancelled.
         "rebroadcast" | "replay_after_cancel" => rebroadcast(&app, &sub, &req.kind).await,
+        "charge_after_cancel" => {
+            if let Some(secs) = voided(&sub, req.k).ok().and_then(|inst| opens_in(&app, inst, now())) {
+                return Err(ApiError(StatusCode::CONFLICT, format!("installment {} opens in {secs} s", req.k)));
+            }
+            charge_after_cancel(&app, &sub, req.k).await
+        }
         _ => return Err(bad("unknown cheat")),
     };
     Ok(match result {
@@ -360,6 +381,97 @@ async fn rebroadcast(app: &App, sub: &Subscription, kind: &str) -> Result<Json<V
     }
 }
 
+/// Installment `k` of a cancelled subscription: the first one the cancel voided, whose
+/// package is still kept (`refund.rs`). Only it spends the note the cancel spent.
+fn voided(sub: &Subscription, k: u32) -> Result<&Installment> {
+    if sub.status != "cancelled" {
+        bail!("the subscription is {}; cancel it first", sub.status);
+    }
+    let first = sub
+        .installments
+        .iter()
+        .find(|i| i.state == "cancelled")
+        .context("the cancel voided no installment")?;
+    if first.k != k {
+        bail!("installment {} is the first the cancel voided, and the only one whose note exists", first.k);
+    }
+    if first.sealed.is_none() {
+        bail!(
+            "installment {k}'s package is deleted: a cancel's voided packages are kept for {} min",
+            refund::VOIDED_KEEP_SECS / 60
+        );
+    }
+    Ok(first)
+}
+
+/// Seconds until `inst`'s drand round, if it has not passed.
+fn opens_in(app: &App, inst: &Installment, now: u64) -> Option<u64> {
+    (cadence_seal::round_at(&app.chain, now) < inst.release_round)
+        .then(|| cadence_seal::time_of(&app.chain, inst.release_round).saturating_sub(now).max(1))
+}
+
+/// Release the first installment a cancel voided, as the scheduler would have: open
+/// its package now that its round has passed, take the rung for the next block, prove
+/// it against a fresh anchor and broadcast it. Its note is already spent by the cancel.
+async fn charge_after_cancel(app: &App, sub: &Subscription, k: u32) -> Result<Json<Value>> {
+    let inst = voided(sub, k)?;
+    let beacon = match &inst.beacon {
+        Some(beacon) => beacon.clone(),
+        None => fetch_beacon(app, inst.release_round).await?,
+    };
+    let ladder = open_ladder(app, &Installment { beacon: Some(beacon), ..inst.clone() })?;
+    let mut log = vec![
+        format!("runner: the payer cancelled; installment {k}'s package was kept for this attempt"),
+        format!("runner: drand round {} passed; opened installment {k}", inst.release_round),
+    ];
+    let nf = parse_nullifier(&ladder.spends_nullifier)?;
+    let pocket = app.store.lock().unwrap().pocket_for_subscription(&sub.subscription_id)?;
+    let account = parse_account(&pocket.account)?;
+
+    let mut client = app.sync_client.clone();
+    let tip = lwd::tip(&mut client).await?;
+    let target = tip + 1;
+    let anchor_height = target - wallet::ANCHOR_CONFIRMATIONS;
+    let rung = ladder
+        .rungs
+        .iter()
+        .find(|r| r.target_height == u32::from(target))
+        .with_context(|| {
+            let heights = ladder.rungs.iter().map(|r| r.target_height);
+            format!(
+                "installment {k}'s rungs cover blocks {}-{}, not the next block, {target}",
+                heights.clone().min().unwrap_or(0),
+                heights.max().unwrap_or(0)
+            )
+        })?;
+    let pczt = Pczt::parse(&hex::decode(&rung.pczt)?).map_err(|e| anyhow!("{e:?}"))?;
+    let (anchor, witness) = {
+        let mut db = app.wallet.lock().await;
+        if db.block_fully_scanned()?.is_none_or(|b| b.block_height() < anchor_height) {
+            wallet::sync(&mut client, &app.cfg.network, &mut db).await?;
+        }
+        let position = refund::note_position(&mut db, account, &nf)?.context("the wallet no longer has the pocket's note")?;
+        wallet::anchor_and_witness(&mut db, position, anchor_height)?
+    };
+    wallet::check_anchor(&mut client, &anchor, anchor_height).await?;
+    log.push(format!(
+        "runner: proving the rung for block {target}; it spends note {}…, which the cancel spent",
+        &ladder.spends_nullifier[..16]
+    ));
+    let tx = tokio::task::spawn_blocking(move || wallet::complete(pczt, anchor, witness)).await??;
+    let mut bytes = vec![];
+    tx.write(&mut bytes)?;
+    log.push(format!("runner: broadcasting installment {k} ({}…)", &tx.txid().to_string()[..16]));
+    let mut broadcaster = app.broadcast_client.clone();
+    match lwd::send(&mut broadcaster, bytes).await {
+        Err(e) => {
+            log.push(format!("{e:#}"));
+            Ok(verdict("charge_after_cancel", k, "rejected", Some("node"), log))
+        }
+        Ok(()) => bail!("the network accepted a charge after the cancel, which must never happen"),
+    }
+}
+
 /// Move one installment of the subscription's own schedule a year later, and put
 /// that copy through the check every upload passes (`POST /api/subscriptions`).
 fn stretch_schedule(app: &App, sub: &Subscription) -> Result<Json<Value>> {
@@ -434,17 +546,93 @@ mod tests {
     use crate::{
         api::{
             router,
-            tests::{offer, prepaid, send, signed_schedule, subscribable, test_app, upload},
+            tests::{offer, prepaid, send, signed_schedule, subscribable, subscribed, test_app, upload},
         },
-        service::now,
+        refund::{expire, VOIDED_KEEP_SECS},
+        service::{finish, now},
     };
 
     fn cheat(subscription_id: &Value, kind: &str) -> Request<Body> {
-        let body = json!({ "subscription_id": subscription_id, "kind": kind, "k": 1 });
+        cheat_k(subscription_id, kind, 1)
+    }
+
+    fn cheat_k(subscription_id: &Value, kind: &str, k: u32) -> Request<Body> {
+        let body = json!({ "subscription_id": subscription_id, "kind": kind, "k": k });
         Request::post("/api/sandbox/cheat")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_sandbox_cancel_keeps_the_voided_packages_for_an_hour() {
+        let app = test_app(true, None);
+        let api = router(app.clone(), None, vec![]);
+        let id = subscribed(&app, &api, now(), None).await.unwrap();
+        let sub_id = json!(id);
+        let subscription = || app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+
+        // Nothing to charge before the payer cancels.
+        let (status, _, verdict) = send(&api, cheat(&sub_id, "charge_after_cancel")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(verdict["outcome"], "not_applicable");
+        assert_eq!(verdict["log"][0], "the subscription is active; cancel it first");
+
+        // Installment 1 is paid; the payer cancels before installment 2.
+        app.store.lock().unwrap().set_mined(&id, 1, 100).unwrap();
+        let sub = subscription();
+        finish(&app, &sub, "cancelled", Some(&sub.installments[1])).await.unwrap();
+        let sub = subscription();
+        assert!(sub.installments[0].sealed.is_none(), "a paid installment's package goes at once");
+        assert_eq!(sub.installments[1].state, "cancelled");
+        assert!(sub.installments[1].sealed.is_some());
+        assert!(sub.keep_until.unwrap().abs_diff(now() + VOIDED_KEEP_SECS) < 5);
+        assert!(!sub.refundable);
+
+        // Installment 2 releases about 660 s after signing, so its round is still ahead.
+        let (status, _, body) = send(&api, cheat_k(&sub_id, "charge_after_cancel", 2)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        let error = body["error"].as_str().unwrap();
+        let secs: u64 = error
+            .strip_prefix("installment 2 opens in ")
+            .and_then(|e| e.strip_suffix(" s"))
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("{error}"));
+        assert!((600..=670).contains(&secs), "{error}");
+        let (_, _, verdict) = send(&api, cheat_k(&sub_id, "charge_after_cancel", 1)).await;
+        assert_eq!(verdict["outcome"], "not_applicable");
+        assert_eq!(
+            verdict["log"][0],
+            "installment 2 is the first the cancel voided, and the only one whose note exists"
+        );
+
+        // After the hour the package is gone, as for every other subscription.
+        expire(&app, now() + VOIDED_KEEP_SECS - 10).await.unwrap();
+        assert!(subscription().installments[1].sealed.is_some());
+        expire(&app, now() + VOIDED_KEEP_SECS).await.unwrap();
+        assert!(subscription().installments.iter().all(|i| i.sealed.is_none()));
+        let (status, _, verdict) = send(&api, cheat_k(&sub_id, "charge_after_cancel", 2)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(verdict["outcome"], "not_applicable");
+        assert_eq!(
+            verdict["log"][0],
+            "installment 2's package is deleted: a cancel's voided packages are kept for 60 min"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_the_sandbox_keeps_a_cancels_packages() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let id = subscribed(&app, &api, now(), None).await.unwrap();
+        let sub = app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+        finish(&app, &sub, "cancelled", Some(&sub.installments[0])).await.unwrap();
+        let sub = app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+        assert!(sub.installments.iter().all(|i| i.sealed.is_none()));
+        assert_eq!(sub.keep_until, None);
+        // And the cheat is the sandbox's alone.
+        let (status, _, _) = send(&api, cheat(&json!(id), "charge_after_cancel")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

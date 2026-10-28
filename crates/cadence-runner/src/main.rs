@@ -7,6 +7,9 @@
 //! signed byte.
 
 mod api;
+mod pass;
+mod payer_auth;
+mod refund;
 mod sandbox;
 mod service;
 mod store;
@@ -190,6 +193,7 @@ async fn main() -> Result<()> {
                 }
                 writeln!(options.open(&paths.identity)?, "{}", identity.to_string().expose_secret())?;
             }
+            pass::load_or_create(&pass::key_path(&paths.identity))?;
             let recipient = load_identity(&paths.identity)?.to_public();
             println!("initialised; payers seal to {recipient}");
         }
@@ -239,6 +243,8 @@ async fn main() -> Result<()> {
                 .collect::<Result<Vec<_>>>()?;
             let identity = load_identity(&paths.identity)?;
             let recipient = identity.to_public().to_string();
+            // Made here too, for a data dir from before passes.
+            let pass_key = pass::load_or_create(&pass::key_path(&paths.identity))?;
             let sync_client = connect(&server, direct, tor_dir.join("sync")).await?;
             let broadcast_client = connect(
                 broadcast_server.as_deref().unwrap_or(&server),
@@ -326,6 +332,8 @@ async fn main() -> Result<()> {
                 recipient: recipient.clone(),
                 chain: DrandChain::quicknet(),
                 tip: AtomicU32::new(0),
+                pass_key,
+                payer_replays: Default::default(),
             });
             tokio::spawn(service::run(app.clone()));
             let listener = tokio::net::TcpListener::bind(&listen).await?;
