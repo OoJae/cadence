@@ -111,6 +111,8 @@ export class MockSigner implements Signer {
   #presigned = false;
   #cancelled = false;
   #destroyed = false;
+  /** The name the last cancel key was saved under, for the check that asks for it again. */
+  #kitName: string | null = null;
 
   constructor(ledger: MockLedger) {
     this.#ledger = ledger;
@@ -235,7 +237,8 @@ export class MockSigner implements Signer {
     bytes.set(salt, MOCK_KIT_MAGIC.length);
     bytes.set(iv, MOCK_KIT_MAGIC.length + salt.length);
     bytes.set(ct, MOCK_KIT_MAGIC.length + salt.length + iv.length);
-    return { bytes, fileName: kitFileName(pocketId, 'mock') };
+    this.#kitName = kitFileName('mock');
+    return { bytes, fileName: this.#kitName };
   }
 
   async openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit> {
@@ -259,7 +262,7 @@ export class MockSigner implements Signer {
     const pocket = this.#pocket;
     if (!pocket || !this.#seed) throw new SignerError('create a pocket first');
     const pocketId = mockPocketId(pocket.ufvk);
-    const expected = { network: pocket.network, pocket_id: pocketId, pocket_ua: pocket.ua, fileName: kitFileName(pocketId, 'mock') };
+    const expected = { network: pocket.network, pocket_id: pocketId, pocket_ua: pocket.ua, fileName: this.#kitName ?? 'the cancel key' };
     return checkKit(bytes, passphrase, expected, {
       looksLikeKit: isMockKit,
       open: (b, p) => this.openKit(b, p),

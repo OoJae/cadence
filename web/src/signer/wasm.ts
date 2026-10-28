@@ -119,6 +119,8 @@ export class WasmSigner implements Signer {
   #cancelled = false;
   #cancelling = false;
   #destroyed = false;
+  /** The name the last cancel key was saved under, for the check that asks for it again. */
+  #kitName: string | null = null;
 
   constructor(api: CadenceClient, opts: { poolSize?: number } = {}) {
     this.#api = api;
@@ -267,7 +269,8 @@ export class WasmSigner implements Signer {
       notes: [...this.#notes.values()].sort((a, b) => a.k - b.k),
     };
     const bytes = await this.#workers().call('sealKit', { fields, seed, passphrase });
-    return { bytes, fileName: kitFileName(pocket.pocket_id!) };
+    this.#kitName = kitFileName();
+    return { bytes, fileName: this.#kitName };
   }
 
   async openKit(bytes: Uint8Array, passphrase: string): Promise<OpenedKit> {
@@ -277,7 +280,7 @@ export class WasmSigner implements Signer {
 
   async verifyKit(bytes: Uint8Array, passphrase: string): Promise<KitCheck> {
     const { pocket } = this.#key();
-    const expected = { network: pocket.network, pocket_id: pocket.pocket_id!, pocket_ua: pocket.ua, fileName: kitFileName(pocket.pocket_id!) };
+    const expected = { network: pocket.network, pocket_id: pocket.pocket_id!, pocket_ua: pocket.ua, fileName: this.#kitName ?? 'the cancel key' };
     return checkKit(bytes, passphrase, expected, {
       looksLikeKit: isAgeKit,
       open: (b, p) => this.openKit(b, p),

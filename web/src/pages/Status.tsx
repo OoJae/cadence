@@ -10,8 +10,11 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import type { Installment, NetworkId, Shape, Subscription } from '../api/types';
 import { SearchIcon } from '../components/Icons';
+import { CalendarReminders, SubscribeAgain, useRunnerOffer } from '../components/PlanActions';
 import { Badge, Callout, CopyButton, Countdown, ErrorNote, PageHead, Round, Spinner, Stat, StateBadge, StatusBadge, Txid } from '../components/ui';
 import { useDocumentTitle, usePoll } from '../hooks';
+import { planEnded } from '../lib/again';
+import { unpaidInstallments } from '../lib/ics';
 import { byK, fragmentNamesSubscription, installmentNote, MISSED_NOTE, nextDue, nu7Crossing, paidOf, subscriptionIdFromFragment, type Nu7Crossing } from '../lib/planStatus';
 import { summarizeShape } from '../lib/shape';
 import { subscriptionStatusInfo } from '../lib/states';
@@ -243,6 +246,8 @@ export function Status() {
   const crossing = data ? nu7Crossing(data, network, ownStatus?.tip) : ({ kind: 'none' } as const);
   const missing = sub.error instanceof ApiError && sub.error.status === 404;
   const { paid, total } = data ? paidOf(data) : { paid: 0, total: 0 };
+  // The plan itself, from the same runner: its name for the reminders, and its share link once it has ended.
+  const offer = useRunnerOffer(runner.api, data?.offer_id);
 
   return (
     <div className="page container">
@@ -290,6 +295,8 @@ export function Status() {
                 />
               </div>
             )}
+            {data && offer && <CalendarReminders plan={offer} installments={unpaidInstallments(data)} />}
+            {data && planEnded(data) && <SubscribeAgain offer={offer} />}
           </section>
 
           {data && <Nu7Note crossing={crossing} />}

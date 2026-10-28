@@ -108,9 +108,11 @@ describe('MockSigner cancel key', () => {
   it('saves an encrypted key that a fresh signer restores and cancels with', async () => {
     const { l, cancels } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
     const { signer, pocket } = await subscribed(l);
-    await expect(signer.sealKit('short', ctx)).rejects.toThrow(/at least 8/);
+    await expect(signer.sealKit('short', ctx)).rejects.toThrow(/at least 12/);
+    await expect(signer.sealKit('password1234', ctx)).rejects.toThrow(/common password/);
     const kit = await signer.sealKit('correct horse battery', ctx);
-    expect(kit.fileName).toMatch(/^cadence-cancel-key-pkt_mock[a-z0-9]+\.mock$/);
+    // Named for when it was saved: no pocket id in the name.
+    expect(kit.fileName).toMatch(/^cadence-cancel-key-\d{8}-\d{4}\.mock$/);
     // Encrypted: neither the seed nor the schedule is readable in the file.
     const text = new TextDecoder().decode(kit.bytes);
     expect(text.startsWith('cadence-mock-kit/1\n')).toBe(true);

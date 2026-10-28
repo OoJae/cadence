@@ -282,7 +282,10 @@ export function demoRefundUa(): string {
   return `utest1${Array.from(bytes, (b) => BECH32_CHARS[b & 31]).join('')}`;
 }
 
-function cancelStatusText(s: CancelStatus, now: number): string {
+/** What the cancel machinery is used for: a cancel of a live plan, or the refund of what a stopped or missed one left in the pocket. */
+export type CancelPurpose = 'cancel' | 'refund';
+
+function cancelStatusText(s: CancelStatus, now: number, purpose: CancelPurpose): string {
   const inSecs = (at: number) => Math.max(0, Math.ceil(at / 1000 - now));
   switch (s.step) {
     case 'finding':
@@ -290,11 +293,11 @@ function cancelStatusText(s: CancelStatus, now: number): string {
     case 'waiting':
       return `The pocket's current note (${noteName(s.k)}) is too new to spend: it needs ${ANCHOR_CONFIRMATIONS} blocks of depth. Waiting for ${s.blocks} more block${s.blocks === 1 ? '' : 's'}; next try in ${inSecs(s.retryAt)} s.`;
     case 'raced':
-      return `Installment ${s.k} spent the pocket's note before the cancel. Waiting for its change to be mined, then trying once more (next look in ${inSecs(s.retryAt)} s).`;
+      return `Installment ${s.k} spent the pocket's note before the ${purpose}. Waiting for its change to be mined, then trying once more (next look in ${inSecs(s.retryAt)} s).`;
     case 'proving':
       return `Signing and proving the refund of ${noteName(s.k)} in this tab (about half a minute)…`;
     case 'broadcasting':
-      return 'Broadcasting the cancel…';
+      return `Broadcasting the ${purpose}…`;
   }
 }
 
@@ -306,6 +309,7 @@ export function CancelPanel({
   showDemo,
   sandboxRefund,
   network = 'test',
+  purpose = 'cancel',
 }: {
   signer: Signer;
   disabled?: string;
@@ -316,6 +320,8 @@ export function CancelPanel({
   /** On a testnet sandbox runner: the sandbox wallet's address (the offer's merchant), for judges with no testnet wallet of their own. */
   sandboxRefund?: string;
   network?: NetworkId;
+  /** 'refund': the plan already ended (stopped, or an installment missed) and the runner kept the pocket so this tab can return what is left. */
+  purpose?: CancelPurpose;
 }) {
   const [ua, setUa] = useState('');
   const [busy, setBusy] = useState(false);
@@ -354,10 +360,17 @@ export function CancelPanel({
   const waiting = status && (status.step === 'waiting' || status.step === 'raced' || status.step === 'finding');
   return (
     <div className="stack" style={{ ['--gap' as string]: '12px' }}>
-      <p className="small text-2">
-        Cancelling spends your pocket's current note to an address of your own, with no outgoing-viewing record. Every later installment then spends a note that no longer exists: no
-        node will accept it, and the runner marks the subscription cancelled.
-      </p>
+      {purpose === 'refund' ? (
+        <p className="small text-2">
+          Nothing further pays from this pocket, and what is left in it is yours. The runner kept the pocket's view-only key so this tab can refund it: the refund spends the pocket's
+          note to an address of your own, with no outgoing-viewing record, and the runner forgets the pocket once it sees it.
+        </p>
+      ) : (
+        <p className="small text-2">
+          Cancelling spends your pocket's current note to an address of your own, with no outgoing-viewing record. Every later installment then spends a note that no longer exists: no
+          node will accept it, and the runner marks the subscription cancelled.
+        </p>
+      )}
       <div className="field">
         <label htmlFor="refund-ua">Refund to (an address in your own wallet)</label>
         <input
@@ -394,7 +407,7 @@ export function CancelPanel({
         <div className="panel row no-wrap" style={{ ['--gap' as string]: '10px' }} aria-live="polite">
           <span className="spinner" aria-hidden="true" />
           <span className="small text-2" style={{ flex: 1 }}>
-            {cancelStatusText(status, now)}
+            {cancelStatusText(status, now, purpose)}
           </span>
           {waiting && (
             <button type="button" className="btn sm ghost" onClick={() => abort.current?.abort(new Error('stopped'))}>
@@ -403,7 +416,16 @@ export function CancelPanel({
           )}
         </div>
       )}
-      {nothing ? null : confirm ? (
+      {nothing ? null : confirm && purpose === 'refund' ? (
+        <div className="row" style={{ ['--gap' as string]: '8px' }}>
+          <button type="button" className="btn primary" onClick={go} disabled={busy}>
+            {busy ? 'Refunding…' : `Yes, refund to ${shorten(ua.trim(), 10, 6)}`}
+          </button>
+          <button type="button" className="btn ghost" onClick={() => setConfirm(false)} disabled={busy}>
+            Not yet
+          </button>
+        </div>
+      ) : confirm ? (
         <div className="row" style={{ ['--gap' as string]: '8px' }}>
           <button type="button" className="btn danger" onClick={go} disabled={busy}>
             {busy ? 'Cancelling…' : `Yes, cancel and refund to ${shorten(ua.trim(), 10, 6)}`}
@@ -412,6 +434,10 @@ export function CancelPanel({
             Keep the subscription
           </button>
         </div>
+      ) : purpose === 'refund' ? (
+        <button type="button" className="btn primary" onClick={() => setConfirm(true)} disabled={!valid || !!disabled}>
+          Refund what's left
+        </button>
       ) : (
         <button type="button" className="btn danger" onClick={() => setConfirm(true)} disabled={!valid || !!disabled}>
           Cancel subscription
@@ -421,11 +447,11 @@ export function CancelPanel({
   );
 }
 
-export function CancelReceiptView({ receipt, network = 'test' }: { receipt: CancelReceipt; network?: Offer['network'] }) {
+export function CancelReceiptView({ receipt, network = 'test', purpose = 'cancel' }: { receipt: CancelReceipt; network?: Offer['network']; purpose?: CancelPurpose }) {
   return (
     <Callout kind="ok">
       <div className="stack" style={{ ['--gap' as string]: '6px' }}>
-        <strong>Cancel broadcast.</strong>
+        <strong>{purpose === 'refund' ? 'Refund broadcast.' : 'Cancel broadcast.'}</strong>
         <span className="small">
           {formatZec(receipt.refunded_zat, network)} returns to your address (fee {formatZec(receipt.fee_zat, network)}), targeting block {receipt.target_height.toLocaleString('en-US')}
           {receipt.spent ? `. It spends ${receipt.spent}` : ''}.
@@ -433,7 +459,9 @@ export function CancelReceiptView({ receipt, network = 'test' }: { receipt: Canc
         <span className="small row" style={{ ['--gap' as string]: '6px' }}>
           txid <Txid value={receipt.txid} />
         </span>
-        <span className="tiny muted">The merchant learns that you cancelled. It cannot see where the refund went.</span>
+        <span className="tiny muted">
+          {purpose === 'refund' ? 'The runner sees the pocket emptied and forgets it.' : 'The merchant learns that you cancelled.'} It cannot see where the refund went.
+        </span>
       </div>
     </Callout>
   );

@@ -17,8 +17,12 @@ import type { NetworkId } from '../lib/zat';
 import { SignerError } from './types';
 
 export const KIT_KIND = 'cadence-kit/1';
-/** `cadence_seal::MIN_PASSPHRASE_CHARS`. */
+/** `cadence_seal::MIN_PASSPHRASE_CHARS`: the least cadence-seal seals with. A key saved with fewer opens as before. */
 export const MIN_PASSPHRASE_CHARS = 8;
+/** What a new cancel key asks for: this many characters, or NEW_KEY_MIN_WORDS different words. */
+export const NEW_KEY_MIN_CHARS = 12;
+export const NEW_KEY_MIN_WORDS = 4;
+export const PASSPHRASE_HINT = `At least ${NEW_KEY_MIN_CHARS} characters, or ${NEW_KEY_MIN_WORDS} words or more, and not a common password or a pattern like 123456. A few random words work well.`;
 
 /** A pocket note the signer created: the funding note (k = 0) or C(k), the change of installment k. */
 export interface KitNote {
@@ -70,12 +74,77 @@ export interface SealedKit {
   fileName: string;
 }
 
-export function kitFileName(pocketId: string, ext = 'age'): string {
-  return `cadence-cancel-key-${pocketId.replace(/[^A-Za-z0-9_-]/g, '')}.${ext}`;
+/**
+ * The name to save a cancel key under: the local date and time, to the minute, and no
+ * id. A pocket id is a lookup key at the runner, and file names travel (Downloads,
+ * backups, recent-file lists). A second save in the same minute is renamed by the
+ * browser, as any download is.
+ */
+export function kitFileName(ext = 'age', at: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `cadence-cancel-key-${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}.${ext}`;
 }
 
+/** Very common passwords, as letters and digits only. A passphrase that is one of them (give or take digits around it) is refused. */
+const COMMON = new Set([
+  'password', 'passphrase', 'mypassword', 'secret', 'mysecret', 'qwerty', 'letmein', 'iloveyou', 'welcome', 'admin', 'administrator', 'login', 'master',
+  'monkey', 'dragon', 'football', 'baseball', 'basketball', 'soccer', 'hockey', 'sunshine', 'princess', 'shadow', 'superman', 'batman', 'trustno', 'trustnoone',
+  'charlie', 'michael', 'jennifer', 'hunter', 'freedom', 'whatever', 'starwars', 'pokemon', 'computer', 'internet', 'changeme', 'default', 'opensesame',
+  'zcash', 'cadence', 'bitcoin', 'satoshi', 'crypto', 'wallet', 'correcthorsebatterystaple', 'thequickbrownfox', 'thequickbrownfoxjumpsoverthelazydog',
+]);
+
+/** Runs a passphrase may not be: keyboard rows and columns, the digits and the alphabet, each also backwards. */
+const RUNS = ['0123456789', 'abcdefghijklmnopqrstuvwxyz', 'qwertyuiopasdfghjklzxcvbnm', 'qwertzuiop', 'azertyuiop', '1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik9ol0p', 'qazwsxedcrfvtgbyhnujmikolp', '!@#$%^&*()_+'].flatMap((r) => {
+  // Three laps, so a run that wraps (7890123…) is one too.
+  const laps = r.repeat(3);
+  return [laps, [...laps].reverse().join('')];
+});
+
+const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', $: 's' };
+
+/**
+ * Whether letters and digits `s` are a common password, a run, a short unit repeated
+ * (or a trivial one repeated), or one of these with digits before or after it.
+ */
+function trivialCore(s: string): boolean {
+  if (s.length < 3) return true;
+  if (COMMON.has(s) || COMMON.has([...s].map((c) => LEET[c] ?? c).join(''))) return true;
+  if (RUNS.some((r) => r.includes(s))) return true;
+  for (let n = 1; n <= s.length / 2; n++) {
+    if (s.length % n === 0 && s === s.slice(0, n).repeat(s.length / n) && (n <= 6 || trivialCore(s.slice(0, n)))) return true;
+  }
+  const inner = s.replace(/^\d+|\d+$/g, '');
+  return inner.length >= 3 && inner !== s && trivialCore(inner);
+}
+
+/** Whether a passphrase is a common password or a trivial pattern, ignoring case, spaces, punctuation and digits around it. */
+export function isTrivialPassphrase(passphrase: string): boolean {
+  const lower = passphrase.toLowerCase();
+  const compact = [...lower.replace(/\s+/g, '')];
+  // The same character (an emoji, say) over and over, or a run of symbols.
+  if (compact.length > 0 && compact.every((c) => c === compact[0])) return true;
+  if (RUNS.some((r) => r.includes(compact.join('')))) return true;
+  const plain = lower.replace(/[^a-z0-9]/g, '');
+  // Letters and digits that are less than half of it: a passphrase in another script, not one of these patterns.
+  if (plain.length * 2 < compact.length) return false;
+  // As typed, and with p@$$word's symbols read as letters.
+  return trivialCore(plain) || trivialCore(lower.replace(/[@$]/g, (c) => LEET[c]!).replace(/[^a-z0-9]/g, ''));
+}
+
+/** Why a passphrase is too weak for a new cancel key, or null. Opening a key never asks this. */
 export function passphraseProblem(passphrase: string): string | null {
-  return [...passphrase].length < MIN_PASSPHRASE_CHARS ? `use a passphrase of at least ${MIN_PASSPHRASE_CHARS} characters` : null;
+  const chars = [...passphrase].length;
+  const words = new Set(
+    passphrase
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => [...w].length >= 2),
+  );
+  if (chars < MIN_PASSPHRASE_CHARS || (chars < NEW_KEY_MIN_CHARS && words.size < NEW_KEY_MIN_WORDS)) {
+    return `use a passphrase of at least ${NEW_KEY_MIN_CHARS} characters, or ${NEW_KEY_MIN_WORDS} words or more`;
+  }
+  if (isTrivialPassphrase(passphrase)) return 'that is a common password or a simple pattern, which is guessed first; use a few random words instead';
+  return null;
 }
 
 /** The kit's JSON, fields in the CLI's order. `seedHex` is the 32-byte pocket seed. */
@@ -268,12 +337,20 @@ export async function checkKit(bytes: Uint8Array, passphrase: string, expected: 
   }
 }
 
+/**
+ * A path as one POSIX shell word: as it is when every character is safe, else in single
+ * quotes, each `'` written `'\''`. A browser saves a second download as "name (1).age".
+ */
+export function shellPath(path: string): string {
+  return /^[A-Za-z0-9._/-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
 /** `cadence cancel` with the kit: needs the runner (for the live note and its witness), over Tor. */
 export function cliCancelCommand(fileName: string, refundUa?: string): string {
-  return `cadence cancel --subscription ${fileName} --to ${refundUa?.trim() || '<your UA>'}`;
+  return `cadence cancel --subscription ${shellPath(fileName)} --to ${refundUa?.trim() || '<your UA>'}`;
 }
 
 /** `cadence sweep` with the kit: needs only the seed and a lightwalletd server, over Tor; no runner. */
 export function cliSweepCommand(fileName: string, refundUa?: string): string {
-  return `cadence sweep --pocket ${fileName} --to ${refundUa?.trim() || '<your UA>'}`;
+  return `cadence sweep --pocket ${shellPath(fileName)} --to ${refundUa?.trim() || '<your UA>'}`;
 }

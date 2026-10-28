@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { downloadBytes } from '../lib/download';
 import { Link } from '../router';
 import { runnerUrl } from '../runtime';
-import { cliCancelCommand, cliSweepCommand, MAX_KIT_BYTES, MIN_PASSPHRASE_CHARS, passphraseProblem, type KitCheck, type SealedKit } from '../signer/kit';
+import { cliCancelCommand, cliSweepCommand, MAX_KIT_BYTES, PASSPHRASE_HINT, passphraseProblem, type KitCheck, type SealedKit } from '../signer/kit';
 import type { Signer } from '../signer/types';
 import { KeyIcon, ShieldCheckIcon } from './Icons';
 import { Callout, CopyButton, ErrorNote } from './ui';
@@ -216,7 +216,7 @@ function MakeKey({ signer, subscriptionId, runner, onChange, skip }: { signer: S
               aria-invalid={weak ? true : undefined}
               disabled={busy}
             />
-            <span className={weak ? 'error-text' : 'hint'}>{weak ?? `At least ${MIN_PASSPHRASE_CHARS} characters. A few random words is better.`}</span>
+            <span className={weak ? 'error-text' : 'hint'}>{weak ?? PASSPHRASE_HINT}</span>
           </div>
           <div className="field">
             <label htmlFor="kit-pass-2">Passphrase again</label>
@@ -287,8 +287,9 @@ function CheckKey({ signer, kit, onChange, skip }: { signer: Signer; kit: Sealed
   return (
     <section className="card key-card stack" style={{ ['--gap' as string]: '14px' }} aria-labelledby="cancel-key-title">
       <KeyCardHead title="Check that your cancel key opens">
-        Your browser was asked to save <span className="mono">{kit.fileName}</span>. Pick that file again and type its passphrase: this tab opens it the way Manage would and checks
-        that it is this pocket's key. The file is read here and not sent anywhere.
+        Your browser was asked to save <span className="mono">{kit.fileName}</span>, named for the date and time; if a file of that name was already there, the browser added a
+        number to it. Pick that file again and type its passphrase: this tab opens it the way Manage would and checks that it is this pocket's key. The file is read here and not
+        sent anywhere.
       </KeyCardHead>
       <form
         className="stack"
