@@ -189,6 +189,15 @@ cheat: charge after cancel on installment 1 rejected by node
 
 The merchant's runner held a valid, signed installment, opened it once it fell due, and still could not charge: the cancel had already spent the note it spends.
 
+A second run the same morning, recorded for the demo film, shows the node's own words. That subscription was cancelled after installment 1 was mined, so the first voided installment was installment 2:
+
+```
+runner: drand round 33459196 passed; opened installment 2
+runner: proving the rung for block 4550507; it spends note 6bb2a6c779df4b02…, which the cancel spent
+runner: broadcasting installment 2 (52e6cd9818d82ff3…)
+lightwalletd rejected the transaction (-25): … transaction did not pass consensus validation: … ironwood double-spend: duplicate nullifier
+```
+
 ## The faucet's small notes (2026-10-28)
 
 **The problem.** On Oct 28 the faucet held 7,170,000 zats, in 75 notes, but could not fund a 3-installment demo. Each funding paid from a single note, and the prepay of 330,000 needed one note that large. The day's runs had spent the large notes, and payers' installments and refunds had come back as many small ones.
