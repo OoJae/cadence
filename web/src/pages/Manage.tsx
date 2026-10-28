@@ -13,12 +13,16 @@ import { ApiError } from '../api/client';
 import type { PocketState, Subscription } from '../api/types';
 import { Command } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
-import { CancelPanel, CancelReceiptView } from '../components/FlowViews';
+import { CancelPanel, CancelReceiptView, type CancelPurpose } from '../components/FlowViews';
 import { KeyIcon } from '../components/Icons';
+import { CalendarReminders, SubscribeAgain, useRunnerOffer } from '../components/PlanActions';
 import { Timeline } from '../components/Timeline';
-import { Callout, CopyButton, ErrorNote, PageHead, Spinner, StatusBadge } from '../components/ui';
+import { Callout, CopyButton, ErrorNote, PageHead, Spinner, StatusBadge, Txid } from '../components/ui';
 import { createStore, useDocumentTitle, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
+import { planEnded } from '../lib/again';
+import { unpaidInstallments } from '../lib/ics';
+import { refundRoute, type RefundRoute } from '../lib/refund';
 import { formatDateTime, formatPeriod } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT } from '../lib/zat';
 import { api, apiFor, apiSetting, createSigner, isMock, laterRunner, pickRunner, runnersText, runnerUrl } from '../runtime';
@@ -37,10 +41,12 @@ interface ManageState {
   opening: boolean;
   error?: string;
   cancel: CancelReceipt | null;
+  /** What `cancel` was: a cancel, or the refund of what a stopped or missed plan left. */
+  purpose: CancelPurpose;
 }
 
 /** In memory only. The signer (and its seed) is destroyed when the page goes away. */
-const store = createStore<ManageState>(() => ({ signer: null, fileName: null, kit: null, problem: null, opening: false, cancel: null }));
+const store = createStore<ManageState>(() => ({ signer: null, fileName: null, kit: null, problem: null, opening: false, cancel: null, purpose: 'cancel' }));
 
 function forget() {
   store.get().signer?.destroy();
@@ -58,12 +64,18 @@ function summarize(f: KitFields): KitSummary {
   return { ...f, notes: f.notes.map(({ k, value_zat }) => ({ k, value_zat })) };
 }
 
+/** The plan's name: the key's memo label without the pocket id the WASM signer appends to it. */
+function planName(kit: KitSummary): string {
+  const suffix = ` (${kit.pocket_id})`;
+  return kit.label.endsWith(suffix) ? kit.label.slice(0, -suffix.length) : kit.label;
+}
+
 const MAX_KIT_BYTES = (1 << 20) + 64 * 1024;
 
 async function openKit(file: File, passphrase: string) {
   if (store.get().opening) return;
   store.get().signer?.destroy();
-  store.set({ opening: true, error: undefined, problem: null, signer: null, kit: null, cancel: null });
+  store.set({ opening: true, error: undefined, problem: null, signer: null, kit: null, cancel: null, purpose: 'cancel' });
   // The key says which runner it belongs to only once it is decrypted, by this signer.
   const runner = laterRunner();
   const signer = createSigner(runner.api);
@@ -159,6 +171,24 @@ function SweepFallback({ kit, fileName, why, prominent }: { kit: KitSummary; fil
   return prominent ? <Callout kind="warn">{body}</Callout> : <div className="panel">{body}</div>;
 }
 
+/** The runner saw what was left in the pocket refunded, from this tab or anywhere else. */
+function RefundSeen({ refund }: { refund: Extract<RefundRoute, { kind: 'refunded' }> }) {
+  return (
+    <Callout kind="ok">
+      <div className="stack" style={{ ['--gap' as string]: '6px' }}>
+        <strong>Refunded.</strong>
+        <span className="small">
+          What was left in the pocket was refunded at block {refund.mined_height.toLocaleString('en-US')}: the runner saw this transaction spend the pocket's note, and has
+          forgotten the pocket.
+        </span>
+        <span className="small row" style={{ ['--gap' as string]: '6px' }}>
+          txid <Txid value={refund.txid} />
+        </span>
+      </div>
+    </Callout>
+  );
+}
+
 function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; fileName: string }) {
   const s = useStore(store);
   // The key's runner: openKit() checked that this build knows it.
@@ -170,6 +200,10 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
   const runner = usePoll((signal) => (isMock ? Promise.resolve(undefined) : client.status(signal)), 0, [client]);
   const sandboxRefund = runner.data?.sandbox && runner.data.network === 'test' && kit.network === 'test' ? kit.merchant_ua : undefined;
   const data = sub.data;
+  const offer = useRunnerOffer(client, kit.offer_id);
+  // A stopped or missed plan whose pocket this runner kept: refund what is left here (contract v2 §6).
+  const route = refundRoute(runner.data, data);
+  const refunding = route.kind === 'refund';
   // A stalled subscription (a missed or invalid installment) can still be cancelled.
   const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
   const left = pocket.data?.notes.reduce((a, n) => a + n.value_zat, 0);
@@ -185,6 +219,8 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
 
   let fallback: { why: string; prominent: boolean } | null = null;
   if (unreachable) fallback = { why: 'The runner cannot be reached right now. Your funds do not depend on it: the CLI can return what is left in the pocket on its own.', prominent: true };
+  // The runner kept the pocket for a refund here, or saw it refunded: nothing for the CLI to do.
+  else if (route.kind !== 'none') fallback = null;
   else if (pocketGone) fallback = { why: 'This runner does not know this pocket (it may have been reset). If the pocket still holds funds, sweep it with the CLI.', prominent: true };
   else if (empty && data?.status === 'stopped') fallback = { why: 'The merchant stopped this subscription and the runner deleted the pocket. What is left in it is yours: sweep it with the CLI.', prominent: true };
   else if (empty && afterLast > INSTALLMENT_FEE_ZAT) fallback = { why: `The runner no longer tracks this pocket, but about ${formatZec(afterLast, kit.network)} was left after the last installment (the pocket was funded with more than the schedule needs). Sweep it with the CLI.`, prominent: true };
@@ -236,29 +272,44 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
         {sub.error && !unreachable && <ErrorNote error={sub.error} retry={sub.refresh} />}
         {pocket.error && !unreachable && !pocketGone && <ErrorNote error={pocket.error} retry={pocket.refresh} />}
         {data ? <Timeline installments={data.installments} network={kit.network} /> : kit.subscription_id && !sub.error && <Spinner label="Asking the runner…" />}
+        {data && !s.cancel && (
+          <CalendarReminders plan={{ name: planName(kit) || offer?.name || 'Cadence plan', amount_zat: kit.amount_zat, count: kit.count, network: kit.network }} installments={unpaidInstallments(data)} />
+        )}
       </section>
 
       <section className="card stack" style={{ ['--gap' as string]: '12px' }} aria-labelledby="manage-cancel">
         <h2 id="manage-cancel" className="h3">
-          Cancel
+          {(s.cancel ? s.purpose === 'refund' : route.kind !== 'none') ? 'Refund' : 'Cancel'}
         </h2>
         {s.cancel ? (
           <>
-            <CancelReceiptView receipt={s.cancel} network={kit.network} />
-            <CancelCertificate receipt={s.cancel} client={client} network={kit.network} subscriptionId={kit.subscription_id} count={kit.count} />
+            <CancelReceiptView receipt={s.cancel} network={kit.network} purpose={s.purpose} />
+            <CancelCertificate receipt={s.cancel} client={client} network={kit.network} subscriptionId={kit.subscription_id} count={kit.count} purpose={s.purpose} />
           </>
+        ) : route.kind === 'refunded' ? (
+          <RefundSeen refund={route} />
         ) : fallback ? (
           <SweepFallback kit={kit} fileName={fileName} {...fallback} />
         ) : (
-          <CancelPanel
-            signer={signer}
-            network={kit.network}
-            showDemo={isMock}
-            sandboxRefund={sandboxRefund}
-            disabled={settled ? `This subscription is ${data!.status}; there is nothing left to cancel.` : undefined}
-            onCancelled={(r) => store.set({ cancel: r })}
-          />
+          <>
+            {!settled && !refunding && data?.status !== 'stalled' && (
+              <p className="small text-2">
+                Want to pause? Cancel now, then subscribe again when you're ready. A signed schedule has fixed dates, so it cannot be paused; once the cancel lands, this page
+                links to the same plan.
+              </p>
+            )}
+            <CancelPanel
+              signer={signer}
+              network={kit.network}
+              showDemo={isMock}
+              sandboxRefund={sandboxRefund}
+              purpose={refunding ? 'refund' : 'cancel'}
+              disabled={settled && !refunding ? `This subscription is ${data!.status}; there is nothing left to cancel.` : undefined}
+              onCancelled={(r) => store.set({ cancel: r, purpose: refunding ? 'refund' : 'cancel' })}
+            />
+          </>
         )}
+        {data && planEnded(data) && <SubscribeAgain offer={offer} />}
       </section>
 
       {!fallback?.prominent && (

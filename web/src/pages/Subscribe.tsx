@@ -5,12 +5,14 @@ import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView, StatusLink } from '../components/FlowViews';
 import { KeyIcon, ShieldCheckIcon, TabIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
+import { CalendarReminders } from '../components/PlanActions';
 import { Timeline } from '../components/Timeline';
 import { Badge, Callout, CopyButton, ErrorNote, Round, Spinner, StatusBadge } from '../components/ui';
 import { canRetrySigning, canRetryUpload, canWatchAgain, retrySigning, retryUpload, runMandate, watchAgain, type FlowState } from '../flow';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { shorten } from '../lib/addresses';
 import { encodeOfferPayload, horizonProblem, parseOfferFragment } from '../lib/offer';
+import { refundRoute } from '../lib/refund';
 import { planSchedule } from '../lib/schedule';
 import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
@@ -367,6 +369,10 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
   const sub = usePoll((signal) => s.runner!.api.getSubscription(s.subscriptionId!, signal), isMock ? 1500 : 10000, [s.subscriptionId]);
   const data = sub.data;
   const settled = data && (data.status === 'completed' || data.status === 'cancelled' || data.status === 'stopped');
+  // A stopped or missed plan whose pocket the runner kept: this tab refunds what is left (contract v2 §6).
+  const status = usePoll((signal) => s.runner!.api.status(signal), 0, [s.runner]);
+  const route = refundRoute(status.data, data);
+  const refunding = route.kind === 'refund';
   return (
     <div className="stack" style={{ ['--gap' as string]: '20px' }}>
       <div className="row between">
@@ -386,8 +392,17 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
         <span className="h4">Cancel</span>
         {s.cancel ? (
           <>
-            <CancelReceiptView receipt={s.cancel} network={offer.network} />
-            {s.runner && <CancelCertificate receipt={s.cancel} client={s.runner.api} network={offer.network} subscriptionId={s.subscriptionId ?? null} count={offer.count} />}
+            <CancelReceiptView receipt={s.cancel} network={offer.network} purpose={route.kind !== 'none' ? 'refund' : 'cancel'} />
+            {s.runner && (
+              <CancelCertificate
+                receipt={s.cancel}
+                client={s.runner.api}
+                network={offer.network}
+                subscriptionId={s.subscriptionId ?? null}
+                count={offer.count}
+                purpose={route.kind !== 'none' ? 'refund' : 'cancel'}
+              />
+            )}
           </>
         ) : (
           s.signer && (
@@ -395,8 +410,9 @@ function ManageStep({ offer, s }: { offer: Offer; s: Session }) {
               signer={s.signer}
               showDemo={isMock}
               network={offer.network}
+              purpose={refunding ? 'refund' : 'cancel'}
               disabled={
-                settled
+                settled && !refunding
                   ? data!.status === 'stopped'
                     ? 'The merchant stopped this subscription and the runner deleted the pocket. What is left in it is yours: save your cancel key, then run cadence sweep with it.'
                     : `This subscription is ${data!.status}; there is nothing left to cancel.`
@@ -539,6 +555,7 @@ function SubscribeView({
                 )}
               </div>
               {s.subscriptionId && <StatusLink subscriptionId={s.subscriptionId} closeable={!needsCancelKey(s) || cancelKeySettled(s.key)} />}
+              <CalendarReminders plan={o} installments={(s.finished ?? []).map(({ k, release_round }) => ({ k, release_round }))} />
               {!needsCancelKey(s) && s.signer?.keyCustody === 'memory' && (
                 <Callout kind="plain" icon={<KeyIcon size={16} />}>
                   <span className="small">

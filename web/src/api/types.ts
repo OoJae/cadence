@@ -89,6 +89,10 @@ export interface Subscription {
   created_at: number;
   funding: { txid: string; mined_height: number; amount_zat: number };
   installments: Installment[];
+  /** v2, `refund_after_stop`: the runner kept a stopped or missed subscription's pocket, and a note is left in it to refund. */
+  refundable?: boolean;
+  /** v2, `refund_after_stop`: the refund the runner saw spend that note. */
+  refund?: { txid: string; mined_height: number };
 }
 
 // ---------------------------------------------------------------- payer pockets
@@ -196,6 +200,8 @@ export interface RunnerStatus {
   subscriptions: number;
   /** True when this runner serves the testnet-only `/api/sandbox` endpoints. */
   sandbox?: boolean;
+  /** v2: what this runner implements beyond v0 (contract v2 §1). Absent on older runners, which means none. */
+  features?: string[];
 }
 
 // ---------------------------------------------------------------- webhooks (runner → merchant)

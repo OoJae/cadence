@@ -8,6 +8,7 @@ import { formatDateTime, nowSecs } from '../lib/time';
 import { formatZec } from '../lib/zat';
 import { Link } from '../router';
 import type { CancelReceipt } from '../signer/types';
+import type { CancelPurpose } from './FlowViews';
 import { Guilloche } from './Guilloche';
 import { Callout, Spinner, Txid } from './ui';
 
@@ -33,12 +34,15 @@ export function CancelCertificate({
   network,
   subscriptionId,
   count,
+  purpose = 'cancel',
 }: {
   receipt: CancelReceipt;
   client: CadenceClient;
   network: Offer['network'];
   subscriptionId: string | null;
   count: number;
+  /** 'refund': the same proof, for what a stopped or missed plan left in the pocket. */
+  purpose?: CancelPurpose;
 }) {
   const decoded = usePoll((signal) => client.decode(receipt.txid, signal), 20_000, [receipt.txid]);
   const runner = reporterOf(client.transport.label);
@@ -47,14 +51,17 @@ export function CancelCertificate({
     [receipt, decoded.data, network, subscriptionId, count, runner],
   );
   if (receipt.spent_k === undefined || !receipt.spent_nullifier) return null;
-  if (!cert) return <Spinner label="Waiting for the cancel to be mined…" />;
+  if (!cert) return <Spinner label={`Waiting for the ${purpose} to be mined…`} />;
 
   const voids = cert.void_installments;
+  const refund = purpose === 'refund';
   return (
     <Callout kind="ok" className="certificate" icon={<Guilloche seed={cert.spent_nullifier} />}>
       <div className="stack" style={{ ['--gap' as string]: '10px' }}>
-        <span className="kicker plain">Cancellation certificate</span>
-        <strong className="certificate-title">Cancelled at block {cert.mined_height.toLocaleString('en-US')}.</strong>
+        <span className="kicker plain">{refund ? 'Refund certificate' : 'Cancellation certificate'}</span>
+        <strong className="certificate-title">
+          {refund ? 'Refunded' : 'Cancelled'} at block {cert.mined_height.toLocaleString('en-US')}.
+        </strong>
         <dl className="certificate-figures">
           <div>
             <dt>Never valid now</dt>
@@ -74,7 +81,7 @@ export function CancelCertificate({
           </div>
         </dl>
         <span className="small">
-          The cancel spent {receipt.spent ?? 'the pocket note'}, whose nullifier is now on chain in <Txid value={cert.cancel_txid} />.{' '}
+          The {purpose} spent {receipt.spent ?? 'the pocket note'}, whose nullifier is now on chain in <Txid value={cert.cancel_txid} />.{' '}
           {voids.length === 0
             ? 'No installment was left to pay.'
             : voids.length === 1
@@ -90,7 +97,7 @@ export function CancelCertificate({
             type="button"
             className="link-btn small"
             onClick={() =>
-              downloadBytes(new TextEncoder().encode(JSON.stringify(cert, null, 2) + '\n'), `cadence-cancellation-${cert.cancel_txid.slice(0, 12)}.json`, 'application/json')
+              downloadBytes(new TextEncoder().encode(JSON.stringify(cert, null, 2) + '\n'), `cadence-${refund ? 'refund' : 'cancellation'}-${cert.cancel_txid.slice(0, 12)}.json`, 'application/json')
             }
           >
             Save certificate
