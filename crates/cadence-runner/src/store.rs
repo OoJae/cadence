@@ -189,7 +189,8 @@ impl Store {
     }
 
     /// Brings a database made by an older runner up to date. Each step only adds a
-    /// column, so the older runner can still open the file.
+    /// column, so an older runner can still open and read the file, but not write
+    /// to it: its INSERTs name no columns. Roll back by restoring a backup instead.
     fn migrate(&self) -> Result<()> {
         self.add_column("offers", "trial_secs", "INTEGER NOT NULL DEFAULT 0")?;
         self.add_column("offers", "quote", "TEXT")?;
