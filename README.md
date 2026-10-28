@@ -86,6 +86,8 @@ The mainnet runner's build 7244e6a lists no `refund_after_stop`: it deletes the 
 
 ## Status (Oct 28, 2026)
 
+The [`submission`](https://github.com/OoJae/cadence/tree/submission) tag marks what was submitted to ZECATHON on Oct 28, 2026. Commits after it add evidence only: the weekly mandate's installments on Nov 3, 10 and 17, as they are mined.
+
 | Milestone | Result |
 |---|---|
 | S1: rung determinism, including across the NU7 boundary | ✅ `crates/cadence-core/tests/s1_determinism.rs` |
