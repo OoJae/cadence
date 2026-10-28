@@ -13,6 +13,7 @@ use anyhow::{anyhow, Context, Result};
 use cadence_chain::{
     lwd,
     wallet::{self, Db, ANCHOR_CONFIRMATIONS},
+    Params,
 };
 use cadence_core::package::{verify_rung, InstallmentLadder};
 use cadence_seal::{age::x25519, DrandChain};
@@ -21,7 +22,7 @@ use pczt::Pczt;
 use zcash_client_backend::data_api::{WalletRead, WalletWrite};
 use zcash_client_sqlite::AccountUuid;
 use zcash_primitives::transaction::TxId;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
     store::{Funding, Installment, Store, Subscription},
@@ -29,7 +30,7 @@ use crate::{
 };
 
 pub struct Config {
-    pub network: Network,
+    pub network: Params,
     pub network_name: &'static str,
     pub public_url: String,
     /// Where the web app is hosted when this runner does not serve it.
@@ -454,7 +455,7 @@ fn reject(app: &App, sub: &Subscription, inst: &Installment, why: &str) -> Resul
     Ok(())
 }
 
-pub fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+pub fn orchard_receiver(params: &Params, ua: &str) -> Result<orchard::Address> {
     match zcash_keys::address::Address::decode(params, ua) {
         Some(zcash_keys::address::Address::Unified(ua)) => {
             ua.orchard().copied().context("address has no Orchard receiver")

@@ -23,10 +23,9 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use axum::http::{HeaderValue, Uri};
-use cadence_chain::{lwd, wallet, Transport};
+use cadence_chain::{lwd, wallet, Params, Transport};
 use cadence_seal::{age::x25519, DrandChain};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use zcash_protocol::consensus::Network;
 
 use crate::{
     service::{App, Config},
@@ -44,13 +43,15 @@ struct Cli {
 enum Net {
     Main,
     Test,
+    Regtest,
 }
 
 impl Net {
-    fn params(self) -> Network {
+    fn params(self) -> Params {
         match self {
-            Net::Main => Network::MainNetwork,
-            Net::Test => Network::TestNetwork,
+            Net::Main => Params::MAIN,
+            Net::Test => Params::TEST,
+            Net::Regtest => Params::Regtest,
         }
     }
 
@@ -58,6 +59,7 @@ impl Net {
         match self {
             Net::Main => "main",
             Net::Test => "test",
+            Net::Regtest => "regtest",
         }
     }
 }
@@ -127,7 +129,7 @@ enum Command {
         /// Seconds between scheduler ticks.
         #[arg(long, default_value_t = 10)]
         tick: u64,
-        /// Testnet only: a dev pocket file whose funds pay judges' sandbox pockets.
+        /// Testnet or regtest only: a dev pocket file whose funds pay judges' sandbox pockets.
         #[arg(long)]
         sandbox_funder: Option<PathBuf>,
         /// Height before the sandbox funder's first note.

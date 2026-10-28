@@ -29,20 +29,17 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{wallet::init::init_wallet_db, AccountUuid, WalletDb};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::transaction::{builder::cached_orchard_proving_key, Transaction, TxId};
-use zcash_protocol::{
-    consensus::{BlockHeight, Network},
-    ShieldedPool,
-};
+use zcash_protocol::{consensus::BlockHeight, ShieldedPool};
 
-use crate::{lwd, MemBlockCache};
+use crate::{lwd, MemBlockCache, Params};
 
 pub type OsRng = UnwrapErr<SysRng>;
-pub type Db = WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>;
+pub type Db = WalletDb<rusqlite::Connection, Params, SystemClock, OsRng>;
 
 /// Stock wallets anchor three blocks behind the block they target.
 pub const ANCHOR_CONFIRMATIONS: u32 = 3;
 
-pub fn open(path: &Path, params: Network) -> Result<Db> {
+pub fn open(path: &Path, params: Params) -> Result<Db> {
     let conn = rusqlite::Connection::open(path)?;
     rusqlite::vtab::array::load_module(&conn)?;
     // A deleted pocket's keys and notes are overwritten on disk, not just unlinked.
@@ -69,7 +66,7 @@ pub fn init(db: &mut Db) -> Result<()> {
 pub async fn import_pocket(
     client: &mut lwd::Client,
     db: &mut Db,
-    params: &Network,
+    params: &Params,
     ufvk: &str,
     birthday: BlockHeight,
     name: &str,
@@ -93,7 +90,7 @@ pub async fn import_pocket(
     Ok(account.id())
 }
 
-pub async fn sync(client: &mut lwd::Client, params: &Network, db: &mut Db) -> Result<()> {
+pub async fn sync(client: &mut lwd::Client, params: &Params, db: &mut Db) -> Result<()> {
     let cache = MemBlockCache::default();
     zcash_client_backend::sync::run(client, params, &cache, db, 1000)
         .await
@@ -223,7 +220,7 @@ pub async fn pay(
     client: &mut lwd::Client,
     broadcaster: &mut lwd::Client,
     db: &mut Db,
-    params: &Network,
+    params: &Params,
     account: AccountUuid,
     pocket: &cadence_core::Pocket,
     to: orchard::Address,
