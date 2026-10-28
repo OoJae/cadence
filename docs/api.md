@@ -328,7 +328,7 @@ This build limits what one client can ask of the runner. Build 7244e6a, which th
 
 - **Past a limit** the runner answers `429` with `Retry-After` (seconds) and `{ "error": "too many requests; try again in n s" }`. The web app treats a 429 as busy, not broken: it says when to try again, its polls wait at least that long, and an upload or a cancel is sent again after the wait.
 - **The merchant token.** A request with a valid merchant token is never rate limited. The sandbox faucet's hourly limits still apply to it.
-- **The client** is the socket's peer. With `--trust-forwarded` (env `CADENCE_TRUST_FORWARDED=1`, which the Railway entrypoint sets) it is the first `X-Forwarded-For` hop instead, which a client can forge unless the proxy in front replaces that header; whether Railway's does has not been checked (`deploy/README.md`). An IPv6 client counts by its /64.
+- **The client** is the socket's peer. With `--trust-forwarded` (env `CADENCE_TRUST_FORWARDED=1`, which the Railway entrypoint sets) it is the first `X-Forwarded-For` hop instead, which a client can forge unless the proxy in front replaces that header. Railway's does not let a client choose it, checked on Oct 28 (`deploy/README.md`). An IPv6 client counts by its /64.
 
 **Body limits.** 80 MiB on `/api/subscriptions` and `/api/subscriptions/:id/resign`, which carry sealed packages, and 64 KiB on every other route. A larger body is `413`.
 

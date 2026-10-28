@@ -24,7 +24,11 @@ Optional variables, read by the entrypoint:
 | `CADENCE_CORS_ORIGINS` | Further origins that may call the API, comma-separated, exact (no `*`, no path). |
 | `CADENCE_TRUST_FORWARDED` | The entrypoint sets it to `1` unless it is set already. The rate limits (`docs/api.md`, "Limits") then count each client by the first `X-Forwarded-For` hop, because Railway's proxy is the socket peer of every request. |
 
-Whether Railway's proxy replaces an `X-Forwarded-For` header the client sent, or appends to it, has not been checked. If it appends, a client can choose the address it is counted as, and the per-client limits can be evaded. The limits that are not per client still hold: the faucet's 30 fundings an hour, the 1,000 pending pockets, and the 4 decodes at once.
+A client cannot choose the address it is counted as on Railway. This was checked on Oct 28 against the sandbox, with deliberately invalid `POST /api/pockets` requests:
+- Six requests with `X-Forwarded-For: 203.0.113.7` used up the burst, and the seventh got `429`.
+- Eight more, each claiming a different address (`198.51.100.1` to `.8`), all got `429` too.
+
+So Railway's proxy puts the client's real address first, whatever the client sends. Behind another proxy, check this before setting `CADENCE_TRUST_FORWARDED`. The limits that are not per client hold regardless: the faucet's 30 fundings an hour, the 1,000 pending pockets, and the 4 decodes at once.
 
 Railway terminates TLS in front of each service, so it sees the IP address and request paths of every visitor (`docs/threat-model.md`, §5).
 
