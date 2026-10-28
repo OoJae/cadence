@@ -15,8 +15,8 @@ import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hoo
 import { shorten } from '../lib/addresses';
 import { encodeOfferPayload, horizonProblem, parseOfferFragment } from '../lib/offer';
 import { refundRoute } from '../lib/refund';
-import { planSchedule } from '../lib/schedule';
-import { formatDateTime, formatPeriod, formatRelative } from '../lib/time';
+import { jitterMax, planSchedule } from '../lib/schedule';
+import { formatPeriod, formatRelative, formatWindow } from '../lib/time';
 import { formatZec, INSTALLMENT_FEE_ZAT, totalPrepaidZat } from '../lib/zat';
 import { Link, useLocation } from '../router';
 import { apiLabel, createSigner, isMock, mockHooks, pickRunner, type Runner } from '../runtime';
@@ -259,7 +259,14 @@ interface Held {
 
 function PlanStep({ offer, verified, held }: { offer: Offer; verified: ReturnType<typeof useVerifiedOffer>; held: Held | null }) {
   const now = useNow();
-  const schedule = useMemo(() => planSchedule(offer, Math.floor(now / 10) * 10), [offer, Math.floor(now / 10)]);
+  const signAt = Math.floor(now / 10) * 10;
+  // Each installment's jitter is drawn at signing, so before then it has a window: from
+  // no jitter to the most there can be.
+  const windows = useMemo(() => {
+    const most = jitterMax(offer.period_secs);
+    const latest = planSchedule(offer, signAt, Array.from({ length: offer.count }, () => most));
+    return planSchedule(offer, signAt).map((from, i) => ({ from, to: latest[i]! }));
+  }, [offer, signAt]);
   const total = totalPrepaidZat(offer.amount_zat, offer.count);
   const horizon = horizonProblem(offer);
   return (
@@ -305,7 +312,7 @@ function PlanStep({ offer, verified, held }: { offer: Offer; verified: ReturnTyp
             <thead>
               <tr>
                 <th scope="col">#</th>
-                <th scope="col">Releases (if you sign now)</th>
+                <th scope="col">Release window (if you sign now)</th>
                 <th scope="col">drand round</th>
                 <th scope="col" className="r">
                   Amount
@@ -313,22 +320,25 @@ function PlanStep({ offer, verified, held }: { offer: Offer; verified: ReturnTyp
               </tr>
             </thead>
             <tbody>
-              {schedule.slice(0, 6).map((i) => (
-                <tr key={i.k}>
-                  <td className="mono">{i.k}</td>
+              {windows.slice(0, 6).map(({ from, to }) => (
+                <tr key={from.k}>
+                  <td className="mono">{from.k}</td>
                   <td>
-                    <span className="small">{formatDateTime(i.release_at)}</span> <span className="tiny muted">· {formatRelative(i.release_at - now)}</span>
+                    <div className="small">{formatWindow(from.release_at, to.release_at)}</div>
+                    <div className="tiny muted">starts {formatRelative(from.release_at - now)}</div>
                   </td>
                   <td>
-                    <Round round={i.release_round} />
+                    <span className="nowrap">
+                      <Round round={from.release_round} />–<Round round={to.release_round} />
+                    </span>
                   </td>
-                  <td className="r mono num">{formatZec(i.amount_zat, offer.network)}</td>
+                  <td className="r mono num">{formatZec(from.amount_zat, offer.network)}</td>
                 </tr>
               ))}
-              {schedule.length > 6 && (
+              {windows.length > 6 && (
                 <tr>
                   <td colSpan={4} className="small muted">
-                    … and {schedule.length - 6} more, {formatPeriod(offer.period_secs)}
+                    … and {windows.length - 6} more, about {formatPeriod(offer.period_secs)}
                   </td>
                 </tr>
               )}
@@ -336,6 +346,9 @@ function PlanStep({ offer, verified, held }: { offer: Offer; verified: ReturnTyp
           </table>
         </div>
       </div>
+      <p className="tiny muted">
+        When you sign, this tab picks a random moment in each installment's window, so your payments do not fall due at exact intervals. The times and drand rounds are fixed then.
+      </p>
 
       {held ? (
         <Callout kind="warn">

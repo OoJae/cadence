@@ -12,6 +12,8 @@
  * installments. Queue priorities keep the order sensible: k's chunks, then k's
  * sealing, then k+1's chunks.
  */
+import type { Offer } from '../api/types';
+import { drawJitters, releaseAt, type RandomU32 } from '../lib/schedule';
 import type { NetworkId } from '../lib/zat';
 import type { PresignPhase, PresignProgress } from './types';
 import { SignerError } from './types';
@@ -83,6 +85,35 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
 
 export function defaultChunkSize(heights: number, workers: number): number {
   return Math.min(32, Math.max(4, Math.ceil(heights / (workers * 3))));
+}
+
+/**
+ * The schedule to sign: each installment's release time, with its own jitter drawn from
+ * `random` (lib/schedule), then the drand round it is sealed to and its candidate
+ * heights. Both come from that same jittered time, so the rungs cover the blocks
+ * around when the package actually opens.
+ */
+export async function planInstallments(input: {
+  pool: SignerPool;
+  network: NetworkId;
+  offer: Pick<Offer, 'period_secs' | 'count' | 'trial_secs'>;
+  signedAt: number;
+  tip: number;
+  now: number;
+  random?: RandomU32;
+}): Promise<Array<InstallmentPlan & { at: number }>> {
+  const { pool, network, offer, signedAt, tip, now } = input;
+  const jitter = drawJitters(offer, input.random);
+  return Promise.all(
+    jitter.map(async (j, i) => {
+      const at = releaseAt(offer, signedAt, i + 1, j);
+      const [release_round, heights] = await Promise.all([
+        pool.call('round', { unixSecs: at }, { priority: -1 }),
+        pool.call('window', { network, tip, now, at }, { priority: -1 }),
+      ]);
+      return { k: i + 1, at, release_round, heights };
+    }),
+  );
 }
 
 function sameShard(a: ShardOut, b: ShardOut): boolean {

@@ -14,7 +14,8 @@
  * - Chain access: none of its own. The runner watches the pocket from its UFVK
  *   (`POST /api/pockets`) and relays the raw funding transaction, which the
  *   worker decrypts with the pocket key; amounts are never taken on trust.
- * - Presign: each installment's window of candidate heights is sharded across the
+ * - Presign: each installment's release time is moved later by its own random jitter
+ *   (lib/schedule). Its window of candidate heights is sharded across the
  *   pool, the shards are checked to agree, and the ladder is sealed (age to the
  *   runner, tlock to its drand round) in a worker. The flow then uploads the
  *   packages with `POST /api/subscriptions`.
@@ -34,13 +35,13 @@ import type { Offer, PocketWitness, SealedInstallment } from '../api/types';
 import { isUnifiedAddress } from '../lib/addresses';
 import { QUICKNET } from '../lib/drand';
 import { payerAuthFromSeed, type PayerAuth } from '../lib/payerAuth';
-import { firstReleaseLead } from '../lib/schedule';
+import { cryptoRandomU32, firstReleaseLead, type RandomU32 } from '../lib/schedule';
 import { nowSecs } from '../lib/time';
 import { totalPrepaidZat, type NetworkId } from '../lib/zat';
 import { checkPocketState, readPocket, runCancel } from './cancel';
 import { checkKit, isAgeKit, KIT_KIND, kitFileName, passphraseProblem, type KitCheck, type KitFields, type KitNote, type OpenedKit, type SealedKit } from './kit';
 import { SignerError, type CancelOptions, type CancelReceipt, type FundingTx, type KitContext, type PocketInfo, type PresignOptions, type Signer } from './types';
-import { presignSchedule, type InstallmentPlan } from './wasmEngine';
+import { planInstallments, presignSchedule } from './wasmEngine';
 import { moduleWorker, WorkerPool, defaultPoolSize } from './wasmPool';
 import type { ProverOps, SignerOps, WasmNote } from './wasmTypes';
 import signerWorkerUrl from './wasmWorker.ts?worker&url';
@@ -107,6 +108,8 @@ export class WasmSigner implements Signer {
   readonly keyCustody = 'memory' as const;
   readonly #api: CadenceClient;
   readonly #poolSize: number;
+  /** Draws each installment's release jitter: the CSPRNG, or a fixed sequence in tests. */
+  readonly #random: RandomU32;
   #pool: WorkerPool<SignerOps> | null = null;
   #prover: WorkerPool<ProverOps> | null = null;
   #seed: Uint8Array | null = null;
@@ -122,9 +125,10 @@ export class WasmSigner implements Signer {
   /** The name the last cancel key was saved under, for the check that asks for it again. */
   #kitName: string | null = null;
 
-  constructor(api: CadenceClient, opts: { poolSize?: number } = {}) {
+  constructor(api: CadenceClient, opts: { poolSize?: number; random?: RandomU32 } = {}) {
     this.#api = api;
     this.#poolSize = opts.poolSize ?? defaultPoolSize();
+    this.#random = opts.random ?? cryptoRandomU32;
   }
 
   get pocket(): PocketInfo | null {
@@ -202,17 +206,8 @@ export class WasmSigner implements Signer {
     const signedAt = Math.floor(opts.signedAt ?? nowSecs());
     const state = checkPocketState(await this.#api.getPocket(pocket.pocket_id!, opts.signal));
     const now = Math.floor(nowSecs());
-    const lead = firstReleaseLead(offer.period_secs);
-    const plans: InstallmentPlan[] = await Promise.all(
-      Array.from({ length: offer.count }, async (_, i) => {
-        const at = signedAt + lead + i * offer.period_secs;
-        const [release_round, heights] = await Promise.all([
-          pool.call('round', { unixSecs: at }, { priority: -1 }),
-          pool.call('window', { network: pocket.network, tip: state.tip, now, at }, { priority: -1 }),
-        ]);
-        return { k: i + 1, release_round, heights };
-      }),
-    );
+    // Each installment at signedAt + trial + lead + (k - 1)·period, plus its own jitter.
+    const plans = await planInstallments({ pool, network: pocket.network, offer, signedAt, tip: state.tip, now, random: this.#random });
 
     const mandateId = hexOf(crypto.getRandomValues(new Uint8Array(16)));
     const label = `${offer.name} (${pocket.pocket_id})`;
@@ -241,8 +236,8 @@ export class WasmSigner implements Signer {
       amount_zat: offer.amount_zat,
       count: offer.count,
       period_secs: offer.period_secs,
-      first_release_at: signedAt + lead,
-      first_in_secs: lead,
+      first_release_at: plans[0]!.at,
+      first_in_secs: firstReleaseLead(offer.period_secs),
       merchant_ua: offer.merchant_ua,
       funding_tx_hex: funding.tx_hex,
       funding_height: funding.mined_height,

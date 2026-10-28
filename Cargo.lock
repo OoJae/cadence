@@ -913,6 +913,7 @@ dependencies = [
  "pczt",
  "rand 0.10.3",
  "serde",
+ "serde_json",
  "zcash_keys",
  "zcash_primitives",
  "zcash_protocol",

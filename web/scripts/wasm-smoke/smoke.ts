@@ -16,7 +16,8 @@ import { CadenceClient } from '../../src/api/client';
 import { HttpTransport } from '../../src/api/http';
 import type { Offer } from '../../src/api/types';
 import { bytesToBase64 } from '../../src/lib/base64url';
-import { QUICKNET } from '../../src/lib/drand';
+import { QUICKNET, roundTime } from '../../src/lib/drand';
+import { jitterMax, releaseAt } from '../../src/lib/schedule';
 import { totalPrepaidZat } from '../../src/lib/zat';
 import type { PresignProgress } from '../../src/signer/types';
 import { createSignerPool, WasmSigner } from '../../src/signer/wasm';
@@ -132,7 +133,9 @@ async function signerFlow() {
   };
   const done: PresignProgress[] = [];
   let events = 0;
+  const signedAt = Math.floor(Date.now() / 1000);
   const sealed = await signer.presign(offer, funding, {
+    signedAt,
     onProgress: (p) => {
       events++;
       if (p.phase === 'done') {
@@ -207,6 +210,13 @@ async function signerFlow() {
     progress_events: events,
     installments: done.map((p) => ({ k: p.k, rungs: p.rungsTotal, window: p.window, release_round: p.release_round, sealed_bytes: p.sealedBytes })),
     sealed: sealed.map((s) => ({ k: s.k, release_round: s.release_round, bytes: sealedLength(s.sealed), header: sealedHeader(s.sealed) })),
+    // How far each sealed round, and the key's first release, fall after the jitter-free
+    // schedule: each must be within its jitter (plus up to 2 s of rounding to a round).
+    jitter: {
+      max: jitterMax(period),
+      rounds: sealed.map((s, i) => roundTime(s.release_round) - releaseAt(offer, signedAt, i + 1)),
+      first_release: kitFields.first_release_at - releaseAt(offer, signedAt, 1),
+    },
     subscription: sub,
     kit: {
       file_name: kit.fileName,

@@ -385,7 +385,7 @@ fn sharded_pipeline_equals_mandate_presign() {
         amount: Zatoshis::const_from_u64(AMOUNT),
         count,
         period_secs: period,
-        first_release_at,
+        release_times: (0..u64::from(count)).map(|i| first_release_at + i * period).collect(),
         merchant,
         label: t.label.clone(),
     };

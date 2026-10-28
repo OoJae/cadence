@@ -235,6 +235,8 @@ try {
   check(s.installments.length === count && s.sealed.length === count, `${count} installments signed and sealed`);
   check(s.sealed.every((x, i) => x.k === i + 1 && BUCKETS.includes(x.bytes) && x.header?.round === x.release_round && x.header?.chain === QUICKNET), 'every package is a bucket, time-locked to its own quicknet round');
   check(s.sealed.every((x, i) => i === 0 || x.release_round > s.sealed[i - 1].release_round), 'release rounds increase');
+  const j = s.jitter;
+  check(j.rounds.length === count && j.rounds.every((d) => d >= 0 && d <= j.max + 2) && j.first_release >= 0 && j.first_release <= j.max, `each round is within its jitter of the plain schedule (${j.rounds.join(', ')} s, at most ${j.max})`);
   const sub = subscriptions.at(-1);
   check(sub?.pocket_id === s.pocket_id && sub?.installments?.length === count, 'POST /api/subscriptions carried the pocket id and every package');
   check(sub?.installments?.every((x) => { const i = sealedInfo(x.sealed); return BUCKETS.includes(i.bytes) && i.round === x.release_round; }), 'the uploaded packages match');

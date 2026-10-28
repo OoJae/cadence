@@ -18,6 +18,9 @@ blake2b_simd = { workspace = true }
 serde = { workspace = true }
 hex = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [features]
 default = []
 prover = ["zcash_primitives/circuits", "pczt/prover", "pczt/tx-extractor", "orchard/circuit"]

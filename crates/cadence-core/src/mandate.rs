@@ -35,14 +35,15 @@ pub const MAINNET_FEE_SWITCH: u32 = 3_590_000;
 /// for a block or two of delay.
 pub const NU7_GUARD_BLOCKS: u32 = 10;
 
-/// What the merchant's offer fixes, plus when the first installment falls due.
+/// What the merchant's offer fixes, plus when each installment falls due.
 #[derive(Clone)]
 pub struct Terms {
     pub amount: Zatoshis,
     pub count: u32,
     pub period_secs: u64,
-    /// Unix time at which installment 1 becomes releasable.
-    pub first_release_at: u64,
+    /// Unix time at which each installment becomes releasable, installment 1's first:
+    /// one per installment, from [`release_times`].
+    pub release_times: Vec<u64>,
     pub merchant: Address,
     /// What the merchant's wallet shows for each installment, such as the plan name
     /// and pocket id (see [`installment_memo`]).
@@ -51,8 +52,56 @@ pub struct Terms {
 
 impl Terms {
     pub fn release_at(&self, k: u32) -> u64 {
-        self.first_release_at + u64::from(k - 1) * self.period_secs
+        self.release_times[k as usize - 1]
     }
+}
+
+/// The most any installment's release is moved, however long the period: 6 hours.
+pub const MAX_JITTER_SECS: u64 = 21_600;
+
+/// `J`, the most an installment's release is moved later at random: a quarter period,
+/// at most [`MAX_JITTER_SECS`].
+///
+/// Releases at exact intervals, to the second, would mark the installments as a
+/// subscription. So the payer moves each one later by its own draw in `0..=J`. Every
+/// gap then stays within `period_secs` ± J, inside the ± `period_secs` / 2 that
+/// runners accept, including runners that predate jitter.
+pub fn jitter_max(period_secs: u64) -> u64 {
+    (period_secs / 4).min(MAX_JITTER_SECS)
+}
+
+/// A uniform draw from `0..=max` out of 32-bit values from `next_u32`. A value at the
+/// top of the 32-bit range, which would favour small results, is drawn again. The web
+/// signer draws the same way, value for value (web/src/lib/schedule.ts).
+pub fn draw_jitter(max: u64, mut next_u32: impl FnMut() -> u32) -> u64 {
+    assert!(max < 1 << 32, "jitter is drawn from 32 random bits");
+    let span = max + 1;
+    let limit = (1u64 << 32) - (1u64 << 32) % span;
+    loop {
+        let r = u64::from(next_u32());
+        if r < limit {
+            return r % span;
+        }
+    }
+}
+
+/// When each installment falls due, before rounding up to a drand round. Installment
+/// `k` is at `signed_at + trial_secs + lead_secs + (k − 1) · period_secs + jitter_k`,
+/// each `jitter_k` its own [`draw_jitter`] up to [`jitter_max`], installment 1's first.
+/// A trial delays installment 1, and so every later one. `next_u32` is a CSPRNG
+/// outside tests.
+pub fn release_times(
+    signed_at: u64,
+    trial_secs: u64,
+    lead_secs: u64,
+    period_secs: u64,
+    count: u32,
+    mut next_u32: impl FnMut() -> u32,
+) -> Vec<u64> {
+    let max = jitter_max(period_secs);
+    (0..u64::from(count))
+        .map(|i| signed_at + trial_secs + lead_secs + i * period_secs + draw_jitter(max, &mut next_u32))
+        .collect()
 }
 
 #[derive(Debug)]
@@ -320,11 +369,62 @@ mod tests {
             amount: Zatoshis::const_from_u64(100_000),
             count: 3,
             period_secs: 600,
-            first_release_at: 0,
+            release_times: vec![60, 660, 1260],
             merchant: Pocket::from_seed(&[1; 32], 133).funding_address(),
             label: String::new(),
         };
         assert_eq!(u64::from(funding_total(&terms).unwrap()), 330_000);
+    }
+
+    #[test]
+    fn jitter_is_a_quarter_period_up_to_six_hours() {
+        assert_eq!(jitter_max(10), 2);
+        assert_eq!(jitter_max(300), 75);
+        assert_eq!(jitter_max(86_399), 21_599);
+        assert_eq!(jitter_max(86_400), 21_600);
+        assert_eq!(jitter_max(30 * 86_400), MAX_JITTER_SECS);
+    }
+
+    #[test]
+    fn jitter_draws_cover_their_range_evenly() {
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut xorshift = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 32) as u32
+        };
+        let mut seen = [0u32; 76];
+        for _ in 0..76_000 {
+            seen[draw_jitter(75, &mut xorshift) as usize] += 1;
+        }
+        // About 1,000 each; 800 and 1,200 are more than six standard deviations out.
+        assert!(seen.iter().all(|n| (800..1200).contains(n)), "{seen:?}");
+        // The top 44 values of the 32-bit range are drawn again: kept, they would make
+        // 0 to 43 likelier than 44 to 75.
+        let mut draws = [u32::MAX, u32::MAX - 43, 7].into_iter();
+        assert_eq!(draw_jitter(75, || draws.next().unwrap()), 7);
+    }
+
+    /// The cross-language vectors, which web/src/lib/schedule.test.ts checks too.
+    #[test]
+    fn release_times_match_the_shared_vectors() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/schedule_vectors.json")).unwrap();
+        let cases = v["cases"].as_array().unwrap();
+        assert!(cases.len() >= 5);
+        for case in cases {
+            let about = case["about"].as_str().unwrap();
+            let n = |key: &str| case[key].as_u64().unwrap();
+            let list = |key: &str| -> Vec<u64> { case[key].as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect() };
+            let (signed_at, trial, lead, period) = (n("signed_at"), n("trial_secs"), n("lead_secs"), n("period_secs"));
+            assert_eq!(jitter_max(period), n("jitter_max"), "{about}");
+            let mut random = list("random_u32").into_iter().map(|r| u32::try_from(r).unwrap());
+            let times = release_times(signed_at, trial, lead, period, n("count") as u32, || random.next().expect("enough draws"));
+            assert_eq!(times, list("release_at"), "{about}");
+            assert_eq!(random.next(), None, "{about}: every draw is used");
+            let jitter: Vec<u64> = times.iter().zip(0u64..).map(|(t, i)| t - (signed_at + trial + lead + i * period)).collect();
+            assert_eq!(jitter, list("jitter"), "{about}");
+        }
     }
 
     #[test]

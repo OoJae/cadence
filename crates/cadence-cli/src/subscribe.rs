@@ -36,6 +36,10 @@ struct OfferView {
     merchant_ua: String,
     runner_age_recipient: String,
     network: String,
+    /// How much later installment 1 falls due: the merchant's trial. Older runners
+    /// send none.
+    #[serde(default)]
+    trial_secs: u64,
 }
 
 /// Everything the payer must keep to cancel later. Dev builds store it unencrypted.
@@ -55,7 +59,8 @@ pub struct SubscriptionFile {
     count: u32,
     period_secs: u64,
     first_release_at: u64,
-    /// Seconds from signing until installment 1 becomes releasable.
+    /// Seconds from signing until installment 1 becomes releasable, after any trial
+    /// and before its jitter.
     #[serde(default)]
     first_in_secs: u64,
     merchant_ua: String,
@@ -146,7 +151,8 @@ fn terms(params: &Network, f: &SubscriptionFile) -> Result<Terms> {
         amount: Zatoshis::from_u64(f.amount_zat).map_err(|_| anyhow!("bad amount"))?,
         count: f.count,
         period_secs: f.period_secs,
-        first_release_at: f.first_release_at,
+        // Drawn when the schedule is signed (`resume`). The funding total needs none.
+        release_times: vec![],
         merchant: orchard_receiver(params, &f.merchant_ua)?,
         label: f.label.clone(),
     })
@@ -253,12 +259,16 @@ pub fn resume(http: &Http, out: &Path) -> Result<()> {
     println!("funded: {} zats at height {height}", note.value().inner());
 
     let now = unix_now();
-    file.first_release_at = now + file.first_in_secs;
+    // Installment k falls due at now + trial + first_in + (k - 1) * period, plus its own
+    // random jitter, so the payments do not land at exact intervals.
+    let release_times =
+        mandate::release_times(now, offer.trial_secs, file.first_in_secs, file.period_secs, file.count, rand::random::<u32>);
+    file.first_release_at = *release_times.first().context("the offer has no installments")?;
     file.funding_tx_hex = Some(tx_hex);
     file.funding_height = Some(height);
     save(out, &file)?;
 
-    let terms = terms(&params, &file)?;
+    let terms = Terms { release_times, ..terms(&params, &file)? };
     let presigned = mandate::presign(
         &params,
         &pocket,

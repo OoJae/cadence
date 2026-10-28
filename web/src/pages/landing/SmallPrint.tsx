@@ -22,7 +22,7 @@ const LIMITS = [
   ['Unscheduled upgrades need a new signature.', 'Each signature commits to the consensus branch. Known upgrades are handled: NU7 is, because each rung is signed for the branch at its own height, and fees follow ZIP 2009 at its switch height. A schedule that runs past an upgrade unknown at signing must be signed again, which is not automatic yet.'],
   ['This web page talks to the runner directly.', 'The runner and its hosting provider see your IP address. Use Tor Browser, or the CLI, which uses Tor, if that matters.'],
   ['Whoever serves this page serves the code that holds your pocket key.', 'The runner software cannot spend your pocket, but a merchant who serves this page could serve other code. A build served from an origin the merchant does not control, with its commit and bundle hash in the footer to check against your own build, or the CLI, avoids that.'],
-  ['Timing is public.', 'Installments land on a schedule, like any recurring payment, and Cadence adds no jitter yet. Their fields do not link them to each other, but their timing can.'],
+  ['Timing is public.', 'Installments land on a schedule, like any recurring payment. Your signer moves each one up to a quarter period later at random, at most 6 hours, so they do not fall at exact intervals. Their fields do not link them to each other, but their rough rhythm still can.'],
 ] as const;
 
 /** What the runner can and cannot do, and the honest limits: set as fine print, in full. */
