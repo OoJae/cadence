@@ -2,7 +2,7 @@
  * The payer's mandate flow, shared by /subscribe and the sandbox:
  * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
-import { ApiError, type CadenceClient } from './api/client';
+import { ApiError, busyWaitMs, isBusy, type CadenceClient } from './api/client';
 import type { Offer, SealedInstallment } from './api/types';
 import { horizonProblem } from './lib/offer';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
@@ -97,9 +97,10 @@ async function signAndUpload(
 const UPLOAD_RETRY_MS = [3_000, 10_000];
 
 /**
- * Uploads the sealed packages. A timeout or a 5xx is retried: the runner accepts the
- * same packages again for the same pocket and answers with the same subscription, so
- * an upload that landed after the page gave up costs nothing.
+ * Uploads the sealed packages. A timeout, a 5xx or a busy runner (429, after the wait it
+ * asks for) is retried: the runner accepts the same packages again for the same pocket
+ * and answers with the same subscription, so an upload that landed after the page gave
+ * up costs nothing.
  */
 async function uploadSealed(
   offer: Offer,
@@ -121,9 +122,9 @@ async function uploadSealed(
     try {
       return (await (opts.api ?? api).createSubscription(body, opts.signal)).subscription_id;
     } catch (e) {
-      const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 429);
       if (!retriable || attempt >= UPLOAD_RETRY_MS.length || opts.signal?.aborted) throw e;
-      await sleep(UPLOAD_RETRY_MS[attempt]!);
+      await sleep(isBusy(e) ? Math.max(UPLOAD_RETRY_MS[attempt]!, busyWaitMs(e)) : UPLOAD_RETRY_MS[attempt]!);
     }
   }
 }

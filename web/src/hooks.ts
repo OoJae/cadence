@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { busyWaitMs, isBusy } from './api/client';
 
 // ---------------------------------------------------------------- shared 1 Hz clock
 
@@ -44,7 +45,9 @@ export interface Poll<T> {
 
 /**
  * Calls `fn` now and every `intervalMs`. Never overlaps requests, and pauses while the
- * tab is hidden so a background tab makes no requests at all.
+ * tab is hidden so a background tab makes no requests at all. A busy runner (429) is
+ * transient: the last data stays, the error says when to try again, and the next call
+ * waits at least that long, even for a one-shot fetch (interval 0).
  */
 export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, intervalMs: number, deps: unknown[] = []): Poll<T> {
   const [data, setData] = useState<T>();
@@ -65,6 +68,7 @@ export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, intervalMs: 
         t = setTimeout(run, Math.max(intervalMs, 1000));
         return;
       }
+      let next = intervalMs;
       try {
         const v = await fnRef.current(ctrl.signal);
         if (!alive) return;
@@ -73,10 +77,11 @@ export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, intervalMs: 
       } catch (e) {
         if (!alive) return;
         setError(e as Error);
+        next = nextPollMs(intervalMs, e);
       } finally {
         if (alive) {
           setLoading(false);
-          if (intervalMs > 0) t = setTimeout(run, intervalMs);
+          if (next > 0) t = setTimeout(run, next);
         }
       }
     };
@@ -91,6 +96,11 @@ export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, intervalMs: 
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
   return { data, error, loading, refresh };
+}
+
+/** When a poll asks again: `intervalMs` later (never, for a one-shot 0), or no sooner than a busy runner (429) asked. */
+export function nextPollMs(intervalMs: number, error?: unknown): number {
+  return isBusy(error) ? Math.max(intervalMs, busyWaitMs(error)) : intervalMs;
 }
 
 // ---------------------------------------------------------------- tiny external store

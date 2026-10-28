@@ -14,6 +14,7 @@ import { base64urlToBytes, bytesToBase64url, utf8Decode, utf8Encode } from './ba
 import { isAgeRecipient, isUnifiedAddress } from './addresses';
 import { QUICKNET } from './drand';
 import { firstReleaseLead } from './schedule';
+import { isCurrency, QUOTE_LIMITS, TRIAL_MAX_SECS, type Quote } from './terms';
 import { MAX_MONEY_ZAT, totalPrepaidZat } from './zat';
 
 export const OFFER_PARAM = 'offer';
@@ -102,6 +103,14 @@ export function validateOffer(x: unknown): OfferParse {
   if (typeof o.drand_chain !== 'string' || !HEX64.test(o.drand_chain)) problems.push({ field: 'drand_chain', message: 'is not a drand chain hash' });
   else if (o.drand_chain !== QUICKNET.hash) problems.push({ field: 'drand_chain', message: 'is not drand quicknet, the only chain this app can time-lock to' });
 
+  // Optional (contract v2): an older runner's links carry neither.
+  const trial = o.trial_secs ?? 0;
+  if (!isInt(trial, 0, TRIAL_MAX_SECS)) problems.push({ field: 'trial_secs', message: 'must be a whole number of seconds from 0 to 30 days' });
+  const quote = o.quote ?? null;
+  if (quote !== null && !isQuote(quote)) {
+    problems.push({ field: 'quote', message: 'must be a currency code, a price and a rate in minor units, and a time' });
+  }
+
   if (problems.length === 0 && totalPrepaidZat(o.amount_zat as number, o.count as number) > MAX_MONEY_ZAT) {
     problems.push({ field: 'amount_zat', message: 'times the count exceeds the 21M ZEC supply' });
   }
@@ -120,8 +129,27 @@ export function validateOffer(x: unknown): OfferParse {
       runner_endpoint: o.runner_endpoint as string,
       network: network as Offer['network'],
       drand_chain: o.drand_chain as string,
+      ...(trial ? { trial_secs: trial as number } : {}),
+      ...(quote ? { quote: orderedQuote(quote as Quote) } : {}),
     },
   };
+}
+
+function isQuote(q: unknown): q is Quote {
+  if (!q || typeof q !== 'object' || Array.isArray(q)) return false;
+  const v = q as Record<string, unknown>;
+  return (
+    typeof v.currency === 'string' &&
+    isCurrency(v.currency) &&
+    isInt(v.amount_minor, 1, QUOTE_LIMITS.amountMinorMax) &&
+    isInt(v.zec_rate_minor, 1, QUOTE_LIMITS.rateMinorMax) &&
+    isInt(v.set_at, 0, Number.MAX_SAFE_INTEGER)
+  );
+}
+
+/** Known fields only, in a fixed order. */
+function orderedQuote(q: Quote): Quote {
+  return { currency: q.currency, amount_minor: q.amount_minor, zec_rate_minor: q.zec_rate_minor, set_at: q.set_at };
 }
 
 /**
@@ -139,9 +167,9 @@ export function lastReleaseAfter(offer: Pick<Offer, 'period_secs' | 'count'>): n
   return firstReleaseLead(offer.period_secs) + (offer.count - 1) * offer.period_secs;
 }
 
-/** The most installments a plan with this period can have and still end within the horizon (at least 1). */
-export function maxCountWithinHorizon(periodSecs: number): number {
-  return Math.max(1, Math.floor((MAX_HORIZON_SECS - firstReleaseLead(periodSecs)) / periodSecs) + 1);
+/** The most installments a plan with this period, after this trial, can have and still end within the horizon (at least 1). */
+export function maxCountWithinHorizon(periodSecs: number, trialSecs = 0): number {
+  return Math.max(1, Math.floor((MAX_HORIZON_SECS - trialSecs - firstReleaseLead(periodSecs)) / periodSecs) + 1);
 }
 
 /** Why Cadence cannot sign this plan yet (its last installment is too far out), or null. */
@@ -153,7 +181,11 @@ export function horizonProblem(offer: Pick<Offer, 'period_secs' | 'count'>): str
   return `Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after signing, and this plan's last installment falls due ${when} days after you would sign. Ask the merchant for a shorter plan: fewer installments, or a shorter period.`;
 }
 
-/** The base64url payload for `#offer=`. Field order is fixed so links are stable. */
+/**
+ * The base64url payload for `#offer=`. Field order is fixed so links are stable. A trial of 0
+ * and an absent quote are left out, so an offer without them encodes as an older runner's does:
+ * the payer's check compares this encoding of the link's offer with the runner's copy.
+ */
 export function encodeOfferPayload(offer: Offer): string {
   const ordered: Offer = {
     offer_id: offer.offer_id,
@@ -166,6 +198,8 @@ export function encodeOfferPayload(offer: Offer): string {
     runner_endpoint: offer.runner_endpoint,
     network: offer.network,
     drand_chain: offer.drand_chain,
+    ...(offer.trial_secs ? { trial_secs: offer.trial_secs } : {}),
+    ...(offer.quote ? { quote: orderedQuote(offer.quote) } : {}),
   };
   return bytesToBase64url(utf8Encode(JSON.stringify(ordered)));
 }

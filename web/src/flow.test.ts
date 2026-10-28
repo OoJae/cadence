@@ -39,6 +39,24 @@ describe('uploads', () => {
     expect(patches.at(-1)).toEqual({ subscriptionId: 'sub_t', phase: 'done' });
   });
 
+  it('wait out a busy runner, as long as it asks, then try again', async () => {
+    let n = 0;
+    const api = {
+      createSubscription: vi.fn(async () => {
+        if (n++ === 0) throw new ApiError(429, 'The runner is busy; try again in 12 s', 12);
+        return { subscription_id: 'sub_t', status: 'active' };
+      }),
+    } as unknown as CadenceClient;
+    const patches: Partial<FlowState>[] = [];
+    const done = retryUpload(offer, held, (p) => patches.push(p), { api });
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(api.createSubscription).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(api.createSubscription).toHaveBeenCalledTimes(2);
+    expect(patches.at(-1)).toEqual({ subscriptionId: 'sub_t', phase: 'done' });
+  });
+
   it('do not retry a refusal', async () => {
     const api = { createSubscription: vi.fn(async () => { throw new ApiError(400, 'installment 2 releases too late'); }) } as unknown as CadenceClient;
     const patches: Partial<FlowState>[] = [];

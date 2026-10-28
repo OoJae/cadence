@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { CreateOfferResponse, NetworkId, Offer, Subscription, SubscriptionStatus } from '../api/types';
+import type { CreateOfferRequest, CreateOfferResponse, NetworkId, Offer, RunnerStatus, Subscription, SubscriptionStatus } from '../api/types';
 import { InstallmentTable } from '../components/InstallmentTable';
 import { LinkIcon, ServerIcon } from '../components/Icons';
 import { Qr } from '../components/Qr';
@@ -7,7 +7,9 @@ import { Badge, Callout, CopyButton, Countdown, ErrorNote, PageHead, Spinner, St
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { isUnifiedAddress, shorten, uaPrefix } from '../lib/addresses';
 import { roundAt } from '../lib/drand';
-import { horizonProblem, LIMITS, MAX_HORIZON_DAYS, maxCountWithinHorizon, parseOfferFragment } from '../lib/offer';
+import { hasFeature } from '../lib/features';
+import { LIMITS, MAX_HORIZON_DAYS, maxCountWithinHorizon, parseOfferFragment } from '../lib/offer';
+import { aTrial, formatMoney, formatTrial, parseQuote, parseTrial, type Quote } from '../lib/terms';
 import { formatDate, formatPeriod } from '../lib/time';
 import { formatZec, parseZecToZat, totalPrepaidZat, unitFor, INSTALLMENT_FEE_ZAT } from '../lib/zat';
 import { Link } from '../router';
@@ -18,6 +20,24 @@ const OFFER_COUNT_MAX = 12;
 
 /** The merchant's bearer token: in this tab's memory only, never persisted. */
 const session = createStore(() => ({ token: isMock ? 'mock-merchant-token' : '' }));
+
+export const STOP_NEEDS_TOKEN = 'merchant token required (not available in the demo)';
+
+/**
+ * Why Stop is disabled, or undefined. A sandbox runner's merchant is its own demo wallet, and
+ * the demo hands out no token for it, so without one entered Stop could only fail with a 401.
+ */
+export function stopBlocked(status: Pick<RunnerStatus, 'sandbox'> | undefined, token: string): string | undefined {
+  return status?.sandbox && !token.trim() ? STOP_NEEDS_TOKEN : undefined;
+}
+
+/**
+ * The optional terms a v2 runner takes with an offer: a trial only when there is one, and the
+ * merchant's fiat label stamped now. The form computes neither unless the runner lists its feature.
+ */
+export function offerTerms(trialSecs: number, quote: Omit<Quote, 'set_at'> | null, setAt: number): Pick<CreateOfferRequest, 'trial_secs' | 'quote'> {
+  return { ...(trialSecs > 0 ? { trial_secs: trialSecs } : {}), ...(quote ? { quote: { ...quote, set_at: Math.floor(setAt) } } : {}) };
+}
 
 const FILTERS: Array<{ id: 'all' | SubscriptionStatus; label: string }> = [
   { id: 'all', label: 'All' },
@@ -55,7 +75,7 @@ function nextRelease(sub: Subscription): number | null {
   return s ? s.release_at : null;
 }
 
-function SubscriptionCard({ sub, defaultOpen, onChanged }: { sub: Subscription; defaultOpen: boolean; onChanged: () => void }) {
+function SubscriptionCard({ sub, defaultOpen, onChanged, blocked }: { sub: Subscription; defaultOpen: boolean; onChanged: () => void; blocked?: string }) {
   const offer = useOffer(sub.offer_id);
   const provenance = mockHooks?.provenanceOf(sub.subscription_id);
   const [open, setOpen] = useState(defaultOpen || !!provenance?.startsWith('Real'));
@@ -129,7 +149,16 @@ function SubscriptionCard({ sub, defaultOpen, onChanged }: { sub: Subscription; 
               <span>created {formatDate(sub.created_at)}</span>
             </div>
             {canStop &&
-              (confirming ? (
+              (blocked ? (
+                <span className="row" style={{ ['--gap' as string]: '8px' }}>
+                  <button type="button" className="btn sm" disabled aria-describedby={`stop-why-${sub.subscription_id}`}>
+                    Stop subscription
+                  </button>
+                  <span id={`stop-why-${sub.subscription_id}`} className="tiny muted">
+                    {blocked}
+                  </span>
+                </span>
+              ) : confirming ? (
                 <span className="row" style={{ ['--gap' as string]: '8px' }}>
                   <span className="small">The runner discards the remaining packages and shreds the pocket data.</span>
                   <button type="button" className="btn sm danger" onClick={stop} disabled={stopping}>
@@ -184,8 +213,11 @@ export function merchantUaProblem(ua: string, network: NetworkId | undefined): s
   return isUnifiedAddress(ua, other) ? `${want}. This is a ${name(other)} address, and this runner is on ${name(network)}.` : `${want}.`;
 }
 
-function CreateOffer({ network }: { network: NetworkId | undefined }) {
+function CreateOffer({ network, status }: { network: NetworkId | undefined; status: RunnerStatus | undefined }) {
   const { token } = useStore(session);
+  // Trial and quote go to a runner only when it lists them; an older one sees the form it always did.
+  const trialOn = hasFeature(status, 'trial');
+  const quoteOn = hasFeature(status, 'quote');
   const [name, setName] = useState('Shielded Press · monthly');
   const [amount, setAmount] = useState('0.005');
   const [period, setPeriod] = useState(2592000);
@@ -197,20 +229,37 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
   const [error, setError] = useState<Error>();
   const [result, setResult] = useState<CreateOfferResponse>();
   const [touched, setTouched] = useState(false);
+  const [trial, setTrial] = useState('0');
+  const [trialUnit, setTrialUnit] = useState(86400);
+  const [priceIn, setPriceIn] = useState<'zec' | 'fiat'>('zec');
+  const [currency, setCurrency] = useState('USD');
+  const [price, setPrice] = useState('5.00');
+  // No default rate: it is the merchant's own figure, and the page fetches no price feed.
+  const [rate, setRate] = useState('');
 
-  const amountZat = parseZecToZat(amount);
+  const unit = unitFor(network ?? 'test');
+  const fiat = quoteOn && priceIn === 'fiat';
+  const quoted = fiat ? parseQuote({ currency, price, rate }, network ?? 'test') : null;
+  const amountZat = quoted ? (quoted.ok ? quoted.amountZat : null) : parseZecToZat(amount);
+  const trialParse = trialOn ? parseTrial(trial, trialUnit) : { secs: 0 };
+  const trialSecs = 'secs' in trialParse ? trialParse.secs : 0;
   const periodSecs = period === 0 ? Number(customPeriod) : period;
   const countN = Number(count);
   const problems: Record<string, string> = {};
   if (!name.trim()) problems.name = 'Give the plan a name payers will recognise.';
   if (name.length > LIMITS.nameMax) problems.name = `At most ${LIMITS.nameMax} characters.`;
-  if (amountZat === null || amountZat < 1) problems.amount = 'A positive amount with at most 8 decimals.';
+  if (quoted) {
+    if (!quoted.ok) Object.assign(problems, quoted.problems);
+  } else if (amountZat === null || amountZat < 1) problems.amount = 'A positive amount with at most 8 decimals.';
+  if ('problem' in trialParse) problems.trial = trialParse.problem;
   if (!Number.isSafeInteger(periodSecs) || periodSecs < LIMITS.periodMin || periodSecs > LIMITS.periodMax) problems.period = `Between ${LIMITS.periodMin} seconds and 366 days.`;
   if (!Number.isSafeInteger(countN) || countN < LIMITS.countMin || countN > OFFER_COUNT_MAX) problems.count = `Between ${LIMITS.countMin} and ${OFFER_COUNT_MAX}.`;
   const periodOk = !problems.period;
-  const maxCount = periodOk ? Math.min(maxCountWithinHorizon(periodSecs), OFFER_COUNT_MAX) : null;
-  const atMost = maxCount ? `at most ${maxCount} installment${maxCount === 1 ? '' : 's'}, one ${formatPeriod(periodSecs)}` : '';
-  if (!problems.count && periodOk && horizonProblem({ period_secs: periodSecs, count: countN })) {
+  // The trial counts towards the horizon: the last installment falls due trial + lead + (count - 1) periods after signing.
+  const horizonMax = periodOk ? maxCountWithinHorizon(periodSecs, trialSecs) : null;
+  const maxCount = horizonMax ? Math.min(horizonMax, OFFER_COUNT_MAX) : null;
+  const atMost = maxCount ? `at most ${maxCount} installment${maxCount === 1 ? '' : 's'}, one ${formatPeriod(periodSecs)}${trialSecs ? `, after ${aTrial(trialSecs)} trial` : ''}` : '';
+  if (!problems.count && horizonMax && countN > horizonMax) {
     problems.count = `Make it ${atMost}: Cadence cannot yet seal a payment due more than ${MAX_HORIZON_DAYS} days after the payer signs.`;
   }
   const uaProblem = merchantUaProblem(ua.trim(), network);
@@ -226,7 +275,8 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
     setError(undefined);
     setResult(undefined);
     try {
-      setResult(await api.createOffer({ name: name.trim(), amount_zat: amountZat, period_secs: periodSecs, count: countN, merchant_ua: ua.trim() }, token));
+      const terms = offerTerms(trialSecs, quoted?.ok ? quoted.quote : null, Date.now() / 1000);
+      setResult(await api.createOffer({ name: name.trim(), amount_zat: amountZat, period_secs: periodSecs, count: countN, merchant_ua: ua.trim(), ...terms }, token));
     } catch (err) {
       setError(err as Error);
     } finally {
@@ -254,15 +304,66 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
           <input id="o-name" className="input" value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} aria-invalid={!!show('name')} />
           {show('name') && <span className="error-text">{show('name')}</span>}
         </div>
-        <div className="grid cols-2" style={{ ['--gap' as string]: '12px' }}>
+        {quoteOn && (
           <div className="field">
-            <label htmlFor="o-amount">Amount per installment</label>
-            <div className="input-group">
-              <input id="o-amount" className="input mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!!show('amount')} />
-              <span className="suffix">{unitFor(network ?? 'test')}</span>
-            </div>
-            {show('amount') && <span className="error-text">{show('amount')}</span>}
+            <label htmlFor="o-price-in">Price in</label>
+            <select id="o-price-in" className="select" value={priceIn} onChange={(e) => setPriceIn(e.target.value === 'fiat' ? 'fiat' : 'zec')}>
+              <option value="zec">{unit}</option>
+              <option value="fiat">A currency, at your own rate</option>
+            </select>
           </div>
+        )}
+        {fiat && (
+          <div className="grid cols-2" style={{ ['--gap' as string]: '12px' }}>
+            <div className="field">
+              <label htmlFor="o-currency">Currency</label>
+              <input
+                id="o-currency"
+                className="input mono"
+                value={currency}
+                maxLength={3}
+                autoCapitalize="characters"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                aria-invalid={!!show('currency')}
+              />
+              {show('currency') ? <span className="error-text">{show('currency')}</span> : <span className="hint">A three-letter code: USD, EUR, GBP…</span>}
+            </div>
+            <div className="field">
+              <label htmlFor="o-rate">Your rate</label>
+              <div className="input-group">
+                <input id="o-rate" className="input mono" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="42.10" aria-invalid={!!show('rate')} />
+                <span className="suffix nowrap">per {unit}</span>
+              </div>
+              {show('rate') ? <span className="error-text">{show('rate')}</span> : <span className="hint">Your own figure: no price feed is asked.</span>}
+            </div>
+          </div>
+        )}
+        <div className="grid cols-2" style={{ ['--gap' as string]: '12px' }}>
+          {fiat ? (
+            <div className="field">
+              <label htmlFor="o-price">Price per installment</label>
+              <div className="input-group">
+                <input id="o-price" className="input mono" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} aria-invalid={!!(show('price') || show('amount'))} />
+                <span className="suffix">{currency.trim().toUpperCase() || '…'}</span>
+              </div>
+              {show('price') || show('amount') ? (
+                <span className="error-text">{show('price') ?? show('amount')}</span>
+              ) : (
+                quoted?.ok && <span className="hint">≈ {formatZec(quoted.amountZat, network)} per payment at your rate. Payers sign this amount.</span>
+              )}
+            </div>
+          ) : (
+            <div className="field">
+              <label htmlFor="o-amount">Amount per installment</label>
+              <div className="input-group">
+                <input id="o-amount" className="input mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!!show('amount')} />
+                <span className="suffix">{unit}</span>
+              </div>
+              {show('amount') && <span className="error-text">{show('amount')}</span>}
+            </div>
+          )}
           <div className="field">
             <label htmlFor="o-count">Installments</label>
             <input id="o-count" className="input mono" inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value)} aria-invalid={!!show('count')} />
@@ -270,7 +371,8 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
               <span className="error-text">{show('count')}</span>
             ) : (
               <span className="hint">
-                The last must fall due within {MAX_HORIZON_DAYS} days of signing{atMost ? `: ${atMost}` : ''}.
+                The last must fall due within {MAX_HORIZON_DAYS} days of signing{trialSecs ? ', trial included' : ''}
+                {atMost ? `: ${atMost}` : ''}.
               </span>
             )}
           </div>
@@ -292,6 +394,23 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
           )}
           {show('period') && <span className="error-text">{show('period')}</span>}
         </div>
+        {trialOn && (
+          <div className="field">
+            <label htmlFor="o-trial">Free trial</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
+              <input id="o-trial" className="input mono" inputMode="numeric" value={trial} onChange={(e) => setTrial(e.target.value)} aria-invalid={!!show('trial')} />
+              <select className="select" aria-label="Trial unit" value={trialUnit} onChange={(e) => setTrialUnit(Number(e.target.value))}>
+                <option value={86400}>days</option>
+                <option value={3600}>hours</option>
+              </select>
+            </div>
+            {show('trial') ? (
+              <span className="error-text">{show('trial')}</span>
+            ) : (
+              <span className="hint">Installment 1 releases this long after the payer signs. 0 for none, up to 30 days.</span>
+            )}
+          </div>
+        )}
         <div className="field">
           <label htmlFor="o-ua">Your receiving address</label>
           <input id="o-ua" className="input mono" value={ua} onChange={(e) => setUa(e.target.value)} placeholder={network ? `${uaPrefix(network)}…` : undefined} spellCheck={false} autoComplete="off" aria-invalid={!!show('ua')} />
@@ -318,6 +437,7 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
               {countN} × ({formatZec(amountZat, network)} + {formatZec(INSTALLMENT_FEE_ZAT, network)} fee) = {formatZec(totalPrepaidZat(amountZat, countN), network)}
             </strong>{' '}
             into a pocket only they can spend.
+            {trialSecs > 0 && ` Installment 1 waits out the ${formatTrial(trialSecs)} trial; a payer who cancels before then gets it all back, less a network fee.`}
           </div>
         )}
         <button type="submit" className="btn primary" disabled={busy}>
@@ -364,7 +484,9 @@ function CreateOffer({ network }: { network: NetworkId | undefined }) {
               </p>
               {decoded?.ok && (
                 <p className="tiny muted" style={{ marginTop: 8 }}>
-                  Decoded: {decoded.offer.name}, {formatZec(decoded.offer.amount_zat, decoded.offer.network)} {formatPeriod(decoded.offer.period_secs)} × {decoded.offer.count}, runner key{' '}
+                  Decoded: {decoded.offer.name}, {formatZec(decoded.offer.amount_zat, decoded.offer.network)} {formatPeriod(decoded.offer.period_secs)} × {decoded.offer.count}
+                  {decoded.offer.trial_secs ? ` after ${aTrial(decoded.offer.trial_secs)} trial` : ''}
+                  {decoded.offer.quote ? `, labelled ${formatMoney(decoded.offer.quote.amount_minor, decoded.offer.quote.currency)}` : ''}, runner key{' '}
                   {shorten(decoded.offer.runner_age_recipient, 8, 4)}.
                 </p>
               )}
@@ -421,6 +543,8 @@ export function Merchant() {
   const now = useNow();
   const status = usePoll((s) => api.status(s), 5000);
   const subs = usePoll((s) => api.listSubscriptions(session.get().token || undefined, s), isMock ? 2000 : 10000);
+  const { token } = useStore(session);
+  const blocked = stopBlocked(status.data, token);
   const [filter, setFilter] = useState<'all' | SubscriptionStatus>('all');
 
   const list = subs.data ?? [];
@@ -470,7 +594,7 @@ export function Merchant() {
           )}
           <div>
             {shown.map((s) => (
-              <SubscriptionCard key={s.subscription_id} sub={s} defaultOpen={s.status === 'active' || s.status === 'stalled'} onChanged={subs.refresh} />
+              <SubscriptionCard key={s.subscription_id} sub={s} defaultOpen={s.status === 'active' || s.status === 'stalled'} onChanged={subs.refresh} blocked={blocked} />
             ))}
           </div>
           {isMock && (
@@ -483,7 +607,7 @@ export function Merchant() {
           )}
         </div>
         <div className="stack" style={{ ['--gap' as string]: '16px' }}>
-          <CreateOffer network={status.data?.network} />
+          <CreateOffer network={status.data?.network} status={status.data} />
           <Integrate />
         </div>
       </div>
