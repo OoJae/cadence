@@ -9,6 +9,7 @@ members = [
     "crates/cadence-seal",
     "crates/cadence-wasm",
 ]
+exclude = ["crates/patches/i18n-embed-fl"]
 
 [workspace.package]
 edition = "2021"
@@ -58,6 +59,12 @@ base64 = "0.22"
 hmac = "0.12"
 uuid = "1"
 tower-http = { version = "0.6", features = ["fs", "set-header"] }
+
+# age's error messages use i18n-embed-fl's fl!(), whose 0.9 emits named arguments in
+# HashMap order, so two builds of the same commit gave different wasm bytes. The copy
+# here sorts them (crates/patches/i18n-embed-fl/Cargo.toml).
+[patch.crates-io]
+i18n-embed-fl = { path = "crates/patches/i18n-embed-fl" }
 
 # Proving and key stretching are unusably slow unoptimized, even in dev builds.
 [profile.dev.package.scrypt]
