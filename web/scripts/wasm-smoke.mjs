@@ -244,7 +244,7 @@ try {
     check(s.cancel?.refunded_zat === fundAmount - 10_000 && s.cancel?.target_height === TIP + 1, `refunds ${s.cancel?.refunded_zat} zats at height ${s.cancel?.target_height}`);
   }
   const k = s.kit;
-  check(k.file_name === `cadence-cancel-key-${s.pocket_id}.age` && k.restored_ua === k.pocket_ua, `cancel key saved (${k.bytes} bytes, ${Math.round(k.seal_ms)} ms) and restored into a fresh signer (${Math.round(k.open_ms)} ms)`);
+  check(/^cadence-cancel-key-\d{8}-\d{4}\.age$/.test(k.file_name) && k.restored_ua === k.pocket_ua, `cancel key saved as ${k.file_name}, no pocket id (${k.bytes} bytes, ${Math.round(k.seal_ms)} ms), and restored into a fresh signer (${Math.round(k.open_ms)} ms)`);
   check(/wrong passphrase/.test(k.wrong_passphrase), 'the key refuses a wrong passphrase');
   check(
     k.fields.kind === 'cadence-kit/1' && k.fields.subscription_id === s.subscription.subscription_id && k.fields.count === count && k.fields.funding_height === TIP - 5 && /^[0-9a-f]{32}$/.test(k.fields.mandate_id) && /^[0-9a-f]+$/.test(k.fields.funding_tx_hex),

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { cliCancelCommand, cliSweepCommand, KIT_KIND, kitFileName, kitJson, kitTargetProblem, parseKit, passphraseProblem, type KitFields } from './kit';
+import { cliCancelCommand, cliSweepCommand, isTrivialPassphrase, KIT_KIND, kitFileName, kitJson, kitTargetProblem, parseKit, passphraseProblem, shellPath, type KitFields } from './kit';
 
 const SEED = '2a'.repeat(32);
 
@@ -122,18 +122,67 @@ describe('cancel key JSON', () => {
     expect(kitTargetProblem(fields(), { runner: 'http://127.0.0.1:8737' })).toBeNull();
   });
 
-  it('names the file after the pocket and prints the CLI commands for it', () => {
-    expect(kitFileName('pkt_abc123')).toBe('cadence-cancel-key-pkt_abc123.age');
-    expect(kitFileName('pkt/../x')).toBe('cadence-cancel-key-pktx.age');
-    expect(cliSweepCommand('cadence-cancel-key-pkt_abc123.age', ' utest1me ')).toBe('cadence sweep --pocket cadence-cancel-key-pkt_abc123.age --to utest1me');
-    expect(cliCancelCommand('k.age')).toBe('cadence cancel --subscription k.age --to <your UA>');
+  it('names the file for the local date and time it was saved, with no id in it', () => {
+    expect(kitFileName('age', new Date(2026, 9, 28, 9, 5))).toBe('cadence-cancel-key-20261028-0905.age');
+    expect(kitFileName('mock', new Date(2026, 0, 2, 23, 59))).toBe('cadence-cancel-key-20260102-2359.mock');
+    expect(kitFileName()).toMatch(/^cadence-cancel-key-\d{8}-\d{4}\.age$/);
   });
 
-  it('wants a passphrase of at least 8 characters, counted as the Rust side counts them', () => {
-    expect(passphraseProblem('short')).toMatch(/at least 8/);
-    expect(passphraseProblem('12345678')).toBeNull();
-    // Eight characters, more than eight UTF-16 units.
-    expect(passphraseProblem('🔑🔑🔑🔑🔑🔑🔑🔑')).toBeNull();
-    expect(passphraseProblem('🔑🔑🔑🔑')).toMatch(/at least 8/);
+  it('prints the CLI commands, quoting a path the shell would split or expand', () => {
+    expect(cliSweepCommand('cadence-cancel-key-20261028-0905.age', ' utest1me ')).toBe('cadence sweep --pocket cadence-cancel-key-20261028-0905.age --to utest1me');
+    expect(cliCancelCommand('k.age')).toBe('cadence cancel --subscription k.age --to <your UA>');
+    expect(cliCancelCommand('~/keys/k_1.age')).toBe("cadence cancel --subscription '~/keys/k_1.age' --to <your UA>");
+    // A second download of the same name, as browsers save it.
+    expect(cliSweepCommand('cadence-cancel-key (1).age')).toBe("cadence sweep --pocket 'cadence-cancel-key (1).age' --to <your UA>");
+    expect(cliCancelCommand("Oluwa's key (2).age", 'utest1me')).toBe("cadence cancel --subscription 'Oluwa'\\''s key (2).age' --to utest1me");
+    expect(shellPath('a/b-c_d.age')).toBe('a/b-c_d.age');
+    expect(shellPath('$HOME/k.age')).toBe("'$HOME/k.age'");
+    expect(shellPath('')).toBe("''");
+    expect(shellPath("'")).toBe("''\\'''");
+  });
+
+  it('wants a new key to have 12 characters or 4 words, counted as the Rust side counts them', () => {
+    expect(passphraseProblem('short')).toMatch(/at least 12 characters, or 4 words/);
+    expect(passphraseProblem('elevenchars')).toMatch(/at least 12/);
+    expect(passphraseProblem('red lantern')).toMatch(/at least 12/);
+    expect(passphraseProblem('mauve tundra')).toBeNull();
+    // Four words, though fewer than 12 characters.
+    expect(passphraseProblem('my ox is up')).toBeNull();
+    // Not four different words.
+    expect(passphraseProblem('ox ox ox ox')).toMatch(/at least 12/);
+    // Twelve characters, more than twelve UTF-16 units; and fewer than the 8 cadence-seal needs, even as words.
+    expect(passphraseProblem('🔑🗝🔒🔓🚪🏠🌙⭐🌊🍀🎲🧭')).toBeNull();
+    expect(passphraseProblem('🔑🗝🔒🔓')).toMatch(/at least 12/);
+  });
+
+  it('refuses common passwords and trivial patterns, whatever their case, spacing and digits', () => {
+    for (const p of [
+      'password1234',
+      'Password 2026!',
+      'P@ssw0rd2026',
+      'iloveyou1234',
+      'Correct Horse Battery Staple',
+      'trustno1trustno1',
+      '123456789012',
+      '0987654321098',
+      'qwertyuiopas',
+      'QWERTY123456',
+      'asdfghjkl;123',
+      '1qaz2wsx3edc',
+      'abcdefghijkl',
+      'aaaaaaaaaaaa',
+      'abcabcabcabc',
+      'ab ab ab ab ab ab',
+      'password password',
+      '!@#$%^&*()_+',
+      '🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑',
+    ]) {
+      expect(isTrivialPassphrase(p), p).toBe(true);
+      expect(passphraseProblem(p), p).toMatch(/common password or a simple pattern|at least 12/);
+    }
+    for (const p of ['judge path lq3k9 4fzyo82mw3k', 'smoke test passphrase', 'correct horse battery', 'my password is purple banana', 'x7Kp2mQ9vL4w', 'パスフレーズはとても長いです', 'maple tree 1987 river']) {
+      expect(isTrivialPassphrase(p), p).toBe(false);
+      expect(passphraseProblem(p), p).toBeNull();
+    }
   });
 });

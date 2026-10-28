@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { checkKit, hexToBytes, isAgeKit, KIT_KIND, MAX_KIT_BYTES, WRONG_PASSPHRASE, type KitExpectation, type KitFields, type KitOpener, type OpenedKit } from './kit';
+import { checkKit, hexToBytes, isAgeKit, KIT_KIND, MAX_KIT_BYTES, passphraseProblem, WRONG_PASSPHRASE, type KitExpectation, type KitFields, type KitOpener, type OpenedKit } from './kit';
 import { SignerError } from './types';
 
 const SEED = '2a'.repeat(32);
@@ -30,7 +30,7 @@ const fields = (extra: Partial<KitFields> = {}): KitFields => ({
   ...extra,
 });
 
-const expected: KitExpectation = { network: 'test', pocket_id: 'pkt_abc123', pocket_ua: POCKET_UA, fileName: 'cadence-cancel-key-pkt_abc123.age' };
+const expected: KitExpectation = { network: 'test', pocket_id: 'pkt_abc123', pocket_ua: POCKET_UA, fileName: 'cadence-cancel-key-20261028-0905.age' };
 
 /** The first bytes of a kit sealed by cadence-seal: an age header with one scrypt stanza. */
 const AGE_KIT = new TextEncoder().encode('age-encryption.org/v1\n-> scrypt ZlBp4Wuk64tfSpPMBpVebw 17\nj6xx\n--- mac\n\u0000\u0001');
@@ -73,7 +73,7 @@ describe('checking a re-picked cancel key', () => {
     for (const bytes of cases) {
       const r = await checkKit(bytes, 'correct horse', expected, o);
       expect(r).toMatchObject({ ok: false, reason: 'file' });
-      expect(!r.ok && r.message).toBe('Wrong file: this is not a Cadence cancel key. Pick cadence-cancel-key-pkt_abc123.age, the file you just downloaded.');
+      expect(!r.ok && r.message).toBe('Wrong file: this is not a Cadence cancel key. Pick cadence-cancel-key-20261028-0905.age, the file you just downloaded.');
     }
     expect(o.open).not.toHaveBeenCalled();
   });
@@ -99,7 +99,7 @@ describe('checking a re-picked cancel key', () => {
     const { o } = opener(() => ({ fields: fields({ pocket_id: 'pkt_other9' }), seed: hexToBytes(SEED) }));
     const r = await checkKit(AGE_KIT, 'correct horse', expected, o);
     expect(!r.ok && r.message).toBe(
-      'Wrong file: this is the cancel key of another pocket (pkt_other9), not of this one (pkt_abc123). Pick cadence-cancel-key-pkt_abc123.age, the file you just downloaded.',
+      'Wrong file: this is the cancel key of another pocket (pkt_other9), not of this one (pkt_abc123). Pick cadence-cancel-key-20261028-0905.age, the file you just downloaded.',
     );
     const { o: ua } = opener(() => ({ fields: fields({ pocket_ua: `utest1${'r'.repeat(100)}` }), seed: hexToBytes(SEED) }));
     expect(await checkKit(AGE_KIT, 'correct horse', expected, ua)).toMatchObject({ ok: false, reason: 'pocket' });
@@ -175,5 +175,16 @@ describe.skipIf(!haveWasm)('checking a cancel key with the WASM signer', () => {
     // This pocket's id and address, but another seed: it could not cancel.
     const forged = seal(fields({ pocket_ua: ua }), otherSeed, 'correct horse battery');
     expect(await checkKit(forged, 'correct horse battery', mine, opener)).toMatchObject({ ok: false, reason: 'damaged' });
+  });
+
+  it('still opens a key saved before new keys needed a stronger passphrase', { timeout: 60_000 }, async () => {
+    const { opener, pocket, seal } = await load();
+    const seed = crypto.getRandomValues(new Uint8Array(32));
+    const ua = pocket(seed).ua;
+    // Eight characters, all cadence-seal asks for: a new key may not use it, an old one opens with it.
+    expect(passphraseProblem('12345678')).not.toBeNull();
+    const bytes = seal(fields({ pocket_ua: ua }), seed, '12345678');
+    expect((await opener.open(bytes, '12345678')).fields.pocket_ua).toBe(ua);
+    expect(await checkKit(bytes, '12345678', { ...expected, pocket_ua: ua }, opener)).toEqual({ ok: true });
   });
 });
