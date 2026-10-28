@@ -6,9 +6,10 @@
 #   src/wasm/prover/     cadence_wasm.js + cadence_wasm_bg.wasm   the same plus the Ironwood prover,
 #                                                                 loaded only by the cancel's prover worker
 #
-# Needs: rustup target wasm32-unknown-unknown, wasm-bindgen-cli 0.2.129 (it must match
-# the wasm-bindgen crate exactly), and Homebrew LLVM (secp256k1-sys compiles C for
-# wasm32; Apple clang has no wasm32 backend). wasm-opt (binaryen) is used if present.
+# Needs: rustup (it installs the toolchain and wasm32 target rust-toolchain.toml pins),
+# wasm-bindgen-cli 0.2.129 (it must match the wasm-bindgen crate exactly), and Homebrew
+# LLVM (secp256k1-sys compiles C for wasm32; Apple clang has no wasm32 backend).
+# wasm-opt (binaryen) is used if present.
 #
 #   pnpm build:wasm                 # both modules
 #   pnpm build:wasm signer          # just one
@@ -31,6 +32,21 @@ export CARGO_PROFILE_RELEASE_OPT_LEVEL=3
 export CARGO_PROFILE_RELEASE_LTO=true
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
+# Reproducible bytes: rustc embeds source paths (panic locations, file!()), so map
+# every absolute path of this machine it could see to a fixed one. The same commit
+# then builds the same modules in any checkout (web/README.md, "Build identity").
+# Later prefixes win, so the target directory maps the same inside or outside the repo.
+toml_str() {
+  local s="${1//\\/\\\\}"
+  printf '"%s"' "${s//\"/\\\"}"
+}
+remap=""
+for map in "$repo=/cadence" "${CARGO_HOME:-$HOME/.cargo}=/cargo" "$(cd "$crate" && rustc --print sysroot)=/rust" "$target_dir=/target"; do
+  remap="$remap${remap:+, }$(toml_str "--remap-path-prefix=$map")"
+done
+# Merged with the crate's own target rustflags (.cargo/config.toml), not replacing them.
+remap_config="target.wasm32-unknown-unknown.rustflags=[$remap]"
+
 if ! command -v wasm-bindgen >/dev/null; then
   echo "wasm-bindgen not found: cargo install wasm-bindgen-cli --version $bindgen_version" >&2
   exit 1
@@ -49,7 +65,7 @@ build() {
   shift
   echo "== cadence-wasm ($name)"
   # Run from the crate so its .cargo/config.toml (getrandom backend cfg) applies.
-  (cd "$crate" && cargo build --release --target wasm32-unknown-unknown --lib "$@")
+  (cd "$crate" && cargo build --release --target wasm32-unknown-unknown --lib --config "$remap_config" "$@")
   rm -rf "$out/$name"
   wasm-bindgen --target web --no-typescript --out-dir "$out/$name" --out-name cadence_wasm "$wasm"
   local bg="$out/$name/cadence_wasm_bg.wasm"
