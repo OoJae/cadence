@@ -4,7 +4,11 @@ mod payer_auth;
 mod resign;
 mod subscribe;
 
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use cadence_chain::{lwd, Params, Transport};
@@ -181,7 +185,7 @@ struct KeyArgs {
 
 impl KeyArgs {
     /// Chooses the protection for `out`, refusing first if it already exists.
-    fn protect(&self, out: &PathBuf) -> Result<()> {
+    fn protect(&self, out: &Path) -> Result<()> {
         if out.exists() {
             bail!("{} already exists", out.display());
         }
@@ -281,7 +285,7 @@ struct PocketFile {
     seed_hex: String,
 }
 
-fn load_pocket(path: &PathBuf) -> Result<(Params, &'static str, Pocket)> {
+fn load_pocket(path: &Path) -> Result<(Params, &'static str, Pocket)> {
     let file: PocketFile = serde_json::from_slice(&keyfile::read(path)?)?;
     let net = match file.network.as_str() {
         "main" => Net::Main,

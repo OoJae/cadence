@@ -22,7 +22,10 @@ pub enum Lock {
 /// Every seed file this command has read, created or saved: how it is written back
 /// and, once known, its plaintext. A passphrase is asked for once per file however
 /// often the command reads or saves it.
-static FILES: Mutex<Vec<(PathBuf, Lock, Option<Vec<u8>>)>> = Mutex::new(vec![]);
+static FILES: Mutex<Vec<Known>> = Mutex::new(vec![]);
+
+/// A seed file's path, how it is written back, and its plaintext once read.
+type Known = (PathBuf, Lock, Option<Vec<u8>>);
 
 /// How to protect a new seed file: the passphrase in `passphrase_file`, else
 /// `CADENCE_KEY_PASSPHRASE`, else one typed twice at the terminal. With none of these

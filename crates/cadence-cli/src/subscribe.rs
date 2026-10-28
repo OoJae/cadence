@@ -297,6 +297,9 @@ pub fn resume(http: &Http, out: &Path) -> Result<()> {
     Ok(())
 }
 
+/// How long `cancel` waits for a fresh note to be deep enough to spend.
+const WITNESS_WAIT_SECS: u64 = 600;
+
 /// Spends the pocket's live note to `refund_ua`, so no later installment can be valid.
 pub async fn cancel(http: &Http, path: &Path, refund_ua: &str, mut client: lwd::Client) -> Result<()> {
     let file: SubscriptionFile = serde_json::from_slice(&keyfile::read(path)?)?;
@@ -322,9 +325,22 @@ pub async fn cancel(http: &Http, path: &Path, refund_ua: &str, mut client: lwd::
         .find(|n| hex::encode(n.nullifier(pocket.fvk()).to_bytes()) == nf_hex)
         .context("the runner reports a note this pocket never received")?;
 
-    let w = http
-        .get(&format!("{}/api/pockets/{}/witness?nullifier={nf_hex}", file.runner, file.pocket_id))
-        .await?;
+    // A note mined in the last few blocks has no witness yet: wait for it, as the web
+    // app does, rather than fail.
+    let witness_url = format!("{}/api/pockets/{}/witness?nullifier={nf_hex}", file.runner, file.pocket_id);
+    let mut waited = 0;
+    let w = loop {
+        match http.get(&witness_url).await {
+            Err(e) if e.to_string().contains("anchor-deep") && waited < WITNESS_WAIT_SECS => {
+                if waited == 0 {
+                    eprintln!("the pocket's note is too new to spend; waiting for it to be 3 blocks deep…");
+                }
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                waited += 15;
+            }
+            other => break other?,
+        }
+    };
     let target = BlockHeight::from_u32(w["target_height"].as_u64().context("no target")? as u32);
     let anchor_height = BlockHeight::from_u32(w["anchor_height"].as_u64().context("no anchor height")? as u32);
     let anchor_bytes: [u8; 32] = hex::decode(w["anchor"].as_str().context("no anchor")?)?

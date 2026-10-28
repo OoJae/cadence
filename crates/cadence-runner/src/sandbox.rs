@@ -292,7 +292,7 @@ pub async fn cheat(State(app): State<Arc<App>>, Json(req): Json<Cheat>) -> ApiRe
     })
 }
 
-fn installment<'a>(sub: &'a Subscription, k: u32) -> Result<&'a Installment> {
+fn installment(sub: &Subscription, k: u32) -> Result<&Installment> {
     sub.installments
         .iter()
         .find(|i| i.k == k)
@@ -414,11 +414,11 @@ async fn tamper_amount(app: &App, sub: &Subscription, k: u32) -> Result<Json<Val
         b.add_ironwood_output::<Infallible>(None, fvk.address_at(0u32, Scope::Internal), change, MemoBytes::empty())
             .map_err(|e| anyhow!("{e:?}"))?;
     }
-    let mut rng = wallet::OsRng::default();
-    let res = b.build_for_pczt(&mut rng, &fee_rule).map_err(|e| anyhow!("{e:?}"))?;
+    let rng = wallet::OsRng::default();
+    let res = b.build_for_pczt(rng, &fee_rule).map_err(|e| anyhow!("{e:?}"))?;
     let spend_index = res.ironwood_meta.spend_action_index(0).context("no spend")?;
     let pczt = Creator::build_from_parts(res.pczt_parts).context("creator")?;
-    let pczt = IoFinalizer::new(pczt).finalize_io(&mut rng).map_err(|e| anyhow!("{e:?}"))?;
+    let pczt = IoFinalizer::new(pczt).finalize_io(rng).map_err(|e| anyhow!("{e:?}"))?;
     let mut signer = Signer::new(pczt).map_err(|e| anyhow!("{e:?}"))?;
 
     let mut log = vec![
