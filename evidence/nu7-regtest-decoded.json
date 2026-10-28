@@ -1,0 +1,147 @@
+{
+  "source": "cadence-decode decode --network regtest --server http://127.0.0.1:9067 --direct <txid> --view <merchant UFVK>, against a local Zebra 7.0.0 regtest node (NU7 at 200), 2026-10-28. Local chain: these txids exist on no public network.",
+  "transactions": [
+    {
+      "role": "funding (sandbox funder -> pocket)",
+      "anchor_depths": [
+        1,
+        12
+      ],
+      "anchor_heights": [
+        181,
+        192
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 233,
+      "expiry_minus_mined": 40,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "4487ad15ff4f1b021dc508e0f3679493d22b5e49441ff92b00bb4dbcfcf1460e",
+      "ironwood_flags": 7,
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 193,
+      "orchard_actions": 0,
+      "received": [],
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "41217c9668df0474b36c670d92eab86ce44622f67278384989377f0d035d75f7",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "installment 1, signed at tip 193, released before NU7",
+      "anchor_depths": [
+        1,
+        3
+      ],
+      "anchor_heights": [
+        193,
+        195
+      ],
+      "branch_id": "37a5165b",
+      "expiry_height": 236,
+      "expiry_minus_mined": 40,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "743f492764bc78215dec70439b445032d3efdf060ae78b192cb6843d821bae12",
+      "ironwood_flags": 7,
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 196,
+      "orchard_actions": 0,
+      "received": [
+        {
+          "memo": "Cadence · NU7 rehearsal (pkt_b267ee1e9cc8dca05f69) · payment 1 of 3",
+          "scope": "external",
+          "value_zat": 100000
+        }
+      ],
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "e73b19db7b4eab98afc9bb8083bb07c921a7e6ea57f762ebe34f7771937eb18e",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "installment 2, signed at tip 193, released after NU7",
+      "anchor_depths": [
+        1,
+        12
+      ],
+      "anchor_heights": [
+        203,
+        214
+      ],
+      "branch_id": "77190ad9",
+      "expiry_height": 335,
+      "expiry_minus_mined": 120,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "9d928a1f4db16136f9067a5a468c2a3fdf72eab6bd78fe27c29b2bc9f2d87135",
+      "ironwood_flags": 7,
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 215,
+      "orchard_actions": 0,
+      "received": [
+        {
+          "memo": "Cadence · NU7 rehearsal (pkt_b267ee1e9cc8dca05f69) · payment 2 of 3",
+          "scope": "external",
+          "value_zat": 100000
+        }
+      ],
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "6d730d840da737dc3c36c2839daa90543a27ff00cede3307da17bd33ef6528f9",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    },
+    {
+      "role": "installment 3, every rung signed for NU7 at tip 193, released after NU7",
+      "anchor_depths": [
+        1,
+        12
+      ],
+      "anchor_heights": [
+        232,
+        243
+      ],
+      "branch_id": "77190ad9",
+      "expiry_height": 364,
+      "expiry_minus_mined": 120,
+      "ironwood_actions": 2,
+      "ironwood_anchor": "65d471dc6784de48f580036e54f812ffc3c6bc220d577339a024e81037684a24",
+      "ironwood_flags": 7,
+      "ironwood_proof_bytes": 7264,
+      "ironwood_value_balance": 10000,
+      "lock_time": 0,
+      "mined_height": 244,
+      "orchard_actions": 0,
+      "received": [
+        {
+          "memo": "Cadence · NU7 rehearsal (pkt_b267ee1e9cc8dca05f69) · payment 3 of 3",
+          "scope": "external",
+          "value_zat": 100000
+        }
+      ],
+      "sapling_outputs": 0,
+      "sapling_spends": 0,
+      "supplied_ovk_recoverable": 0,
+      "transparent_inputs": 0,
+      "transparent_outputs": 0,
+      "txid": "79a27b64633501795b291758244cc38707b7b68fabedeb6653e2987f805f2084",
+      "version": "V6",
+      "zero_ovk_recoverable": 0
+    }
+  ]
+}

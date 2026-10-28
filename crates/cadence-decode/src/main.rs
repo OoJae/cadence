@@ -4,11 +4,10 @@ mod scan;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use cadence_chain::{lwd, Client, Transport};
+use cadence_chain::{lwd, Client, Params, Transport};
 use cadence_decode::shape_with_ranges;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_protocol::consensus::Network;
 
 use crate::{
     net::{with_retry, RootStore},
@@ -19,6 +18,7 @@ use crate::{
 enum Net {
     Main,
     Test,
+    Regtest,
 }
 
 /// Decode the public shape of transactions, straight from lightwalletd, or build the
@@ -34,7 +34,8 @@ struct Cli {
 struct Conn {
     #[arg(long, value_enum, default_value = "test")]
     network: Net,
-    /// lightwalletd URL [default: https://testnet.zec.rocks:443 on test, https://zec.rocks:443 on main]
+    /// lightwalletd URL [default: https://testnet.zec.rocks:443 on test, https://zec.rocks:443 on main,
+    /// http://127.0.0.1:9067 on regtest]
     #[arg(long)]
     server: Option<String>,
     /// Connect over plain TLS instead of Tor. The server learns this machine's IP address.
@@ -45,10 +46,11 @@ struct Conn {
 }
 
 impl Conn {
-    fn params(&self) -> Network {
+    fn params(&self) -> Params {
         match self.network {
-            Net::Main => Network::MainNetwork,
-            Net::Test => Network::TestNetwork,
+            Net::Main => Params::MAIN,
+            Net::Test => Params::TEST,
+            Net::Regtest => Params::Regtest,
         }
     }
 
@@ -56,6 +58,7 @@ impl Conn {
         match self.network {
             Net::Main => "main",
             Net::Test => "test",
+            Net::Regtest => "regtest",
         }
     }
 
@@ -64,6 +67,7 @@ impl Conn {
             match self.network {
                 Net::Main => "https://zec.rocks:443",
                 Net::Test => "https://testnet.zec.rocks:443",
+                Net::Regtest => "http://127.0.0.1:9067",
             }
             .into()
         })

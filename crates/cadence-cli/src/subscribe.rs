@@ -4,7 +4,7 @@ use std::{fs, path::Path, thread, time::Duration};
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use cadence_chain::{lwd, wallet};
+use cadence_chain::{lwd, wallet, Params};
 
 use crate::{http::Http, keyfile};
 use cadence_core::{
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zcash_keys::address::Address;
 use zcash_protocol::{
-    consensus::{BlockHeight, Network, NetworkConstants, Parameters},
+    consensus::{BlockHeight, BranchId, NetworkConstants, Parameters},
     memo::MemoBytes,
     value::Zatoshis,
 };
@@ -77,15 +77,11 @@ pub fn runner_of(path: &Path) -> Result<String> {
     Ok(serde_json::from_slice::<Runner>(&keyfile::read(path)?)?.runner)
 }
 
-pub(crate) fn network(name: &str) -> Result<Network> {
-    match name {
-        "main" => Ok(Network::MainNetwork),
-        "test" => Ok(Network::TestNetwork),
-        other => bail!("unknown network {other}"),
-    }
+pub(crate) fn network(name: &str) -> Result<Params> {
+    Params::from_name(name).with_context(|| format!("unknown network {name}"))
 }
 
-pub(crate) fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+pub(crate) fn orchard_receiver(params: &Params, ua: &str) -> Result<orchard::Address> {
     match Address::decode(params, ua) {
         Some(Address::Unified(ua)) => ua.orchard().copied().context("address has no Orchard receiver"),
         _ => bail!("expected a unified address with an Orchard receiver"),
@@ -120,7 +116,7 @@ fn save(path: &Path, file: &SubscriptionFile) -> Result<()> {
     keyfile::write(path, &serde_json::to_vec_pretty(file)?)
 }
 
-fn terms(params: &Network, f: &SubscriptionFile) -> Result<Terms> {
+fn terms(params: &Params, f: &SubscriptionFile) -> Result<Terms> {
     Ok(Terms {
         amount: Zatoshis::from_u64(f.amount_zat).map_err(|_| anyhow!("bad amount"))?,
         count: f.count,
@@ -260,6 +256,19 @@ pub fn resume(http: &Http, out: &Path) -> Result<()> {
     .map_err(|e| anyhow!("{e:?}"))?;
     if presigned.len() != offer.count as usize {
         bail!("the pocket only covers {} installments", presigned.len());
+    }
+    for p in &presigned {
+        let (Some(first), Some(last)) = (p.ladder.rungs.first(), p.ladder.rungs.last()) else { continue };
+        let branch = |h: u32| format!("{:08x}", u32::from(BranchId::for_height(&params, BlockHeight::from_u32(h))));
+        let (b1, b2) = (branch(first.target_height), branch(last.target_height));
+        let branches = if b1 == b2 { format!("branch {b1}") } else { format!("branches {b1} to {b2}") };
+        println!(
+            "installment {}: rungs for heights {}..={} ({branches}), signed at tip {}",
+            p.k,
+            first.target_height,
+            last.target_height,
+            tip.max(height)
+        );
     }
 
     let chain = DrandChain::quicknet();

@@ -187,7 +187,7 @@ fn the_input_is_the_funding_then_each_change() {
 
 #[test]
 fn a_broadcast_lapses_at_its_expiry_or_an_upgrade() {
-    let network = Network::TestNetwork;
+    let network = Params::Public(zcash_protocol::consensus::Network::TestNetwork);
     let mut inst = installment(1, "broadcast");
     inst.target_height = Some(1_000);
     inst.expiry_height = Some(1_040);

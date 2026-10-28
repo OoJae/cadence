@@ -48,7 +48,8 @@ use crate::{
 };
 
 fn funder(app: &App) -> ApiResult<&Funder> {
-    if app.cfg.network_name != "test" {
+    // Regtest is a local chain for rehearsals (scripts/regtest), funded by its miner.
+    if !matches!(app.cfg.network_name, "test" | "regtest") {
         return Err(bad("the sandbox only runs on testnet"));
     }
     app.funder

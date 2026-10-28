@@ -854,7 +854,6 @@ pub(crate) mod tests {
     use cadence_seal::age::x25519;
     use tower::ServiceExt;
     use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
-    use zcash_protocol::consensus::Network;
 
     use super::*;
     use crate::{
@@ -1067,7 +1066,7 @@ pub(crate) mod tests {
     /// that never connect.
     pub fn test_app(sandbox: bool, app_url: Option<&str>) -> Arc<App> {
         let memory = std::path::Path::new(":memory:");
-        let network = Network::TestNetwork;
+        let network = cadence_chain::Params::TEST;
         let mut wallet_db = wallet::open(memory, network).unwrap();
         wallet::init(&mut wallet_db).unwrap();
         let channel = tonic::transport::Endpoint::from_static("http://127.0.0.1:9").connect_lazy();

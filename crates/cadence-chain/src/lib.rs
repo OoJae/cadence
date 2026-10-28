@@ -6,7 +6,9 @@
 
 pub mod cache;
 pub mod lwd;
+pub mod params;
 pub mod wallet;
 
 pub use cache::MemBlockCache;
 pub use lwd::{connect, Client, Transport};
+pub use params::Params;

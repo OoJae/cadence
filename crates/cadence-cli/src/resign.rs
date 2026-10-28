@@ -10,7 +10,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
-use cadence_chain::lwd;
+use cadence_chain::{lwd, Params};
 use cadence_core::{
     mandate::{self, Terms},
     Pocket,
@@ -20,7 +20,7 @@ use orchard::Note;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use zcash_protocol::{
-    consensus::{BlockHeight, Network, NetworkConstants, Parameters},
+    consensus::{BlockHeight, NetworkConstants, Parameters},
     value::Zatoshis,
 };
 
@@ -148,7 +148,7 @@ pub async fn resign(http: &Http, path: &Path, dry_run: bool, mut client: lwd::Cl
 async fn read_live(
     http: &Http,
     client: &mut lwd::Client,
-    params: &Network,
+    params: &Params,
     pocket: &Pocket,
     key: &Key,
     runner: &str,
@@ -226,7 +226,7 @@ fn remaining(sub: &SubView) -> Result<Vec<&InstallmentView>> {
 
 /// Signs the remaining installments from the live note under today's rules, checks
 /// the chain they form, and seals each to the round it is already sealed to.
-fn build(params: &Network, pocket: &Pocket, key: &Key, live: &Live, now: u64) -> Result<Plan> {
+fn build(params: &Params, pocket: &Pocket, key: &Key, live: &Live, now: u64) -> Result<Plan> {
     let sub = &live.sub;
     if sub.pocket_id != key.pocket_id || sub.offer_id != key.offer_id {
         bail!("the runner's {} is not the subscription of this key's pocket", sub.subscription_id);
@@ -373,8 +373,8 @@ mod tests {
     const AMOUNT: u64 = 20_000;
     const ROUNDS: [u64; 2] = [25_000_000, 25_000_100];
 
-    fn params() -> Network {
-        Network::TestNetwork
+    fn params() -> Params {
+        Params::Public(zcash_protocol::consensus::Network::TestNetwork)
     }
 
     fn pocket() -> Pocket {

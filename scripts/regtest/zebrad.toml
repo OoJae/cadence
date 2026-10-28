@@ -1,0 +1,37 @@
+# Zebra 7.0 on a local regtest chain, for rehearse.sh.
+#
+# The activation heights must match `cadence_chain::params` (crates/cadence-chain/
+# src/params.rs): every upgrade through NU6.3 at height 1, NU7 at REGTEST_NU7.
+# Regtest skips proof of work, and `generate` / `generatetoaddress` mine on demand.
+
+[mining]
+# Blocks mined with `generate` pay here: Zebra's documented regtest example, which
+# nothing in the rehearsal holds keys for. `generatetoaddress` pays any address.
+miner_address = "t27eWDgjFYJGVXmzrXeVjnb5J3uXDM9xH9v"
+
+[network]
+network = "Regtest"
+listen_addr = "127.0.0.1:18344"
+
+[network.testnet_parameters.activation_heights]
+Overwinter = 1
+Sapling = 1
+Blossom = 1
+Heartwood = 1
+Canopy = 1
+NU5 = 1
+NU6 = 1
+"NU6.1" = 1
+"NU6.2" = 1
+"NU6.3" = 1
+NU7 = 200
+
+[state]
+ephemeral = true
+
+[rpc]
+listen_addr = "0.0.0.0:18232"
+# Zebra's own lightwalletd gRPC service (CompactTxStreamer), which the runner, the
+# CLI and cadence-decode use as their light server.
+lightwalletd_listen_addr = "0.0.0.0:9067"
+enable_cookie_auth = false

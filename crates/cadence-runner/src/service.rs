@@ -13,6 +13,7 @@ use anyhow::{anyhow, Context, Result};
 use cadence_chain::{
     lwd,
     wallet::{self, Db, ANCHOR_CONFIRMATIONS},
+    Params,
 };
 use cadence_core::package::{verify_rung, InstallmentLadder, RungPackage};
 use cadence_seal::{age::x25519, DrandChain};
@@ -21,7 +22,7 @@ use pczt::Pczt;
 use zcash_client_backend::data_api::{WalletRead, WalletWrite};
 use zcash_client_sqlite::AccountUuid;
 use zcash_primitives::transaction::TxId;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
     decoder::Decoder,
@@ -31,7 +32,7 @@ use crate::{
 };
 
 pub struct Config {
-    pub network: Network,
+    pub network: Params,
     pub network_name: &'static str,
     pub public_url: String,
     /// Where the web app is hosted when this runner does not serve it.
@@ -559,13 +560,13 @@ async fn confirm(
 
 /// Whether an unmined broadcast can never be mined: expired, or signed for a branch
 /// an upgrade has since replaced. It is then released again with the rung for the new tip.
-fn lapsed(network: &Network, inst: &Installment, tip: BlockHeight) -> bool {
+fn lapsed(network: &Params, inst: &Installment, tip: BlockHeight) -> bool {
     inst.expiry_height.is_some_and(|e| u32::from(tip) > e) || branch_passed(network, inst, tip)
 }
 
 /// Whether a network upgrade has activated since the broadcast rung's target, so
 /// that it can never be mined although its expiry has not passed.
-fn branch_passed(network: &Network, inst: &Installment, tip: BlockHeight) -> bool {
+fn branch_passed(network: &Params, inst: &Installment, tip: BlockHeight) -> bool {
     use zcash_protocol::consensus::BranchId;
     inst.target_height.is_some_and(|t| {
         BranchId::for_height(network, BlockHeight::from_u32(t)) != BranchId::for_height(network, tip + 1)
@@ -597,7 +598,7 @@ fn reject(app: &App, sub: &Subscription, inst: &Installment, why: &str) -> Resul
     Ok(())
 }
 
-pub fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+pub fn orchard_receiver(params: &Params, ua: &str) -> Result<orchard::Address> {
     match zcash_keys::address::Address::decode(params, ua) {
         Some(zcash_keys::address::Address::Unified(ua)) => {
             ua.orchard().copied().context("address has no Orchard receiver")

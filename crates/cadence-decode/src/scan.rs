@@ -22,7 +22,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
-use cadence_chain::{lwd, Client};
+use cadence_chain::{lwd, Client, Params};
 use cadence_decode::{
     fee_without_prevouts,
     fingerprint::{self, class_label, ClassReport, Comparison, Counts, LabelCount, Pool, TxRecord, CLASSES},
@@ -31,12 +31,12 @@ use cadence_decode::{
 use futures_util::{stream, StreamExt};
 use serde::Serialize;
 use zcash_primitives::transaction::{Transaction, TxId};
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
 
 use crate::net::{self, with_retry, BlockSummary, Jsonl, RootStore};
 
 pub struct ScanArgs {
-    pub network: Network,
+    pub network: Params,
     pub network_name: &'static str,
     pub server: String,
     pub from: u32,
@@ -126,7 +126,7 @@ pub fn parse_txid(display_hex: &str) -> Result<TxId> {
 }
 
 /// Fetches a full transaction, retrying transient failures.
-pub async fn fetch_tx(client: &Client, params: &Network, txid: &TxId) -> Result<(Transaction, Option<BlockHeight>)> {
+pub async fn fetch_tx(client: &Client, params: &Params, txid: &TxId) -> Result<(Transaction, Option<BlockHeight>)> {
     with_retry(&format!("GetTransaction({txid})"), || {
         let mut c = client.clone();
         async move { lwd::transaction(&mut c, params, txid).await }

@@ -7,7 +7,7 @@ mod subscribe;
 use std::{collections::HashMap, fs, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use cadence_chain::{lwd, Transport};
+use cadence_chain::{lwd, Params, Transport};
 use http::Http;
 use zcash_client_backend::tor;
 use cadence_core::{
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use zcash_keys::address::Address;
 use zcash_primitives::transaction::TxId;
 use zcash_protocol::{
-    consensus::{BlockHeight, Network, NetworkConstants, Parameters},
+    consensus::{BlockHeight, NetworkConstants, Parameters},
     value::Zatoshis,
 };
 
@@ -35,13 +35,15 @@ struct Cli {
 enum Net {
     Main,
     Test,
+    Regtest,
 }
 
 impl Net {
-    fn params(self) -> Network {
+    fn params(self) -> Params {
         match self {
-            Net::Main => Network::MainNetwork,
-            Net::Test => Network::TestNetwork,
+            Net::Main => Params::MAIN,
+            Net::Test => Params::TEST,
+            Net::Regtest => Params::Regtest,
         }
     }
 
@@ -49,6 +51,7 @@ impl Net {
         match self {
             Net::Main => "main",
             Net::Test => "test",
+            Net::Regtest => "regtest",
         }
     }
 }
@@ -189,7 +192,8 @@ impl KeyArgs {
 
 #[derive(Args)]
 struct ChainArgs {
-    /// lightwalletd endpoint [default: https://zec.rocks:443 on main, https://testnet.zec.rocks:443 on test].
+    /// lightwalletd endpoint [default: https://zec.rocks:443 on main, https://testnet.zec.rocks:443 on test,
+    /// http://127.0.0.1:9067 on regtest].
     #[arg(long)]
     server: Option<String>,
     /// Connect without Tor. Development only: the server sees this machine's IP.
@@ -216,6 +220,7 @@ impl ChainArgs {
     async fn lightwalletd(&self, network: &str, tor: Option<&tor::Client>) -> Result<lwd::Client> {
         let server = self.server.clone().unwrap_or_else(|| match network {
             "main" => "https://zec.rocks:443".into(),
+            "regtest" => "http://127.0.0.1:9067".into(),
             _ => "https://testnet.zec.rocks:443".into(),
         });
         let transport = match tor {
@@ -276,11 +281,12 @@ struct PocketFile {
     seed_hex: String,
 }
 
-fn load_pocket(path: &PathBuf) -> Result<(Network, &'static str, Pocket)> {
+fn load_pocket(path: &PathBuf) -> Result<(Params, &'static str, Pocket)> {
     let file: PocketFile = serde_json::from_slice(&keyfile::read(path)?)?;
     let net = match file.network.as_str() {
         "main" => Net::Main,
         "test" => Net::Test,
+        "regtest" => Net::Regtest,
         other => bail!("unknown network {other}"),
     };
     let seed: [u8; 32] = hex::decode(&file.seed_hex)?
@@ -290,7 +296,7 @@ fn load_pocket(path: &PathBuf) -> Result<(Network, &'static str, Pocket)> {
     Ok((params, net.name(), Pocket::from_seed(&seed, params.network_type().coin_type())))
 }
 
-fn print_pocket(params: &Network, pocket: &Pocket) -> Result<()> {
+fn print_pocket(params: &Params, pocket: &Pocket) -> Result<()> {
     let ufvk = pocket
         .ufvk()
         .encode(params)
@@ -308,7 +314,7 @@ fn parse_txid(display_hex: &str) -> Result<TxId> {
     Ok(TxId::from_bytes(bytes))
 }
 
-fn merchant_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+fn merchant_receiver(params: &Params, ua: &str) -> Result<orchard::Address> {
     match Address::decode(params, ua) {
         Some(Address::Unified(ua)) => ua
             .orchard()
