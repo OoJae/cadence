@@ -9,7 +9,9 @@ The live demo runs on Railway, one service per runner, each serving the web app 
 | `sandbox` | testnet | `CADENCE_NETWORK=test`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN`, `SANDBOX_FUNDER_SEED`, `SANDBOX_FUNDER_BIRTHDAY` |
 | `main` | mainnet | `CADENCE_NETWORK=main`, `CADENCE_DATA=/data`, `PORT=8080`, `CADENCE_MERCHANT_TOKEN` |
 
-Each service has a volume at `/data` (wallet, records, age identity, Tor state) and a generated `*.up.railway.app` domain on port 8080. `deploy/railway/entrypoint.sh` initialises the runner on first boot. Without a node, both runners reach public lightwalletd servers and drand over Tor.
+Each service has a volume at `/data` (wallet, records, age identity, Tor state, and from this build the access-pass key `pass-key.txt`) and a generated `*.up.railway.app` domain on port 8080. `deploy/railway/entrypoint.sh` initialises the runner on first boot. Without a node, both runners reach public lightwalletd servers and drand over Tor.
+
+`deploy/railway/railway.json`, which `stage.sh` copies into the upload, sets the restart policy to `ALWAYS`, so Railway restarts a runner that exits. At boot this build retries lightwalletd until it answers, waiting 5 s, then twice as long after each failure, up to 2 minutes, so a runner restarted while lightwalletd is down comes back once it is up.
 
 Optional variables, read by the entrypoint:
 
@@ -20,6 +22,9 @@ Optional variables, read by the entrypoint:
 | `CADENCE_WEBHOOK_URL`, `CADENCE_WEBHOOK_SECRET` | Where to POST signed webhooks (`docs/api.md`, "Webhooks"). Both are needed. |
 | `CADENCE_APP_URL` | Where the web app is hosted, when not by this runner: share links point there, and its origin may call the API. |
 | `CADENCE_CORS_ORIGINS` | Further origins that may call the API, comma-separated, exact (no `*`, no path). |
+| `CADENCE_TRUST_FORWARDED` | The entrypoint sets it to `1` unless it is set already. The rate limits (`docs/api.md`, "Limits") then count each client by the first `X-Forwarded-For` hop, because Railway's proxy is the socket peer of every request. |
+
+Whether Railway's proxy replaces an `X-Forwarded-For` header the client sent, or appends to it, has not been checked. If it appends, a client can choose the address it is counted as, and the per-client limits can be evaded. The limits that are not per client still hold: the faucet's 30 fundings an hour, the 1,000 pending pockets, and the 4 decodes at once.
 
 Railway terminates TLS in front of each service, so it sees the IP address and request paths of every visitor (`docs/threat-model.md`, §5).
 
@@ -31,7 +36,9 @@ railway up /tmp/cadence-stage --path-as-root --service sandbox --detach
 railway up /tmp/cadence-stage --path-as-root --service main --detach
 ```
 
-> **The `main` service is frozen until the weekly mainnet mandate completes on 17 Nov 2026.** Do not redeploy it or change its variables: it holds the sealed packages of a live mandate (`evidence/mainnet.md`). Deploy only `app`, and `sandbox` only if you must.
+> **The `main` service is frozen until the weekly mainnet mandate completes on 17 Nov 2026.** Do not redeploy it or change its variables: it holds the sealed packages of a live mandate (`evidence/mainnet.md`). Deploy only `app`, and `sandbox` only if you must. `main` stays on build 7244e6a: nothing in `features` (`docs/api.md`, "Status"), the rate limits or the kept pockets after a stop applies to it.
+
+> **Rolling back after an upgrade.** On its first start, a runner of this build adds columns to the state database (`store.rs::migrate`). An older build can still open the migrated file, but its inserts name no columns, so it can no longer create offers or subscriptions. Take a backup of the volume before deploying, and roll back by restoring that backup, not by redeploying the old build.
 
 Only one process may use a given sandbox funder seed at a time: stop any local sandbox runner first.
 
@@ -136,5 +143,6 @@ curl -s https://$SANDBOX_HOST/api/status                      # "sandbox": true
 ## Operating
 
 - **Logs:** `docker compose logs -f runner-main runner-sandbox`. The runner logs subscription ids, heights and txids, never keys.
-- **Upgrades:** rebuild with `docker compose build runner-main runner-sandbox && docker compose up -d`. State lives in `/mnt/cadence`.
+- **Upgrades:** back up `/mnt/cadence/runner-main` and `/mnt/cadence/runner-sandbox`, then rebuild with `docker compose build runner-main runner-sandbox && docker compose up -d`. State lives in `/mnt/cadence`. To roll back, restore the backup: an older build cannot add offers or subscriptions to a database this build has migrated (above).
 - **Zebra 7.0** is required through NU7 (mainnet height 3,543,405). Earlier releases stop at their end-of-support height.
+- **Rate limits:** `docker-compose.yml` does not set `CADENCE_TRUST_FORWARDED`, so behind Caddy every client counts as Caddy's address and shares one set of buckets. Set it only once you have checked that Caddy replaces a client's own `X-Forwarded-For` (`docs/api.md`, "Limits").

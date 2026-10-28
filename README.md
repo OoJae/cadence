@@ -4,22 +4,22 @@
 
 **Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is a separate app host, which shows its commit and bundle hash in the footer. Each runner also serves an earlier build of the app (7244e6a, before the redesign), for example at [sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox).
 
-**Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) (also on the [app host](https://app-production-be97.up.railway.app/status#sub=sub_747f99039ba4f43c5234)) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), already signed on Oct 27, will be the first after NU7, which is expected around Nov 5. The status page shows times in your browser's time zone, and the app host's names it; the evidence gives them in UTC.
+**Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) (also on the [app host](https://app-production-be97.up.railway.app/status#sub=sub_747f99039ba4f43c5234)) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), already signed on Oct 27, will be the first after NU7, which is expected around Nov 5. That crossing was rehearsed on a local regtest chain on Oct 28 ([evidence](evidence/nu7-regtest.md)); the mainnet crossing itself is still ahead. The status page shows times in your browser's time zone, and the app host's names it; the evidence gives them in UTC.
 
 **The 60-second judge path.** Starting takes a minute; the run then finishes on its own in several minutes of testnet blocks.
 
 1. Open the [sandbox](https://app-production-be97.up.railway.app/sandbox) and press **Create mandate and auto-fund**. The faucet pays a fresh pocket, and once that payment is mined your browser signs and seals all three installments and uploads them.
-2. Save the cancel key (or skip it), then press **Close the payer tab**. From here only the runner acts: installments fall due 90 s apart.
+2. Save the cancel key (or skip it), then press **Close the payer tab**. From here only the runner acts: installments fall due about 90 s apart.
 3. While they land, press **Try it** on the four cheat cards: open a package early, raise an amount, rebroadcast a paid installment, stretch the plan. The runner really attempts each one and shows the error of the layer that stops it: drand, the payer's signature, the node, or the runner's schedule check.
 4. Decode a mined installment from the timeline, or one from the last public run: [`70646526…`](https://app-production-be97.up.railway.app/decode/706465269dd006492028d65987d9972b0bc9303d47cfbc72b5cb87a6d527d3e4).
-5. Optional: to try a cancel, create the mandate with **4** installments every **300 seconds**, which leaves room between payments, and keep the tab in front. Right after an installment is mined, open **Manage** with your saved cancel key (or **Reopen and unlock to cancel** in the payer pane) and cancel, refunding to your own testnet address or with **Refund to the sandbox faucet (demo only)**. Once the cancel is mined you get a cancellation certificate: the note it spent, that note's nullifier on chain, and the installments that can now never be valid.
+5. Optional: to try a cancel, create the mandate with **4** installments every **300 seconds**, which leaves room between payments, and keep the tab in front. Right after an installment is mined, open **Manage** with your saved cancel key (or **Reopen and unlock to cancel** in the payer pane) and cancel, refunding to your own testnet address or with **Refund to the sandbox faucet (demo only)**. Once the cancel is mined you get a cancellation certificate: the note it spent, that note's nullifier on chain, and the installments that can now never be valid. With this build's release jitter, consecutive payments fall due anywhere from 225 to 375 s apart, rather than exactly 300, so the room for a cancel varies. A sandbox of this build also has a fifth cheat card, **Charge me after I cancel**: once the first voided installment's drand round passes, the runner opens the package it kept, proves it and broadcasts it, and the node refuses it, because the cancel spent its note.
 
 **Why it doesn't leak:**
 
 - Each installment is an ordinary 2-action v6 Ironwood send, with the standard fee, the default expiry, an anchor 3 blocks back and nothing recoverable from its outgoing ciphertexts. That was the most common shielded shape in a 200-block mainnet sample.
 - The runner holds a view key for one single-use pocket, never for your wallet, and refunds leave no outgoing record, so it cannot see where they went.
 - Until its drand round, each installment is a padded, time-locked blob, even to the runner.
-- The web app makes no third-party requests and writes no browser storage (`pnpm verify`, which we run against every production build before deploying it, fails on any off-origin request, CSP violation or storage write), and the CLI reaches the runner and the chain over Tor (except a runner on the same machine).
+- The web app makes no third-party requests and writes no browser storage (`pnpm verify`, which we run against every production build before deploying it, and which the CI workflow also runs on the mock build, fails on any off-origin request, CSP violation or storage write), and the CLI reaches the runner and the chain over Tor (except a runner on the same machine).
 
 | Piece | Real or mocked |
 |---|---|
@@ -39,7 +39,7 @@ Shielded Zcash can only *push*: a payment happens only while the payer's wallet 
 1. **Fund once.** You fund a single-use *pocket* with one ZIP 321 QR from any Ironwood wallet (Zodl, Zkool, Vizor).
 2. **Pre-sign and close the tab.** Cadence pre-signs every installment and seals each one: to a [drand](https://drand.love) round with tlock, so it cannot be opened before it is due, and to the merchant's runner with age.
 3. **The runner releases each installment when it falls due.** It installs a fresh anchor, proves, and broadcasts. The runner software **can never spend, redirect or enlarge** a payment: it holds no spending key, and every byte it broadcasts was signed by you. (Whoever serves the web app serves the code that holds the pocket key; see [Honest limits](#honest-limits).)
-4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept, and the payer gets a certificate saying so. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved.
+4. **Cancel at any time** by spending your own pocket note. Every later installment becomes a double-spend that no node will accept, and the payer gets a certificate saying so. Whatever the runner never releases stays yours: `cadence sweep` returns it straight from the chain, with no runner involved, and after a merchant stop or a missed payment a runner of this build lets the browser refund it too.
 
 The payee needs only a Zcash address. A runner (the merchant's own, or a hosted one) releases each payment, and it arrives in the payee's wallet with a memo such as "Cadence · Pro plan · payment 2 of 4". That suits stipends, donations and salaries as well as subscriptions.
 
@@ -75,9 +75,16 @@ The runner software **cannot**:
 - spend the pocket any other way (it has no spending key);
 - rebroadcast a paid installment, or replay one after a cancel (its note is already spent).
 
-It also **checks every schedule it accepts**: the offer's count, a pocket funded for all of it, and installments that follow the offer's period, so a payer cannot stretch a plan. And it **checks every package before it broadcasts**: an installment goes out only if it pays the merchant exactly the offer's amount, with the default expiry for its height. When a subscription ends, the runner deletes the pocket's account, viewing key, raw funding transaction and sealed packages, with SQLite `secure_delete` on. The funding txid and amount, and the installment txids, stay as the record of what was paid.
+It also **checks every schedule it accepts**: the offer's count, a pocket funded for all of it, and installments that follow the offer's period, so a payer cannot stretch a plan. And it **checks every package before it broadcasts**: an installment goes out only if it pays the merchant exactly the offer's amount, with the default expiry for its height. When a subscription completes or is cancelled, the runner deletes the pocket's account, viewing key, raw funding transaction and sealed packages, with SQLite `secure_delete` on. The funding txid and amount, and the installment txids, stay as the record of what was paid.
 
-## Status (Oct 27, 2026)
+This build keeps two kinds of pocket for longer, on purpose:
+
+- **After a merchant stop, or a missed or invalid installment.** The runner keeps the pocket's wallet account, so the payer can refund what is left from the browser (Manage → **Refund what's left**). A stop still deletes the packages, beacons, the stored viewing-key copy and the funding transaction at once. The account goes when the runner sees the refund, when nothing is left, or after 30 days. Until then the runner sees any spend of the pocket, and shows the refund's txid in the subscription's JSON, which anyone with the subscription id can read. With Discard it still cannot see where the refund went.
+- **On the testnet sandbox, after a cancel.** The runner keeps the voided packages and the pocket's account for an hour, for the charge-after-cancel card.
+
+The mainnet runner's build 7244e6a lists no `refund_after_stop`: it deletes the account at a stop, and the web app offers it no browser refund, so there `cadence sweep` recovers what is left.
+
+## Status (Oct 28, 2026)
 
 | Milestone | Result |
 |---|---|
@@ -88,6 +95,9 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
 | Upload check that refuses a stretched schedule; webhooks with Cadence and CipherPay signatures | ✅ in the code, with unit tests (`cargo test -p cadence-runner`) |
 | Web app on an app host of its own, separate from the runners, with its build identity in the footer | Live at https://app-production-be97.up.railway.app (`VITE_API=runners`, `deploy/railway-app/`) |
 | Mainnet run funded from Zodl | ✅ [`evidence/mainnet.md`](evidence/mainnet.md): a 3-payment short run, each payment mined in its target block, and a weekly mandate paying through judging |
+| NU7 rehearsal: a mandate signed with NU7 pending, released across activation | ✅ on a local regtest chain, not a public network: [`evidence/nu7-regtest.md`](evidence/nu7-regtest.md). The mainnet crossing is Nov 10. |
+| Free trials, fiat price labels, release jitter, payer-signed requests, access passes, refunds after a stop, re-signing, rate and body limits | In the code at this commit, with tests; not deployed. The mainnet runner stays on 7244e6a and will not get them (`docs/api.md`). |
+| CI (`.github/workflows/ci.yml`): Rust tests, web checks and the WebAssembly signer built from source | The workflow is in the repository; it has not run yet |
 
 ## Evidence
 
@@ -100,10 +110,18 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
 - **The service, testnet:** [`evidence/E2E-service-testnet.md`](evidence/E2E-service-testnet.md). A subscription runs to completion with the real runner and the CLI; a cancel stops it, and the cancel transaction decodes with 0 outputs recoverable under the pocket's own keys; in a third run the runner's sync, drand fetch and broadcasts all go over Tor.
 - **The public sandbox, testnet:** [`evidence/railway-sandbox.md`](evidence/railway-sandbox.md). Three installments signed in a clean browser and released by the Railway runner; open-early and tamper attempts refused by the live runner. A first run showed a timing tell (installments mined 5 and 11 blocks after their targets); the runner now releases in the tick that opens each package, and the re-run, driven from the app host, landed 1 to 3 blocks after target with all four cheats refused.
 - **Mainnet:** [`evidence/mainnet.md`](evidence/mainnet.md). Two mandates subscribed from Zodl through the app host on Oct 27. Every structural field of a Cadence installment matches the payer's own Zodl send: v6, 2 Ironwood actions, the standard fee and proof, 0 transparent, 0 readable with the zero OVK. The weekly one keeps paying through judging.
+- **NU7 rehearsal, local regtest:** [`evidence/nu7-regtest.md`](evidence/nu7-regtest.md), with decodes in [`nu7-regtest-decoded.json`](evidence/nu7-regtest-decoded.json). On a Zebra 7.0.0 regtest chain with NU7 at height 200, the CLI signed a 3-installment mandate at tip 193, while NU7 was still pending. The runner released installment 1 on NU6.3 and installments 2 and 3 on the NU7 branch `77190ad9`, each mined in its target block, with the default expiry of its branch. This is a local chain mined on demand, so nobody else can look these txids up; `scripts/regtest/rehearse.sh` repeats the run, and `--network regtest` works for the runner, the CLI and the decoder.
 - **Fingerprint, mainnet sample:** 200 blocks (3,526,581–3,526,780) in [`evidence/fingerprint-mainnet-sample.json`](evidence/fingerprint-mainnet-sample.json).
   - The class "v6, Ironwood-only, 2 actions" is the most common shielded shape: 168 of 521 Orchard-family transactions.
   - Fee, flags, lock time, proof size and branch are identical across 100% of that class.
   - 78% are consistent with an anchor at target − 3, which is Cadence's rule.
+- **Tests added on Oct 28** (`cargo test --workspace`, and `pnpm test` in `web/`):
+  - privacy: the rung seed's PRF is deterministic, changes with every input, and comes from no key the runner holds; a positive control shows the decoder's OVK check finds outputs that were built with an OVK (`cadence-core/tests/privacy.rs`);
+  - the scheduler's decisions, and what finishing a subscription does to the store and the wallet (`cadence-runner/src/service/scheduler_tests.rs`);
+  - the chain crate's block cache, lightwalletd calls and wallet helpers;
+  - jitter vectors that the Rust and web payers both check (`cadence-core/tests/schedule_vectors.json`), and payer-auth vectors on both sides;
+  - the rate, body and faucet limits (`cadence-runner/src/limits.rs`, `sandbox.rs`);
+  - re-signing: the same change notes under the same fee, the chain check, and the shortfall (`cadence-core/tests/resign.rs`), and the runner's checks on a re-sign.
 - **Decode any transaction yourself:** `cadence-decode decode <txid>` (add `--network main` for mainnet txids), or the decoder page in the web app. The app host's decoder asks the testnet runner first, then the mainnet runner, and says which one decoded it; the mainnet runner also has [its own decoder](https://main-production-d975.up.railway.app/decode).
 
 ## Architecture
@@ -112,8 +130,8 @@ It also **checks every schedule it accepts**: the offer's count, a pocket funded
 crates/cadence-core    pocket keys, rung ladders (DeferredPcztBuilder), mandate schedule, redaction  [native + wasm32]
 crates/cadence-seal    age (runner) inside tlock (drand quicknet), zstd, fixed-size buckets            [native + wasm32]
 crates/cadence-chain   lightwalletd over Tor (arti), compact-block cache, pocket wallet, prove + broadcast
-crates/cadence-runner  merchant service: drand scheduler, release, confirmations, HTTP API, webhooks
-crates/cadence-cli     payer: subscribe / resume / cancel / sweep (runner and chain over Tor), dev pocket tools
+crates/cadence-runner  merchant service: drand scheduler, release, confirmations, HTTP API, webhooks, access passes, limits
+crates/cadence-cli     payer: subscribe / resume / cancel / sweep / resign (runner and chain over Tor), dev pocket tools
 crates/cadence-decode  public-shape decoder and mainnet fingerprint scanner
 crates/cadence-wasm    browser signer (Web Worker pool)
 web/                   landing, payer flow, merchant dashboard, decoder, judge sandbox, brand book (strict CSP, zero third-party requests)
@@ -121,7 +139,7 @@ web/                   landing, payer flow, merchant dashboard, decoder, judge s
 
 ### How a rung ladder works
 
-v6 sighashes exclude anchors but commit to expiry and branch. So each installment is signed once for every candidate broadcast height in its window, and each of these is a *rung*. One keyed seed drives every random choice, so **all rungs of an installment contain byte-identical actions** and produce the same change note. The runner broadcasts only the rung for exactly the next block. If none exists, it fails closed: it waits, or marks the installment missed once the chain is past the window, and you cancel or sweep and subscribe again (there is no in-place re-sign yet). It never broadcasts a non-default expiry. Windows on mainnet skip the blocks just before NU7 (height 3,543,405). From the ZIP 2009 fee switch (3,590,000) rungs pay the new 2,000-zat fee, and no installment's window straddles the switch, so its rungs still agree.
+v6 sighashes exclude anchors but commit to expiry and branch. So each installment is signed once for every candidate broadcast height in its window, and each of these is a *rung*. One keyed seed drives every random choice, so **all rungs of an installment contain byte-identical actions** and produce the same change note. The runner broadcasts only the rung for exactly the next block. If none exists, it fails closed: it waits, or marks the installment missed once the chain is past the window, and you cancel or sweep and subscribe again (a re-sign replaces only packages that have not opened, on a subscription still active, so it cannot recover a missed installment). It never broadcasts a non-default expiry. Windows on mainnet skip the blocks just before NU7 (height 3,543,405). From the ZIP 2009 fee switch (3,590,000) rungs pay the new 2,000-zat fee, and no installment's window straddles the switch, so its rungs still agree.
 
 ## Run it
 
@@ -133,10 +151,14 @@ cadence-runner init --network test
 CADENCE_MERCHANT_TOKEN=… cadence-runner serve --network test
 
 # Payer (runner calls and chain access go over Tor unless the runner is local)
-# --first-in (default 60 s) must stay within one period plus 600 s, or the runner refuses the upload.
+# Installment 1 falls due --first-in (default 60 s) after signing, after any trial, plus up to
+# a quarter period of jitter; that must stay within one period plus 600 s, or the runner refuses the upload.
+# The file is written 0600; with --passphrase-file or CADENCE_KEY_PASSPHRASE it is encrypted
+# as the web app's cancel key is, at a terminal you are asked, and a script with neither gets plain JSON.
 cadence subscribe --runner http://127.0.0.1:8737 --offer off_… --out my-sub.json
 cadence cancel --subscription my-sub.json --to <your UA>
 cadence sweep  --pocket my-sub.json --to <your UA>    # recover leftovers, no runner needed
+cadence resign --subscription my-sub.json --dry-run   # sign the sealed installments again (runners that list resign)
 ```
 
 ## Credits and prior art
@@ -166,17 +188,22 @@ The runner only ever broadcasts transactions the payer already signed.
 ## Honest limits
 
 - **"Not before" rests on drand's threshold assumption.** `tlock_age` 0.0.10 is unaudited. Because age is the inner layer, a tlock failure only lets *the runner* open early; it can never redirect funds.
-- **Unscheduled network upgrades invalidate rungs.** Each signature commits to the consensus branch, so a schedule that runs past an upgrade unknown at signing time must be signed again (cancel, then subscribe again; there is no in-place re-sign yet). Known boundaries are handled: windows skip the last blocks before NU7, and fees follow ZIP 2009 from height 3,590,000, which leaves the 8,000 zats each later installment saves in the pocket for `cadence sweep`.
+- **Unscheduled network upgrades invalidate rungs.** Each signature commits to the consensus branch, so a schedule that runs past an upgrade unknown at signing time must be signed again. Known boundaries are handled: windows skip the last blocks before NU7, and fees follow ZIP 2009 from height 3,590,000, which leaves the 8,000 zats each later installment saves in the pocket for `cadence sweep`. This build adds `cadence resign`: it signs the installments still sealed again under the CLI's current rules, from the pocket's live note and for the same drand rounds, and replaces their packages on a runner that lists `resign`, with a request signed by the payer's key. Its limits:
+  - It needs a subscription registered with a payer key, so not one made before this build, the live mainnet mandate among them; those cancel and subscribe again.
+  - It works only while the subscription is active and no installment is due or in flight, so it cannot recover a missed installment.
+  - A pocket cannot be topped up, so if the new rules cost more than the pocket holds, it says by how much and the payer must cancel and subscribe again.
+  - After a re-sign that changes the fee, the notes stored in a web cancel key are out of date, so /manage cannot cancel with it; `cadence cancel` and `cadence sweep` still can.
+  - There is no re-sign button in the web app, and it has not yet been run against a public network.
 - **The pocket is a software key.** Hardware wallets can fund it but cannot sign ladders.
-- **Timing is public.** Short demo cadences are visible as a schedule. Monthly ones are a few ordinary transactions among thousands a day, but Cadence adds no jitter yet: installments go out at exact intervals, and the first about a minute after signing, a few blocks after the funding transaction. Nothing in an installment's fields marks it as a subscription; its timing can.
-- **Until its cancel key is saved, a paid pocket lives only in your tab.** The pocket's key exists only in the tab's memory until the schedule is signed and uploaded and the cancel key is saved. Closing or reloading the tab in that window, after paying, loses the funds; the page asks before a reload or close. The CLI writes its key file before you fund. A payment smaller than the QR code asks for cannot be signed, and the browser cannot yet return it, so pay the exact amount.
-- **Plans can run about 45 days ahead.** Each installment's rungs travel in one sealed package, which is capped at 64 MiB; at 25-second blocks that holds the window of a payment due up to about 53 days after signing. Longer mandates need rolling funding or a compact ladder format, which are not built yet.
+- **Timing is public.** Short demo cadences are visible as a schedule. Monthly ones are a few ordinary transactions among thousands a day. In this build the payer's signer moves each installment later by its own random draw, up to a quarter period and at most 6 hours, so installments no longer fall at exact intervals; but the rough rhythm stays visible, and the runner adds no jitter of its own at release. Installment 1 falls due a minute after signing, plus its draw, so on a short period it lands a few blocks after the funding transaction. Schedules signed before this build, the live mainnet mandate's among them, have no jitter. Nothing in an installment's fields marks it as a subscription; its timing can.
+- **Until its cancel key is saved, a paid pocket lives only in your tab.** The pocket's key exists only in the tab's memory until the schedule is signed and uploaded and the cancel key is saved. Closing or reloading the tab in that window, after paying, loses the funds; the page asks before a reload or close. The CLI writes its key file before you fund, readable only by you, and encrypted when it has a passphrase. A payment smaller than the QR code asks for cannot be signed, and the browser cannot yet return it, so pay the exact amount.
+- **Plans can run about 45 days ahead.** Each installment's rungs travel in one sealed package, which is capped at 64 MiB; at 25-second blocks that holds the window of a payment due up to about 53 days after signing. The web app counts any trial and the most jitter towards the 45 days. Longer mandates need rolling funding or a compact ladder format, which are not built yet.
 - **The runner's lightwalletd can link a mandate's transactions.** Besides compact blocks, the runner fetches each pocket's funding transaction and its own broadcasts by txid from the server it syncs with. That is over Tor, so not from your IP, but the server's operator can link a mandate's funding to its installments. `cadence cancel` and `cadence sweep` do the same through the server you choose. A node of your own avoids it.
 - **Whoever serves the web app serves the code that holds your pocket key.** A runner that serves the app could serve code that steals the key; the runner software cannot. A `VITE_API=runners` build served from an origin the merchant does not control, with its commit and bundle sha256 in the footer to check against a build of your own, removes that risk, and so does the CLI. The live demo has such a host ([app-production-be97.up.railway.app](https://app-production-be97.up.railway.app), `deploy/railway-app/`), but we also run the demo's runners, so it shows the mode working, not independence from the merchant.
 - **The hosting edge sees your IP, and more.** The live demo runs on Railway, which sees the address of every browser that loads it, unless you use Tor Browser. Railway terminates TLS in front of both runners, so as the host it can read request bodies, including each pocket's viewing key, and what the runners log. Opening a share link asks the runner it names for its copy of the offer, so that runner learns your IP and which offer you opened. A runner on your own server behind your own TLS, or its onion service, avoids this.
-- **No rate limiting.** The runners' public API has no rate limits: a flood can slow or restart a runner, and anyone can draw down the testnet sandbox's faucet. Funds are never at risk, and each release has a window of an hour or more.
+- **Rate limits are per address, and simple.** This build limits each client address per class of route (`429` with `Retry-After` past a limit), caps request bodies at 64 KiB (80 MiB for uploads and re-signs), gives the decoder its own lightwalletd connection with at most 4 decodes at once, and holds the faucet to each pocket once, 30 fundings an hour in all and 6 per client. Behind Railway the client address is the first `X-Forwarded-For` hop, and whether a client can forge it there has not been checked; if it can, only the global limits hold. The buckets live in memory, so a restart or many addresses start afresh. A flood can still slow a runner. The mainnet runner stays on build 7244e6a, with no limits. Funds are never at risk, and each release has a window of an hour or more.
 - **The browser's cancellation certificate takes the runner's word that the cancel was mined.** The cancel is your own transaction, so you can check its txid on any explorer or with `cadence-decode`; `cadence cancel` checks the chain itself.
-- **Builds are not reproducible yet.** The footer's commit and bundle hash let you compare what the host serves with its `build.json` and with a build you trust, but the WebAssembly signer embeds build paths, so an independent rebuild will not match byte for byte.
+- **Builds reproduce on one machine, not yet across machines.** The footer's commit and bundle hash let you compare what the host serves with its `build.json` and with a build you trust. From this commit the WebAssembly build maps the machine's paths to fixed ones, the toolchain is pinned (`rust-toolchain.toml`, Rust 1.96.0) and a patched `i18n-embed-fl` emits its output in a fixed order: two checkouts at different paths on one Mac gave the same WebAssembly and the same `bundle_sha256`. Nothing has been compared across machines, and a different clang for wasm32, such as CI's Ubuntu clang, is expected to give different bytes (`web/README.md`, "Build identity"). The bundle the app host serves as of Oct 28 was built before this, so it cannot be rebuilt byte for byte.
 - **Webhooks are best-effort.** Three attempts from memory and no outbox; merchants reconcile from the API (`docs/merchant.md`).
 
 Experimental software, not audited. The mainnet runs move small, disclosed amounts.

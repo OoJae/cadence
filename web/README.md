@@ -9,12 +9,13 @@ the pocket key: see "Build identity" and `docs/threat-model.md`, §6.
 | Route | What it is |
 |---|---|
 | `/` | The story as you scroll, over a stage drawn from testnet run 1's real rung ladders: the pull-vs-push gap, signing a rung for every block, sealing to a drand round, the one release, the four refusals, cancelling, the on-chain shape, then what the runner can and cannot do, honest limits and what the merchant learns. |
-| `/merchant` | Subscriptions and installments (sealed, due, broadcast, mined, cancelled, missed). Each has a live countdown to its drand round, and each txid links to the decoder. Also a "create offer" form whose share link carries the offer in the URL fragment. |
-| `/subscribe#offer=…` | The payer flow: plan, ZIP 321 funding QR, signing progress, "save your cancel key, then check it opens" (WASM signer: re-pick the file, retype the passphrase), "You can close this tab now", then manage or cancel. |
-| `/manage` | Cancel after the tab is gone: load the saved cancel key and its passphrase, see the pocket and subscription, cancel and refund to your own address. Shows the `cadence sweep` fallback when the runner cannot help. |
+| `/merchant` | Subscriptions and installments (sealed, due, broadcast, mined, cancelled, missed). Each has a live countdown to its drand round, and each txid links to the decoder. Also a "create offer" form whose share link carries the offer in the URL fragment. On a runner that lists them, the form also takes a free trial and a fiat price with the merchant's own rate, from which it computes the ZEC amount. Stop needs a merchant token, so it is disabled on the sandbox until one is entered. |
+| `/subscribe#offer=…` | The payer flow: plan (with any trial, and the merchant's price label next to the ZEC amount signed), ZIP 321 funding QR, signing progress, "save your cancel key, then check it opens" (WASM signer: re-pick the file, retype the passphrase), "You can close this tab now", then manage or cancel. The done screen also offers calendar reminders and, on a runner that lists `pass`, "Get an access pass". |
+| `/manage` | Cancel after the tab is gone: load the saved cancel key and its passphrase, see the pocket and subscription, cancel and refund to your own address. On a runner that lists `refund_after_stop`, a stopped or missed plan offers "Refund what's left" instead. Also calendar reminders, an access pass, "Subscribe again" once the plan has ended, and the note that pausing means cancelling now and subscribing again later. Shows the `cadence sweep` fallback when the runner cannot help. |
+| `/pass` | Checks an access pass: decodes it, finds the runner that signed it among the runners this build knows, verifies the Ed25519 signature in the tab against that runner's pass key, and asks the runner's own verify endpoint too. It shows a merchant how to make the same check on their own server. |
 | `/decode/:txid` | The public shape of a transaction as a table, with a stock-wallet comparison column and red/green badges for what a chain observer can and cannot tell. Its checks follow the runner's network, the transaction's branch and its height (see below). |
-| `/status#sub=<subscription_id>` | A demo view of one subscription: status, k of n paid, the next installment due, and per installment its state, release time and drand round, txid and mined height, with a short shape summary of each mined one and a note where a plan crosses NU7. It polls `GET /api/subscriptions/:id` and `GET /api/status` every 30 s and decodes mined installments with `GET /api/decode/:txid`, keeping results in memory only. The id is in the fragment, so it is not part of the page request, but the page does send it to the runner. |
-| `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has four cheat cards: open early, tamper, rebroadcast a paid installment, and stretch the plan. |
+| `/status#sub=<subscription_id>` | A demo view of one subscription: status, k of n paid, the next installment due, and per installment its state, release time and drand round, txid and mined height, with a short shape summary of each mined one and a note where a plan crosses NU7. It polls `GET /api/subscriptions/:id` and `GET /api/status` every 30 s and decodes mined installments with `GET /api/decode/:txid`, keeping results in memory only. The id is in the fragment, so it is not part of the page request, but the page does send it to the runner. It also offers calendar reminders, and "Subscribe again" once the plan has ended. |
+| `/sandbox` | The guided judge run: create a mandate, auto-fund, sign, close the tab, watch three installments land, decode, cancel. It also has four cheat cards: open early, tamper, rebroadcast a paid installment, and stretch the plan. On a runner that lists `charge_after_cancel` there is a fifth, "Charge me after I cancel", which waits for the first voided installment's drand round after a cancel and then has the runner try it. |
 | `/brand` | The brand book, which is also the design system: the mark, the wordmark, colour, type, motion, components, textures, downloads and the social card, each the real component or token. |
 
 ![Landing](screenshots/01-landing.png)
@@ -83,10 +84,18 @@ VITE_SIGNER=wasm VITE_API=runners \
   VITE_DEFAULT_RUNNER="https://sandbox.example" pnpm build
 ```
 
-**The API client** (`src/api/client.ts`) is typed and covers every endpoint in `docs/api.md`:
-offers, pockets (register, state, witness), `POST /api/broadcast`, subscriptions (create, list,
-get, stop), `GET /api/decode/:txid`, `GET /api/status` and the three sandbox endpoints. Two notes:
+**The API client** (`src/api/client.ts`) is typed and covers the endpoints in `docs/api.md` that
+the app uses: offers, pockets (register, state, witness), `POST /api/broadcast`, subscriptions
+(create, list, get, stop), access passes (get one, signed with the payer auth key; the pass key;
+verify), `GET /api/decode/:txid`, `GET /api/status` and the three sandbox endpoints. It has no
+call for re-signing, which only the CLI does. Notes:
 
+- **Features.** The app sends or shows a contract v2 thing only when the runner's
+  `GET /api/status` lists it in `features` (`src/lib/features.ts`). A runner with no `features`,
+  such as the mainnet runner's build 7244e6a, gets exactly the requests an older app sent.
+- **A 429 is busy, not broken.** The transport turns it into an `ApiError` that carries the
+  `Retry-After` seconds, and shows "The runner is busy; try again in n s". Polls wait at least that
+  long before asking again, and an upload or a cancel is sent again after the wait.
 - The contract does not pin down the list shape of `GET /api/subscriptions`, so the client
   accepts either a bare array or `{ "subscriptions": [...] }`.
 - Webhooks are documented in `docs/api.md` ("Webhooks"), not in `src/api/types.ts`, whose
@@ -100,7 +109,9 @@ get, stop), `GET /api/decode/:txid`, `GET /api/status` and the three sandbox end
 - It becomes *cancelled* if its input was spent elsewhere first.
 
 From page load on, the mock chain runs at 5-second blocks so the sandbox fits in a couple of
-minutes. Real NU7 blocks are 25 seconds, and the UI says so wherever it matters.
+minutes. Real NU7 blocks are 25 seconds, and the UI says so wherever it matters. The mock lists
+the features `trial`, `quote`, `payer_auth`, `pass`, `charge_after_cancel` and `fund_offer`, and
+implements them, with a pass key from a fixed seed, so mock builds show them.
 
 **Sandbox endpoints** (`POST /api/sandbox/offer`, `/fund` and `/cheat`, in `docs/api.md`,
 "Testnet sandbox") are testnet-only. The real runner serves them only on testnet with
@@ -130,6 +141,9 @@ says so.
   schedule check, which its upload uses too: rounds must increase, and each installment must follow
   the one before by the offer's period, to within one drand round (3 s). The real runner's check is
   looser and broader (`docs/api.md`, `POST /api/subscriptions`).
+- **Charge after cancel.** Once the cancel is mined and the first voided installment's round has
+  passed, it answers as the sandbox runner does: the node refuses the broadcast as a double-spend
+  of the note the cancel spent. Before that round, `409` with "installment k opens in n s".
 
 The mock's log lines are its own wording, close to but not the same as the real runner's.
 
@@ -181,6 +195,9 @@ export interface Signer {
   /** Spend the pocket's current note to the payer's own UA with OvkPolicy::Discard. */
   cancel(refundUa: string, opts?: CancelOptions): Promise<CancelReceipt>;  // { txid, refunded_zat, fee_zat, target_height }
 
+  /** The payer auth key, derived from the seed: its public key, and request signatures. Never the seed. */
+  payerAuth(): Promise<PayerAuth>;                                        // { publicKeyHex, sign(method, path, body) }
+
   /** Zeroise all key material. */
   destroy(): void;
 }
@@ -189,7 +206,24 @@ export interface Signer {
 `PresignOptions` takes `onProgress(p)`, which drives the "Signing your schedule…" view: the
 installment, its phase (`sign`, `redact`, `compress`, `seal`, `timelock`, `done`), rungs signed so
 far and the candidate height window. It also takes an `AbortSignal`, and a `signedAt` time from
-which the schedule is planned (`src/lib/schedule.ts`).
+which the schedule is planned (`src/lib/schedule.ts`): installment k at
+`signedAt + trial + min(period, 60 s) + (k − 1)·period + jitter_k`.
+
+**Release jitter.** The WASM signer draws each `jitter_k` from the browser's CSPRNG, uniformly in
+[0, J] with J = ⌊min(period / 4, 6 h)⌋, by the same rejection rule as `cadence-core`'s
+`draw_jitter`; `src/lib/schedule.test.ts` and the Rust tests check the same vectors
+(`crates/cadence-core/tests/schedule_vectors.json`). It hides the exact interval, not the rhythm.
+Before signing, the plan step shows each installment's window, from no jitter to J. The 45-day
+limit (`src/lib/offer.ts::horizonProblem`) is measured to the latest the last installment can
+fall: trial + lead + (count − 1)·period + J. The mock signer draws no jitter, so a mock build
+plays the same schedule every run.
+
+**The payer auth key** (`src/lib/payerAuth.ts`) is an Ed25519 key whose seed is
+HKDF-SHA256(pocket seed, salt `cadence payer auth v1`, no info), made with WebCrypto: HKDF, then
+the seed imported as PKCS#8 into a non-extractable key and zeroed. The flow sends its public key
+as `payer_auth_key` only to a runner that lists `payer_auth`, and signs the access-pass request
+with it (`docs/api.md`, "Payer auth, access passes and re-signing"). A pocket restored from a
+cancel key derives the same key, so the kit needed no new field.
 
 `awaitFunding` and `destroy` extend the three methods in the brief. Funding has to be detected
 before signing can start, and keys need an explicit end of life.
@@ -232,8 +266,8 @@ These sizes are without `wasm-opt`. The script runs it when binaryen is installe
 |---|---|
 | `createPocket` | A worker draws 32 random bytes with `crypto.getRandomValues` and derives the Orchard-only UA and UFVK. The seed comes back as a `Uint8Array` and stays in a private field. The UFVK is registered with `POST /api/pockets`. |
 | `awaitFunding` | Polls `GET /api/pockets/:id` every 5 s while the tab is visible. When `funding` appears, a worker decrypts the relayed `tx_hex` with the pocket key (`mandate::decrypt_funding`). The amount is never taken from the runner. |
-| `presign` | For each installment: `round_for(release_at)` and `mandate::window`. The window is cut into chunks across the pool, and every chunk must agree on the spent nullifier, the actions digest and the change note. The ladder is then sealed (zstd, age to the runner, tlock to the round). The flow uploads it with `POST /api/subscriptions`, adding `pocket_id`. |
-| `sealKit` | A worker writes the seed, the schedule (mandate id, label, terms, first release, funding transaction and height) and every pocket note into the kit JSON and encrypts it with age's scrypt recipient (`cadence_seal::seal_kit`, work factor 17, a few seconds). The page gets the ciphertext only and downloads it as `cadence-cancel-key-<pocket>.age`. |
+| `presign` | For each installment: its release time with its own jitter, then `round_for(release_at)` and `mandate::window`. The window is cut into chunks across the pool, and every chunk must agree on the spent nullifier, the actions digest and the change note. The ladder is then sealed (zstd, age to the runner, tlock to the round). The flow uploads it with `POST /api/subscriptions`, adding `pocket_id`. |
+| `sealKit` | A worker writes the seed, the schedule (mandate id, label, terms, first release, funding transaction and height) and every pocket note into the kit JSON and encrypts it with age's scrypt recipient (`cadence_seal::seal_kit`, work factor 17, a few seconds). The page gets the ciphertext only and downloads it as `cadence-cancel-key-YYYYMMDD-HHMM.age`, the local date and time, with no pocket id: file names travel through download folders, backups and recent-file lists. |
 | `openKit`, `restore` | A worker decrypts the kit and checks its shape (`src/signer/kit.ts`); the seed comes back as a `Uint8Array`. `restore` re-derives the pocket's UA from the seed and refuses a kit whose UA differs. |
 | `cancel` | Starts a prover worker and its proving key at once (about 14 s). Finds the live pocket note among the runner's `notes`, by nullifier, among the notes this signer created. Fetches `GET …/witness`, signs the spend (note minus the fee at the cancel's height, to the refund UA's Orchard receiver, no OVK) in the pool, proves and extracts in the prover worker, then `POST /api/broadcast`. It checks that the runner's txid matches. `src/signer/cancel.ts` waits for a fresh note to be 3 blocks deep (retrying every 15 s, up to 5 minutes), and if an installment spends the note first it cancels that installment's change instead, once, or reports that nothing is left. |
 | `destroy` | Zeroises the seed and terminates every worker, which drops their wasm memory. |
@@ -266,7 +300,11 @@ policy) on the worker scripts too.
 
 **Key custody** is `'memory'`, as in the mock: closing the tab forgets the pocket key. After the
 upload, the payer is asked to save a **cancel key** before "You can close this tab now": the kit,
-encrypted to a passphrase of at least 8 characters. The page then has the payer pick the file again
+encrypted to a passphrase. A new key needs at least 12 characters, or 4 different words, and
+the page refuses very common passwords and patterns such as keyboard and digit runs, repeats, and
+those with digits around them (`src/signer/kit.ts::passphraseProblem`). A key saved earlier
+with a shorter passphrase still opens; `cadence-seal` itself still seals with any of 8 characters
+or more. The page then has the payer pick the file again
 and retype the passphrase. `verifyKit` opens it in a worker (`openKit`'s path), derives the address
 from the opened seed, and `checkKit` (`src/signer/kit.ts`) passes it only if the network, pocket id
 and address match this tab's pocket; the opened seed is zeroed either way. Wrong file, wrong
@@ -279,7 +317,12 @@ skips with one click. Anyone with the file and the passphrase can cancel and tak
 balance; the app never sends either anywhere. `/manage` loads it into this
 tab's memory (forgotten on reload), and the CLI reads the same file:
 `cadence cancel --subscription <key> --to <UA>`, or `cadence sweep --pocket <key> --to <UA>`, which
-needs no runner. The download is a Blob URL and `<a download>`, which the CSP does not restrict.
+needs no runner. The commands the page prints single-quote a file name the shell would split or
+expand, such as `'cadence-cancel-key-20261028-0905 (1).age'`. The download is a Blob URL and
+`<a download>`, which the CSP does not restrict. Calendar reminders (`src/lib/ics.ts`) are saved
+the same way: an `.ics` file with one event per payment still to come, each with an alarm an hour
+before, holding the plan's name, the amount and "payment k of n" and no subscription id, pocket,
+address or URL, with a random UID per event.
 Passkey sealing is not built yet.
 
 **`pnpm verify:wasm`** (`scripts/wasm-smoke.mjs`) builds a harness page (`scripts/wasm-smoke/`)
@@ -464,36 +507,73 @@ What has to match the build you compare with:
 | Build settings | `VITE_SIGNER`, `VITE_API`, `VITE_RUNNERS`, `VITE_DEFAULT_RUNNER` | they are compiled in. `build.json` records the first three, but not the default runner. |
 
 A build made before the path mapping has this machine's paths in its modules, so no one else can
-rebuild it byte for byte.
+rebuild it byte for byte. The bundle the app host serves as of Oct 28 is one of these. CI builds
+the WebAssembly with Ubuntu's clang, not the clang in the table, so its module hashes are not
+expected to match a Mac build's; it prints them, but they have not been compared.
 
 ## Tests
 
 `pnpm test` runs the vitest tests:
 
 - `src/lib/offer.test.ts`: fragment parsing. Round trip, hostile and damaged links, display-spoofing
-  names, wrong networks, non-https runners.
+  names, wrong networks, non-https runners; trials and quotes in the link; the 45-day horizon,
+  counting the trial and the most jitter.
+- `src/lib/schedule.test.ts`: release jitter. J is a quarter period, at most 6 hours; draws are
+  uniform, with rejection at the top of the 32-bit range; the release times match the vectors the
+  Rust payer checks (`crates/cadence-core/tests/schedule_vectors.json`); every jittered schedule,
+  from a 60 s period to 30 days, with and without a trial, passes the runner's schedule check.
+- `src/lib/terms.test.ts`: trials and quotes. `amount_zat` from a price and a rate, exactly and
+  half up; money formatting; the merchant form's bounds; the 1% mismatch warning.
+- `src/lib/payerAuth.test.ts`: the payer auth key against a vector `node:crypto` computes on its
+  own; the signed message, which fails to verify with any part changed; no path with an origin or
+  a query; distinct timestamps for two requests in one second.
+- `src/lib/pass.test.ts`: reading a pass, `valid_until` (including during a trial), finding the
+  runner that signed it, a pass through the mock runner end to end, and the merchant example on
+  `/pass`.
+- `src/lib/refund.test.ts`: when /manage offers "Refund what's left" (the feature listed and a
+  note left), the CLI sweep kept for an old runner, and a refund after a stop against a fake v2
+  runner.
+- `src/lib/ics.test.ts`: calendar reminders. One event per installment at its release time in UTC,
+  an alarm an hour before, CRLF and line folding, escaping, and no ids, addresses or URLs.
+- `src/lib/again.test.ts`, `src/lib/features.test.ts`: "Subscribe again" once a plan has ended,
+  and reading `features` (none for an older runner).
+- `src/api/http.test.ts`: a 429 reads as busy, with `Retry-After` as seconds or a date, and polls
+  wait at least as long.
+- `src/flow.test.ts`: uploads retried after a timeout, a 5xx or a 429 but not a refusal; the payer
+  auth key sent only to a runner that lists `payer_auth`, and byte for byte the old request
+  otherwise; a plan past the horizon refused before any pocket exists; signing or watching again
+  after a failure.
+- `src/pages/Sandbox.test.ts`: the faucet-low notice, and the charge-after-cancel card's target and
+  countdown.
 - `src/lib/zip321.test.ts`: ZIP 321 URIs. Exact decimal amounts, unpadded base64url memos,
   percent-encoding, the 512-byte memo limit, and no memo to transparent addresses.
 - `src/lib/states.test.ts`: state labels, plus runner log lines that match the real runner's
   formats.
 - `src/lib/drand.test.ts`: quicknet round ↔ time, and the schedule.
 - `src/mock/runner.test.ts`: installment state derivation (chaining, cancel, missed, stop), the
-  four cheats and the old `replay_after_cancel` name, and the mock's schedule check.
+  four cheats and the old `replay_after_cancel` name, and the mock's schedule check; its v2
+  features: charge after cancel, trials and quotes, funding an offer's exact prepay, and access
+  passes (issued, refused with 403 or 409, verified).
 - `src/signer/mock.test.ts`: the `Signer` contract (single-use pockets, fixed-size packages, cancel
-  rules, `destroy`), and the cancel key: save, `verifyKit`, restore into a fresh signer, cancel.
+  rules, `destroy`), and the cancel key: save, `verifyKit`, restore into a fresh signer, cancel; the
+  stronger passphrase for a new key; the payer auth key, the same after a restore and different for
+  each pocket.
 - `src/signer/kitCheck.test.ts`: `checkKit` with fakes and, when `src/wasm/` is present, with the
   real cadence-wasm build in Node through the worker's own handlers.
 - `src/lib/shape.test.ts`: the decoder's checks on mainnet before NU7, after NU7 on both sides of
   3,590,000, and on testnet; null fields, an unknown branch, the moved reference column.
 - `src/lib/planStatus.test.ts`: the `/status` page's logic, including the NU7 crossing note.
-- `src/pages/Merchant.test.ts`: the receiving address against the runner's network.
+- `src/pages/Merchant.test.ts`: the receiving address against the runner's network; Stop needing a
+  token on a sandbox runner; an offer with no trial or quote sent exactly as before.
 - `src/config/runners.test.ts`, `src/runtime.test.ts`: `VITE_RUNNERS` parsing and picking the
   runner an offer or a cancel key names.
 - `src/config/buildInfo.test.ts`: the build manifest and its hash, as `shasum` computes them.
 - `src/signer/kit.test.ts`: the cancel key's JSON against the CLI's `SubscriptionFile`, read from
-  `crates/cadence-cli/src/subscribe.rs`; parsing and refusals; the runner and network checks.
+  `crates/cadence-cli/src/subscribe.rs`; parsing and refusals; the runner and network checks; the
+  file name with no id; shell-quoted CLI commands; the new-key passphrase rules.
 - `src/signer/cancel.test.ts`: the cancel loop with fake timers: waiting for anchor depth, giving
-  up, abort, losing the race to an installment (retry once, or nothing left), other refusals.
+  up, abort, losing the race to an installment (retry once, or nothing left), other refusals, and
+  waiting out a busy runner without proving twice.
 - `src/data/s2.test.ts`: the S2 copy matches the evidence file, and every invariant holds.
 - `src/config/csp.test.ts`: the `VITE_API` and `VITE_SIGNER` parsing and the CSP's shape, including
   the one Trusted Types policy of WASM-signer builds, `runners` builds, and the header CSP against
@@ -506,6 +586,13 @@ rebuild it byte for byte.
 `pnpm verify:app-host` (`scripts/app-host-smoke.mjs`) builds a `runners` app against two local
 stub runners, serves it with the app host's headers and drives headless Chromium; its header
 comment lists the checks.
+
+**CI.** `.github/workflows/ci.yml` runs on pushes and pull requests to `main`:
+`cargo test --workspace` on the pinned toolchain; `pnpm typecheck`, `pnpm test`, the mock build
+and `pnpm verify` on Node 22; and the WebAssembly signer built from source with Ubuntu's clang,
+then `pnpm verify:wasm`. It needs no secrets and talks to no runner, lightwalletd or drand. It
+has not run yet, so nothing here claims it passes. `pnpm verify` against each production build
+before it is deployed stays a manual step.
 
 `cargo test -p cadence-wasm` covers the Rust side:
 
@@ -560,9 +647,10 @@ src/api/        typed client, wire types, fetch transport
 src/mock/       in-memory chain + runner + fixtures (dynamically imported, mock builds only)
 src/signer/     Signer interface, MockSigner, WasmSigner (wasm.ts) with its worker pool, workers and engine
 src/wasm/       wasm-bindgen output of pnpm build:wasm (gitignored)
-src/lib/        offer fragment, ZIP 321, drand, amounts, states, shape checks, runner log formats
+src/lib/        offer fragment, ZIP 321, drand, schedule and jitter, amounts, states, shape checks, runner log formats,
+                trial and quote terms, payer auth, access passes, refunds, calendar reminders
 src/components/ UI pieces: tables, QR, timeline, flow views, disclosure panel
-src/pages/      Landing (and landing/), Merchant, Subscribe, Manage, Status, Decode, Sandbox, Brand
+src/pages/      Landing (and landing/), Merchant, Subscribe, Manage, Status, Decode, Sandbox, Pass, Brand
 src/stage/      the landing's stage: the shared timeline and geometry, the SVG driver, the WebGL tier
 src/motion/     reveals, beats, smooth scrolling and the motion tokens
 src/brand/      the round rail, the drawn ladders, the outlined wordmark, contrast maths
