@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use cadence_chain::{lwd, wallet};
 
-use crate::http::Http;
+use crate::{http::Http, keyfile};
 use cadence_core::{
     build_rung,
     mandate::{self, Terms},
@@ -42,7 +42,7 @@ struct OfferView {
     trial_secs: u64,
 }
 
-/// Everything the payer must keep to cancel later. Dev builds store it unencrypted.
+/// Everything the payer must keep to cancel later, stored as `keyfile` writes it.
 #[derive(Serialize, Deserialize)]
 pub struct SubscriptionFile {
     network: String,
@@ -68,35 +68,13 @@ pub struct SubscriptionFile {
     funding_height: Option<u32>,
 }
 
-/// Reads a subscription or pocket file. A recovery kit saved by the web app is
-/// encrypted to a passphrase, taken from `CADENCE_KIT_PASSPHRASE` or asked for.
-pub fn read_kit(path: &Path) -> Result<Vec<u8>> {
-    static OPENED: std::sync::Mutex<Vec<(std::path::PathBuf, Vec<u8>)>> = std::sync::Mutex::new(vec![]);
-    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    if !cadence_seal::is_sealed_kit(&bytes) {
-        return Ok(bytes);
-    }
-    // Ask once per command, however many times the kit is read.
-    let mut opened = OPENED.lock().unwrap();
-    if let Some((_, plain)) = opened.iter().find(|(p, _)| p == path) {
-        return Ok(plain.clone());
-    }
-    let passphrase = match std::env::var("CADENCE_KIT_PASSPHRASE") {
-        Ok(p) => p,
-        Err(_) => rpassword::prompt_password(format!("passphrase for {}: ", path.display()))?,
-    };
-    let plain = cadence_seal::open_kit(&bytes, &passphrase).map_err(|e| anyhow!("{e}"))?;
-    opened.push((path.to_path_buf(), plain.clone()));
-    Ok(plain)
-}
-
 /// The runner a subscription file belongs to.
 pub fn runner_of(path: &Path) -> Result<String> {
     #[derive(Deserialize)]
     struct Runner {
         runner: String,
     }
-    Ok(serde_json::from_slice::<Runner>(&read_kit(path)?)?.runner)
+    Ok(serde_json::from_slice::<Runner>(&keyfile::read(path)?)?.runner)
 }
 
 fn network(name: &str) -> Result<Network> {
@@ -139,11 +117,7 @@ fn hex16(s: &str) -> Result<[u8; 16]> {
 }
 
 fn save(path: &Path, file: &SubscriptionFile) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    fs::write(path, serde_json::to_vec_pretty(file)?)?;
-    Ok(())
+    keyfile::write(path, &serde_json::to_vec_pretty(file)?)
 }
 
 fn terms(params: &Network, f: &SubscriptionFile) -> Result<Terms> {
@@ -217,7 +191,7 @@ pub fn subscribe(http: &Http, runner: &str, offer_id: &str, out: &Path, first_in
 /// Continues a subscription from its file: wait for funding, pre-sign, seal, upload.
 /// Safe to re-run after an interruption before the upload.
 pub fn resume(http: &Http, out: &Path) -> Result<()> {
-    let mut file: SubscriptionFile = serde_json::from_slice(&fs::read(out)?)?;
+    let mut file: SubscriptionFile = serde_json::from_slice(&keyfile::read(out)?)?;
     if file.subscription_id.is_some() {
         bail!("this subscription was already uploaded");
     }
@@ -309,7 +283,7 @@ pub fn resume(http: &Http, out: &Path) -> Result<()> {
 
 /// Spends the pocket's live note to `refund_ua`, so no later installment can be valid.
 pub async fn cancel(http: &Http, path: &Path, refund_ua: &str, mut client: lwd::Client) -> Result<()> {
-    let file: SubscriptionFile = serde_json::from_slice(&read_kit(path)?)?;
+    let file: SubscriptionFile = serde_json::from_slice(&keyfile::read(path)?)?;
     let params = network(&file.network)?;
     let seed: [u8; 32] = hex::decode(&file.seed_hex)?
         .try_into()
@@ -391,7 +365,7 @@ pub async fn send(
         network: String,
         seed_hex: String,
     }
-    let file: DevPocket = serde_json::from_slice(&fs::read(pocket_path)?)?;
+    let file: DevPocket = serde_json::from_slice(&keyfile::read(pocket_path)?)?;
     let params = network(&file.network)?;
     let seed: [u8; 32] = hex::decode(&file.seed_hex)?
         .try_into()
@@ -427,7 +401,7 @@ pub async fn sweep(
         seed_hex: String,
         funding_height: Option<u32>,
     }
-    let file: AnyPocket = serde_json::from_slice(&read_kit(path)?)?;
+    let file: AnyPocket = serde_json::from_slice(&keyfile::read(path)?)?;
     let params = network(&file.network)?;
     let seed: [u8; 32] = hex::decode(&file.seed_hex)?
         .try_into()

@@ -1,0 +1,82 @@
+# i18n-embed-fl 0.9.4 from crates.io (MIT, LICENSE.txt), patched in for age 0.11, which
+# needs 0.9. The one change, in src/lib.rs, emits a fl!() call's named arguments sorted
+# by name instead of in HashMap order, as 0.10 does. HashMap order differs from one
+# compile to the next, so without it the wasm modules are not reproducible. The
+# manifest is the published one, less its tests and dev-dependencies (not vendored).
+
+[package]
+edition = "2018"
+name = "i18n-embed-fl"
+version = "0.9.4"
+authors = ["Luke Frisken <l.frisken@gmail.com>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Macro to perform compile time checks when using the i18n-embed crate and the fluent localization system"
+categories = [
+    "localization",
+    "internationalization",
+    "development-tools",
+]
+license = "MIT"
+repository = "https://github.com/kellpossible/cargo-i18n/tree/master/i18n-embed-fl"
+
+[lib]
+name = "i18n_embed_fl"
+path = "src/lib.rs"
+proc-macro = true
+doctest = false
+
+[dependencies.dashmap]
+version = "6.0"
+optional = true
+
+[dependencies.find-crate]
+version = "0.6"
+
+[dependencies.fluent]
+version = "0.16"
+
+[dependencies.fluent-syntax]
+version = "0.11"
+
+[dependencies.i18n-config]
+version = "0.4.7"
+
+[dependencies.i18n-embed]
+version = "0.15.4"
+features = [
+    "fluent-system",
+    "filesystem-assets",
+]
+
+[dependencies.proc-macro-error2]
+version = "2.0.1"
+
+[dependencies.proc-macro2]
+version = "1.0"
+
+[dependencies.quote]
+version = "1.0"
+
+[dependencies.strsim]
+version = "0.11"
+
+[dependencies.syn]
+version = "2.0"
+features = [
+    "derive",
+    "proc-macro",
+    "parsing",
+    "printing",
+    "extra-traits",
+    "full",
+]
+
+[dependencies.unic-langid]
+version = "0.9"
+
+[features]
+dashmap = ["dep:dashmap"]

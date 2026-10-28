@@ -25,3 +25,8 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 tonic = { workspace = true }
 futures-util = "0.3"
+
+[dev-dependencies]
+cadence-core = { path = "../cadence-core" }
+pczt = { workspace = true, features = ["orchard"] }
+rand = { workspace = true }

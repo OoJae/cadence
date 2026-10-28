@@ -1,4 +1,5 @@
 mod http;
+mod keyfile;
 mod subscribe;
 
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -69,6 +70,8 @@ enum Command {
         /// Where to keep the subscription (needed to cancel).
         #[arg(long)]
         out: PathBuf,
+        #[command(flatten)]
+        key: KeyArgs,
         /// Seconds from signing until installment 1 becomes releasable, after any
         /// trial the offer sets. Each installment then moves up to a quarter period
         /// (at most 6 h) later at random.
@@ -136,15 +139,38 @@ enum PocketCommand {
     New {
         #[arg(long, value_enum, default_value = "test")]
         network: Net,
-        /// Where to write the pocket file. Dev-only: the seed is stored unencrypted.
+        /// Where to write the pocket file.
         #[arg(long)]
         out: PathBuf,
+        #[command(flatten)]
+        key: KeyArgs,
     },
     /// Print a pocket's funding address and UFVK.
     Show {
         #[arg(long)]
         pocket: PathBuf,
     },
+}
+
+/// How a new file holding the pocket seed is protected. It is always 0600; with a
+/// passphrase it is also encrypted, as the web app's cancel key is.
+#[derive(Args)]
+struct KeyArgs {
+    /// Encrypt the file to the passphrase in this file [default: $CADENCE_KEY_PASSPHRASE,
+    /// else ask at a terminal, else write the seed unencrypted].
+    #[arg(long)]
+    passphrase_file: Option<PathBuf>,
+}
+
+impl KeyArgs {
+    /// Chooses the protection for `out`, refusing first if it already exists.
+    fn protect(&self, out: &PathBuf) -> Result<()> {
+        if out.exists() {
+            bail!("{} already exists", out.display());
+        }
+        keyfile::protect(out, keyfile::choose(self.passphrase_file.as_deref())?);
+        Ok(())
+    }
 }
 
 #[derive(Args)]
@@ -229,7 +255,7 @@ struct PresignArgs {
     chain: ChainArgs,
 }
 
-/// Dev-only pocket file. Production pockets wrap the seed with WebAuthn-PRF or Argon2id.
+/// A pocket file from `pocket new`, as `keyfile` writes it.
 #[derive(Serialize, Deserialize)]
 struct PocketFile {
     network: String,
@@ -237,7 +263,7 @@ struct PocketFile {
 }
 
 fn load_pocket(path: &PathBuf) -> Result<(Network, &'static str, Pocket)> {
-    let file: PocketFile = serde_json::from_slice(&subscribe::read_kit(path)?)?;
+    let file: PocketFile = serde_json::from_slice(&keyfile::read(path)?)?;
     let net = match file.network.as_str() {
         "main" => Net::Main,
         "test" => Net::Test,
@@ -369,21 +395,15 @@ async fn presign(args: PresignArgs) -> Result<()> {
 async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Pocket { command } => match command {
-            PocketCommand::New { network, out } => {
-                if out.exists() {
-                    bail!("{} already exists", out.display());
-                }
+            PocketCommand::New { network, out, key } => {
+                key.protect(&out)?;
                 let mut seed = [0u8; 32];
                 rand::fill(&mut seed);
                 let file = PocketFile {
                     network: network.name().into(),
                     seed_hex: hex::encode(seed),
                 };
-                if let Some(dir) = out.parent() {
-                    fs::create_dir_all(dir)?;
-                }
-                fs::write(&out, serde_json::to_vec_pretty(&file)?)
-                    .with_context(|| format!("writing {}", out.display()))?;
+                keyfile::write(&out, &serde_json::to_vec_pretty(&file)?)?;
                 let params = network.params();
                 let pocket = Pocket::from_seed(&seed, params.network_type().coin_type());
                 print_pocket(&params, &pocket)?;
@@ -394,7 +414,8 @@ async fn main() -> Result<()> {
             }
         },
         Command::Presign(args) => presign(args).await?,
-        Command::Subscribe { runner, offer, out, first_in, sandbox_fund, chain } => {
+        Command::Subscribe { runner, offer, out, key, first_in, sandbox_fund, chain } => {
+            key.protect(&out)?;
             let http = chain.runner(&runner, None).await?;
             tokio::task::spawn_blocking(move || subscribe::subscribe(&http, &runner, &offer, &out, first_in, sandbox_fund))
                 .await??

@@ -405,10 +405,7 @@ Every build writes `dist/build.json` (`src/config/buildInfo.ts`):
 The footer reads `build.json` from its own origin and shows "Built from commit X; bundle sha256 Y".
 The commit is not in the bundle, so the same sources give the same `bundle_sha256` at any commit.
 
-This is not a reproducibility claim. Two consecutive clean builds on one machine, with the same
-`node_modules` and the same prebuilt WASM, were byte-identical; nothing has been checked across
-machines or with the WASM rebuilt from source. What it does give is a way to check that a host
-serves the files of a build you made or trust:
+To check that a host serves the files of a build you made or trust:
 
 ```sh
 # 1. The hash of your own build (equals its bundle_sha256):
@@ -426,6 +423,48 @@ curl -sI https://APP/ | grep -i content-security-policy; curl -s https://APP/csp
 
 The served `build.json` is only the host's claim; the check is against a hash you computed or got
 from elsewhere.
+
+### Rebuilding `bundle_sha256` from a commit
+
+With the tools in the table below, a commit builds the same bytes wherever it is checked out,
+WebAssembly included. `scripts/build-wasm.sh` maps the checkout, `CARGO_HOME`, the Rust toolchain and the target directory
+to fixed paths (`--remap-path-prefix`), so no path of the building machine is left in the modules. The
+workspace also patches `i18n-embed-fl` (`crates/patches/`), whose `fl!()` emitted age's error
+arguments in a different order on every compile.
+
+What was checked: on one Mac (arm64), with no `wasm-opt`, the branch was built in its checkout and in
+a fresh clone at another path, with its own `CARGO_HOME` and target directory. All four files in
+`src/wasm/` had the same SHA-256, and a third build from a new target directory matched them. A mock
+build and a `VITE_SIGNER=wasm VITE_API=runners` build each gave the same `bundle_sha256` in both
+checkouts. Nothing has been compared across machines or operating systems yet.
+
+To rebuild a served build, at the commit its footer names (if `build.json` says `dirty: true`, the
+build had uncommitted changes and the commit alone does not give it):
+
+```sh
+git clone https://github.com/OoJae/cadence && cd cadence && git checkout <commit>
+cargo install --locked wasm-bindgen-cli --version 0.2.129
+cd web && pnpm install --frozen-lockfile
+pnpm build:wasm                   # rustup installs the pinned toolchain; keep wasm-opt off PATH
+VITE_SIGNER=wasm VITE_API=runners \
+  VITE_RUNNERS="<build.json's runners, comma-separated, in order>" \
+  VITE_DEFAULT_RUNNER="<the default runner>" pnpm build
+node -p 'require("./dist/build.json").bundle_sha256'
+```
+
+What has to match the build you compare with:
+
+| What | Used for the check above | Why |
+|---|---|---|
+| Rust | 1.96.0, from `rust-toolchain.toml` | rustc generates the modules' code |
+| wasm-bindgen-cli | 0.2.129, the crate's `=0.2.129` | it writes the `.js` glue and rewrites the `.wasm` |
+| clang for wasm32 | Homebrew clang 23.1.4 | `secp256k1-sys`'s C is compiled into both modules |
+| wasm-opt | not installed | the script runs it whenever it is on `PATH`, and it changes the bytes |
+| Node, pnpm | Node 26.0.0, pnpm 11.1.2 | they run the build; the lockfile pins every package |
+| Build settings | `VITE_SIGNER`, `VITE_API`, `VITE_RUNNERS`, `VITE_DEFAULT_RUNNER` | they are compiled in. `build.json` records the first three, but not the default runner. |
+
+A build made before the path mapping has this machine's paths in its modules, so no one else can
+rebuild it byte for byte.
 
 ## Tests
 
