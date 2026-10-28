@@ -33,6 +33,10 @@ set -- serve $PATHS \
   --public-url "https://$RAILWAY_PUBLIC_DOMAIN" \
   --web-dir /srv/web
 
+# Railway's proxy is the socket's peer for every request; it names the client in
+# X-Forwarded-For, which the rate limits then count by.
+export CADENCE_TRUST_FORWARDED="${CADENCE_TRUST_FORWARDED:-1}"
+
 if [ -n "${CADENCE_WEBHOOK_URL:-}" ]; then
   set -- "$@" --webhook-url "$CADENCE_WEBHOOK_URL"
 fi
