@@ -590,9 +590,9 @@ comment lists the checks.
 **CI.** `.github/workflows/ci.yml` runs on pushes and pull requests to `main`:
 `cargo test --workspace` on the pinned toolchain; `pnpm typecheck`, `pnpm test`, the mock build
 and `pnpm verify` on Node 22; and the WebAssembly signer built from source with Ubuntu's clang,
-then `pnpm verify:wasm`. It needs no secrets and talks to no runner, lightwalletd or drand. It
-has not run yet, so nothing here claims it passes. `pnpm verify` against each production build
-before it is deployed stays a manual step.
+then `pnpm verify:wasm`. It needs no secrets and talks to no runner, lightwalletd or drand. Its
+first run, on Oct 28 at e232541, passed all three jobs, as has each push since. `pnpm verify`
+against each production build before it is deployed stays a manual step.
 
 `cargo test -p cadence-wasm` covers the Rust side:
 

@@ -800,7 +800,7 @@ Known differences between this draft and the reference implementation, also mark
 | Checking the uploaded schedule against the Offer (§ Subscription, next to rule 2) | impl: funding, first release within `trial_secs` + `period_secs` + 600 s, gaps within `period_secs` ± ⌊`period_secs` / 2⌋ |
 | Validating the Ladder against the Offer before broadcast (rule 2) | partial: index, amount, recipient and note commitment, branch, expiry, lock time and pools; not the version, spend nullifier, other output or fee |
 | Release-time jitter by the Runner (rule 11) | not impl; the payers jitter release times at signing instead (§ Offer) |
-| Re-signing (§ Re-signing) | partial: the installments still sealed on an active subscription, by the CLI, with *a* = 0; not yet run on a public network |
+| Re-signing (§ Re-signing) | partial: the installments still sealed on an active subscription, by the CLI, with *a* = 0; run once on Testnet against a reference Runner, with an installment mined from a re-signed package |
 | Recovery from `missed` or `invalid` | not impl: the payer cancels or sweeps and subscribes again |
 | Deleting the pocket UFVK and funding transaction at finish (rule 12) | impl, at the file level; after a stop the wallet account is kept for up to 30 days for the payer's refund, and on a Testnet sandbox a cancel's voided Packages for an hour |
 | Confirming that the spender is not the installment itself before declaring cancellation | impl |

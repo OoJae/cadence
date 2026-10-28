@@ -97,7 +97,7 @@ The mainnet runner's build 7244e6a lists no `refund_after_stop`: it deletes the 
 | Mainnet run funded from Zodl | ✅ [`evidence/mainnet.md`](evidence/mainnet.md): a 3-payment short run, each payment mined in its target block, and a weekly mandate paying through judging |
 | NU7 rehearsal: a mandate signed with NU7 pending, released across activation | ✅ on a local regtest chain, not a public network: [`evidence/nu7-regtest.md`](evidence/nu7-regtest.md). The mainnet crossing is Nov 10. |
 | Free trials, fiat price labels, release jitter, payer-signed requests, access passes, refunds after a stop, re-signing, rate and body limits | In the code at this commit, with tests; not deployed. The mainnet runner stays on 7244e6a and will not get them (`docs/api.md`). |
-| CI (`.github/workflows/ci.yml`): Rust tests, web checks and the WebAssembly signer built from source | The workflow is in the repository; it has not run yet |
+| CI (`.github/workflows/ci.yml`): Rust tests, web checks and the WebAssembly signer built from source | Runs on every push to `main`; all three jobs passed from its first run on Oct 28 (e232541) |
 
 ## Evidence
 
