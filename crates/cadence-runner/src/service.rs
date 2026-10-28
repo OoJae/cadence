@@ -3,7 +3,7 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -24,6 +24,7 @@ use zcash_primitives::transaction::TxId;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
 use crate::{
+    decoder::Decoder,
     store::{Funding, Installment, Store, Subscription},
     webhook::{self, Event},
 };
@@ -39,6 +40,9 @@ pub struct Config {
     pub webhook_secret: Option<String>,
     pub drand_url: String,
     pub tick: Duration,
+    /// Take each client's address from the first `X-Forwarded-For` hop, for the rate
+    /// limits: only behind a proxy that sets it (`CADENCE_TRUST_FORWARDED`).
+    pub trust_forwarded: bool,
 }
 
 /// The testnet sandbox's own (custodial, disclosed) wallet that funds judges' pockets.
@@ -51,6 +55,8 @@ pub struct Funder {
     pub funded: Mutex<std::collections::HashSet<String>>,
     /// One payment at a time.
     pub queue: tokio::sync::Mutex<()>,
+    /// Fundings in the last hour, against the faucet's hourly limits.
+    pub budget: Mutex<crate::sandbox::Budget>,
 }
 
 pub struct App {
@@ -63,10 +69,33 @@ pub struct App {
     pub store: Mutex<Store>,
     pub sync_client: lwd::Client,
     pub broadcast_client: lwd::Client,
+    /// `GET /api/decode`'s own connection, cache and cap, so visitors never queue
+    /// behind the scheduler.
+    pub decoder: Decoder,
+    pub health: Health,
     pub identity: x25519::Identity,
     pub recipient: String,
     pub chain: DrandChain,
     pub tip: AtomicU32,
+}
+
+/// The scheduler is unhealthy once it has not finished a tick for this long.
+pub const STALE_TICK_SECS: u64 = 180;
+
+/// What `GET /api/status` reports of the scheduler (`scheduler`).
+#[derive(Default)]
+pub struct Health {
+    /// When the last tick finished, in UNIX seconds; 0 until the first has.
+    pub last_tick_at: AtomicU64,
+    /// Whether the last tick failed to reach the chain tip or to sync the wallet.
+    pub sync_failed: AtomicBool,
+}
+
+impl Health {
+    pub fn healthy(&self, now: u64) -> bool {
+        now.saturating_sub(self.last_tick_at.load(Ordering::Relaxed)) < STALE_TICK_SECS
+            && !self.sync_failed.load(Ordering::Relaxed)
+    }
 }
 
 pub fn now() -> u64 {
@@ -100,24 +129,18 @@ pub async fn run(app: Arc<App>) {
         if let Err(e) = tick(&app).await {
             eprintln!("tick failed: {e:#}");
         }
+        app.health.last_tick_at.store(now(), Ordering::Relaxed);
         tokio::time::sleep(app.cfg.tick).await;
     }
 }
 
 async fn tick(app: &App) -> Result<()> {
     let mut client = app.sync_client.clone();
-    let tip = lwd::tip(&mut client).await?;
-    app.tip.store(u32::from(tip), Ordering::Relaxed);
-    {
-        let mut db = app.wallet.lock().await;
-        // With no pocket there is no birthday to scan from, and nothing to find.
-        if db.get_account_ids()?.is_empty() {
-            return Ok(());
-        }
-        wallet::sync(&mut client, &app.cfg.network, &mut db).await?;
-    }
+    let synced = sync_chain(app, &mut client).await;
+    app.health.sync_failed.store(synced.is_err(), Ordering::Relaxed);
+    let Some(tip) = synced? else { return Ok(()) };
     record_fundings(app, &mut client, tip).await?;
-    forget_abandoned(app).await?;
+    forget_abandoned(app, tip).await?;
 
     let round_now = cadence_seal::round_at(&app.chain, now());
     let subs = app.store.lock().unwrap().subscriptions(true)?;
@@ -127,6 +150,19 @@ async fn tick(app: &App) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The chain tip, with the wallet scanned up to it. `None` while the wallet holds no
+/// pocket: there is no birthday to scan from, and nothing to find.
+async fn sync_chain(app: &App, client: &mut lwd::Client) -> Result<Option<BlockHeight>> {
+    let tip = lwd::tip(client).await?;
+    app.tip.store(u32::from(tip), Ordering::Relaxed);
+    let mut db = app.wallet.lock().await;
+    if db.get_account_ids()?.is_empty() {
+        return Ok(None);
+    }
+    wallet::sync(client, &app.cfg.network, &mut db).await?;
+    Ok(Some(tip))
 }
 
 /// Remembers each pocket's funding transaction the first time its note is seen.
@@ -155,14 +191,30 @@ async fn record_fundings(app: &App, client: &mut lwd::Client, tip: BlockHeight) 
     Ok(())
 }
 
-/// Unfunded pockets are forgotten after a day; funded ones whose payer never
+/// How long a registered pocket may wait for its funding before it is forgotten.
+pub const UNFUNDED_POCKET_SECS: u64 = 2 * 60 * 60;
+/// How long a funded pocket may wait for its packages.
+pub const UNSUBSCRIBED_POCKET_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Unfunded pockets are forgotten after two hours; funded ones whose payer never
 /// uploaded packages after a week. The funds stay the payer's (`cadence sweep`).
-async fn forget_abandoned(app: &App) -> Result<()> {
-    const DAY: u64 = 24 * 60 * 60;
+/// A pocket counts as unfunded only if `record_fundings` has recorded no funding and
+/// the wallet, scanned to `tip`, holds no note for it either, so one funded but not
+/// yet subscribed is kept for the week.
+async fn forget_abandoned(app: &App, tip: BlockHeight) -> Result<()> {
     let t = now();
-    let pockets = app.store.lock().unwrap().abandoned_pockets(t.saturating_sub(DAY), t.saturating_sub(7 * DAY))?;
+    let pockets = app.store.lock().unwrap().abandoned_pockets(
+        t.saturating_sub(UNFUNDED_POCKET_SECS),
+        t.saturating_sub(UNSUBSCRIBED_POCKET_SECS),
+    )?;
     for pocket in pockets {
-        app.wallet.lock().await.delete_account(parse_account(&pocket.account)?)?;
+        let account = parse_account(&pocket.account)?;
+        let mut db = app.wallet.lock().await;
+        if pocket.funding.is_none() && !wallet::unspent_notes(&db, account, tip + 1)?.is_empty() {
+            continue;
+        }
+        db.delete_account(account)?;
+        drop(db);
         app.store.lock().unwrap().delete_pocket(&pocket.pocket_id)?;
         println!("pocket {}: abandoned; deleted", pocket.pocket_id);
     }

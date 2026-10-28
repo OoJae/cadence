@@ -1,9 +1,8 @@
 //! The runner's HTTP API (`docs/api.md`).
 
 use std::{
-    collections::VecDeque,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
@@ -30,7 +29,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use zcash_client_backend::data_api::WalletRead;
 use zcash_keys::address::Address;
-use zcash_primitives::transaction::{Transaction, TxId};
+use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId};
 
 use crate::{
@@ -68,7 +67,7 @@ fn random_id(prefix: &str) -> String {
     format!("{prefix}_{}", hex::encode(bytes))
 }
 
-fn is_merchant(app: &App, headers: &HeaderMap) -> bool {
+pub(crate) fn is_merchant(app: &App, headers: &HeaderMap) -> bool {
     let presented = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -91,9 +90,15 @@ fn require_merchant(app: &App, headers: &HeaderMap) -> ApiResult<()> {
     }
 }
 
+/// Request bodies: a ladder of sealed packages runs to megabytes, and nothing else
+/// needs more than a few kilobytes.
+pub const UPLOAD_BODY_LIMIT: usize = 80 * 1024 * 1024;
+pub const BODY_LIMIT: usize = 64 * 1024;
+
 /// The API, callable from `cors_origins` as well as its own origin, and the web app
 /// if `web_dir` is given.
 pub fn router(app: Arc<App>, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderValue>) -> Router {
+    let limits = Arc::new(crate::limits::Limits::new(app.clone()));
     let api = Router::new()
         .route("/api/status", get(status))
         .route("/api/offers", post(create_offer))
@@ -102,14 +107,20 @@ pub fn router(app: Arc<App>, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderV
         .route("/api/pockets/{id}", get(get_pocket))
         .route("/api/pockets/{id}/witness", get(get_witness))
         .route("/api/broadcast", post(broadcast))
-        .route("/api/subscriptions", post(create_subscription).get(list_subscriptions))
+        .route(
+            "/api/subscriptions",
+            post(create_subscription)
+                .get(list_subscriptions)
+                .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT)),
+        )
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}/stop", post(stop_subscription))
         .route("/api/decode/{txid}", get(decode))
         .route("/api/sandbox/offer", post(crate::sandbox::offer))
         .route("/api/sandbox/fund", post(crate::sandbox::fund))
         .route("/api/sandbox/cheat", post(crate::sandbox::cheat))
-        .layer(DefaultBodyLimit::max(80 * 1024 * 1024))
+        .layer(axum::middleware::from_fn_with_state(limits, crate::limits::check))
+        .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(app);
     with_headers(api, web_dir, cors_origins)
 }
@@ -133,6 +144,8 @@ fn with_headers(api: Router, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderV
         // no credentials (the merchant token is a header, never a cookie), and a
         // resource policy that its COEP allows.
         let cors = CorsLayer::new()
+            // So that the page can read how long a 429 asks it to wait.
+            .expose_headers([header::RETRY_AFTER])
             .allow_origin(AllowOrigin::list(cors_origins))
             .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
             .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
@@ -170,12 +183,27 @@ const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
     media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; \
     require-trusted-types-for 'script'; trusted-types cadence-worker; frame-ancestors 'none'";
 
+/// The parts of contract v2 this runner implements (`features` in `GET /api/status`).
+fn features(app: &App) -> Vec<&'static str> {
+    let mut features = vec![];
+    if app.funder.is_some() && app.cfg.network_name == "test" {
+        features.push("fund_offer");
+    }
+    features
+}
+
 async fn status(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let t = now();
     let mut status = json!({
         "network": app.cfg.network_name,
         "tip": app.tip.load(Ordering::Relaxed),
-        "drand_round": cadence_seal::round_at(&app.chain, now()),
+        "drand_round": cadence_seal::round_at(&app.chain, t),
         "sandbox": app.funder.is_some() && app.cfg.network_name == "test",
+        "features": features(&app),
+        "scheduler": {
+            "last_tick_at": app.health.last_tick_at.load(Ordering::Relaxed),
+            "healthy": app.health.healthy(t),
+        },
     });
     // How many customers a merchant has is the merchant's to know, as with the list;
     // the sandbox's merchant is its own demo wallet.
@@ -272,10 +300,17 @@ struct NewPocket {
     pocket_ufvk: String,
 }
 
+/// Registered pockets that are neither funded nor forgotten yet, each an account the
+/// wallet scans; past this, registration waits for some to be.
+pub const MAX_PENDING_POCKETS: u64 = 1_000;
+
 async fn create_pocket(
     State(app): State<Arc<App>>,
     Json(req): Json<NewPocket>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    if app.store.lock().unwrap().count_pending_pockets()? >= MAX_PENDING_POCKETS {
+        return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, "the runner is busy; try again later".into()));
+    }
     let mut client = app.sync_client.clone();
     let server_tip = lwd::tip(&mut client).await?;
     let id = random_id("pkt");
@@ -572,21 +607,24 @@ async fn stop_subscription(
     Ok(Json(json!({ "subscription_id": id, "status": "stopped" })))
 }
 
-/// Blocks a transaction must be under before its decoded shape is kept, so that a
-/// reorg cannot change its mined height afterwards.
-const DECODE_CACHE_DEPTH: u32 = 10;
-const DECODE_CACHE_SIZE: usize = 256;
-
-/// Shapes of mined transactions, oldest first, so that visitors decoding the same
-/// txids do not each cost thirteen lightwalletd lookups.
-static DECODED: Mutex<VecDeque<(TxId, Value)>> = Mutex::new(VecDeque::new());
+/// How long a decode waits for one of the [`crate::decoder::DECODES_AT_ONCE`] turns.
+const DECODE_QUEUE_SECS: u64 = 15;
 
 async fn decode(State(app): State<Arc<App>>, Path(txid): Path<String>) -> ApiResult<Json<Value>> {
     let txid = parse_txid(&txid).map_err(|_| bad("not a txid"))?;
-    if let Some((_, shape)) = DECODED.lock().unwrap().iter().find(|(t, _)| *t == txid) {
-        return Ok(Json(shape.clone()));
+    // Mined shapes are kept, so visitors decoding the same txids do not each cost
+    // thirteen lightwalletd lookups. Look again after waiting for a turn: a decode of
+    // the same txid may have finished meanwhile.
+    if let Some(shape) = app.decoder.cached(&txid) {
+        return Ok(Json(shape));
     }
-    let mut client = app.sync_client.clone();
+    let _turn = tokio::time::timeout(Duration::from_secs(DECODE_QUEUE_SECS), app.decoder.permits.acquire())
+        .await
+        .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "the decoder is busy; try again shortly".into()))??;
+    if let Some(shape) = app.decoder.cached(&txid) {
+        return Ok(Json(shape));
+    }
+    let mut client = app.decoder.client.clone();
     let (tx, mined) = lwd::transaction(&mut client, &app.cfg.network, &txid)
         .await
         .map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("{e:#}")))?;
@@ -608,22 +646,13 @@ async fn decode(State(app): State<Arc<App>>, Path(txid): Path<String>) -> ApiRes
         let nullifiers: Vec<String> = bundle.actions().iter().map(|a| hex::encode(a.nullifier().to_bytes())).collect();
         shape["ironwood_nullifiers"] = json!(nullifiers);
     }
-    let tip = app.tip.load(Ordering::Relaxed);
-    if mined.is_some_and(|h| u32::from(h).saturating_add(DECODE_CACHE_DEPTH) <= tip) {
-        let mut cache = DECODED.lock().unwrap();
-        if !cache.iter().any(|(t, _)| *t == txid) {
-            if cache.len() == DECODE_CACHE_SIZE {
-                cache.pop_front();
-            }
-            cache.push_back((txid, shape.clone()));
-        }
-    }
+    app.decoder.remember(txid, &shape, mined, app.tip.load(Ordering::Relaxed));
     Ok(Json(shape))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::atomic::AtomicU32;
+    use std::sync::{atomic::AtomicU32, Mutex};
 
     use axum::{
         body::{to_bytes, Body},
@@ -636,11 +665,12 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
+        decoder::Decoder,
         service::{Config, Funder},
         store::{Funding, Store},
     };
 
-    const TOKEN: &str = "a-merchant-token-for-tests";
+    pub const TOKEN: &str = "a-merchant-token-for-tests";
     const APP_ORIGIN: &str = "https://app.example";
     const NOW: u64 = 1_792_677_856;
 
@@ -769,6 +799,7 @@ pub(crate) mod tests {
             in_flight: Mutex::new(vec![]),
             funded: Mutex::new(Default::default()),
             queue: tokio::sync::Mutex::new(()),
+            budget: Default::default(),
         });
         Arc::new(App {
             cfg: Config {
@@ -781,13 +812,16 @@ pub(crate) mod tests {
                 webhook_secret: None,
                 drand_url: cadence_seal::DEFAULT_RELAY.into(),
                 tick: Duration::from_secs(10),
+                trust_forwarded: false,
             },
             funder,
             tor: None,
             wallet: tokio::sync::Mutex::new(wallet_db),
             store: Mutex::new(Store::open(memory).unwrap()),
             sync_client: client.clone(),
-            broadcast_client: client,
+            broadcast_client: client.clone(),
+            decoder: Decoder::new(client),
+            health: Default::default(),
             recipient: identity.to_public().to_string(),
             identity,
             chain: DrandChain::quicknet(),
@@ -874,6 +908,33 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn status_reports_features_and_the_schedulers_health() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let (_, _, body) = send(&api, get("/api/status", None, None)).await;
+        assert_eq!(body["features"], json!([]));
+        // No tick has finished yet.
+        assert_eq!(body["scheduler"], json!({ "last_tick_at": 0, "healthy": false }));
+
+        let t = now();
+        app.health.last_tick_at.store(t, Ordering::Relaxed);
+        let (_, _, body) = send(&api, get("/api/status", None, None)).await;
+        assert_eq!(body["scheduler"], json!({ "last_tick_at": t, "healthy": true }));
+        app.health.sync_failed.store(true, Ordering::Relaxed);
+        let (_, _, body) = send(&api, get("/api/status", None, None)).await;
+        assert_eq!(body["scheduler"]["healthy"], false);
+
+        // Healthy only within three minutes of the last tick, and with the sync working.
+        app.health.sync_failed.store(false, Ordering::Relaxed);
+        assert!(app.health.healthy(t + service::STALE_TICK_SECS - 1));
+        assert!(!app.health.healthy(t + service::STALE_TICK_SECS));
+
+        let sandbox = router(test_app(true, None), None, vec![]);
+        let (_, _, body) = send(&sandbox, get("/api/status", None, None)).await;
+        assert_eq!(body["features"], json!(["fund_offer"]));
+    }
+
+    #[tokio::test]
     async fn cors_preflight_answers_only_the_allowed_origin() {
         let api = router(test_app(false, None), Some(web_dir()), cors());
         let (status, headers, _) = send(&api, preflight("/api/subscriptions", APP_ORIGIN)).await;
@@ -930,13 +991,46 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn decoded_shapes_are_served_from_the_cache() {
         // No lightwalletd is reachable, so only the cache can answer.
-        let api = router(test_app(false, None), None, vec![]);
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
         let txid = "ab".repeat(32);
         let shape = json!({ "txid": txid, "mined_height": 4_529_248 });
-        DECODED.lock().unwrap().push_back((parse_txid(&txid).unwrap(), shape.clone()));
+        let mined = Some(BlockHeight::from_u32(4_529_248));
+        app.decoder.remember(parse_txid(&txid).unwrap(), &shape, mined, 4_529_300);
         let (status, _, body) = send(&api, get(&format!("/api/decode/{txid}"), None, None)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, shape);
+        // Anything else asks lightwalletd, over the decoder's own channel.
+        let (status, _, _) = send(&api, get(&format!("/api/decode/{}", "cd".repeat(32)), None, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(app.decoder.permits.available_permits(), crate::decoder::DECODES_AT_ONCE);
+    }
+
+    #[tokio::test]
+    async fn pocket_registration_waits_while_too_many_are_unfunded() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let register = || {
+            Request::post("/api/pockets")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::from(json!({ "pocket_ufvk": "uview-test" }).to_string()))
+                .unwrap()
+        };
+        {
+            let store = app.store.lock().unwrap();
+            for n in 0..MAX_PENDING_POCKETS {
+                store.insert_pocket(&format!("pkt_{n}"), "00000000-0000-0000-0000-000000000002", "uview-test", 1, now()).unwrap();
+            }
+        }
+        let (status, _, body) = send(&api, register()).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "the runner is busy; try again later");
+        // A funded pocket no longer counts; registering then goes on to lightwalletd.
+        let funding = Funding { txid: "00".repeat(32), tx_hex: String::new(), mined_height: 1, value_zat: 1 };
+        app.store.lock().unwrap().set_funding("pkt_0", &funding).unwrap();
+        let (status, _, body) = send(&api, register()).await;
+        assert_ne!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     }
 
     #[tokio::test]

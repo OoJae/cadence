@@ -7,6 +7,8 @@
 //! signed byte.
 
 mod api;
+mod decoder;
+mod limits;
 mod sandbox;
 mod service;
 mod store;
@@ -14,7 +16,9 @@ mod webhook;
 
 use std::{
     fs,
+    future::Future,
     io::Write,
+    net::SocketAddr,
     path::PathBuf,
     str::FromStr,
     sync::{atomic::AtomicU32, Arc, Mutex},
@@ -29,6 +33,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use zcash_protocol::consensus::Network;
 
 use crate::{
+    decoder::Decoder,
     service::{App, Config},
     store::Store,
 };
@@ -136,6 +141,10 @@ enum Command {
         /// Serve the built web app (web/dist) from this directory, same-origin with the API.
         #[arg(long)]
         web_dir: Option<PathBuf>,
+        /// Count each client by the first X-Forwarded-For hop rather than the socket's
+        /// peer, for the rate limits. Only behind a proxy that sets it.
+        #[arg(long, env = "CADENCE_TRUST_FORWARDED", value_parser = clap::builder::BoolishValueParser::new())]
+        trust_forwarded: bool,
     },
 }
 
@@ -144,25 +153,37 @@ fn load_identity(path: &PathBuf) -> Result<x25519::Identity> {
     x25519::Identity::from_str(text.trim()).map_err(|e| anyhow!("bad identity: {e}"))
 }
 
-/// Retries for a few minutes: Tor circuits and public servers time out now and then,
-/// and a restarted runner should come back on its own.
-async fn connect(server: &str, direct: bool, tor_dir: PathBuf) -> Result<lwd::Client> {
-    let mut attempt = 1;
+/// The longest wait between two attempts at boot.
+const MAX_BACKOFF: Duration = Duration::from_secs(120);
+
+/// The wait after failed attempt `n` (from 1): 5 s, doubling up to [`MAX_BACKOFF`].
+fn backoff(n: u32) -> Duration {
+    Duration::from_secs(5u64.saturating_mul(1 << n.saturating_sub(1).min(16))).min(MAX_BACKOFF)
+}
+
+/// Retries `attempt` until it succeeds. Tor circuits and public servers fail now and
+/// then, and a runner restarted while lightwalletd is down must come back on its own
+/// once it is up, however long that takes.
+async fn until_ok<T, F: Future<Output = Result<T>>>(what: &str, mut attempt: impl FnMut() -> F) -> T {
+    let mut n = 1;
     loop {
-        let result = if direct {
-            cadence_chain::connect(server, Transport::Direct).await
-        } else {
-            cadence_chain::connect(server, Transport::Tor { dir: &tor_dir }).await
-        };
-        match result {
-            Ok(client) => return Ok(client),
-            Err(e) if attempt < 8 => {
-                eprintln!("connecting to {server} (attempt {attempt}): {e:#}; retrying");
-                tokio::time::sleep(Duration::from_secs(5 * attempt)).await;
-                attempt += 1;
+        match attempt().await {
+            Ok(value) => return value,
+            Err(e) => {
+                let wait = backoff(n);
+                eprintln!("{what} (attempt {n}): {e:#}; retrying in {} s", wait.as_secs());
+                tokio::time::sleep(wait).await;
+                n = n.saturating_add(1);
             }
-            Err(e) => return Err(e),
         }
+    }
+}
+
+fn transport(direct: bool, tor_dir: &PathBuf) -> Transport<'_> {
+    if direct {
+        Transport::Direct
+    } else {
+        Transport::Tor { dir: tor_dir }
     }
 }
 
@@ -212,6 +233,7 @@ async fn main() -> Result<()> {
             sandbox_funder,
             sandbox_funder_birthday,
             web_dir,
+            trust_forwarded,
         } => {
             // A sandbox runner is a public demo: it lists every subscription and pays
             // pockets from a custodial wallet. Never on mainnet.
@@ -239,13 +261,18 @@ async fn main() -> Result<()> {
                 .collect::<Result<Vec<_>>>()?;
             let identity = load_identity(&paths.identity)?;
             let recipient = identity.to_public().to_string();
-            let sync_client = connect(&server, direct, tor_dir.join("sync")).await?;
-            let broadcast_client = connect(
-                broadcast_server.as_deref().unwrap_or(&server),
-                direct,
-                tor_dir.join("broadcast"),
-            )
-            .await?;
+            // The decoder's channel shares the scheduler's Tor bootstrap, not its circuit.
+            let sync_dir = tor_dir.join("sync");
+            let (sync_client, decode_client) = until_ok(&format!("connecting to {server}"), || {
+                lwd::connect_pair(&server, transport(direct, &sync_dir))
+            })
+            .await;
+            let broadcast_server = broadcast_server.as_deref().unwrap_or(&server);
+            let broadcast_dir = tor_dir.join("broadcast");
+            let broadcast_client = until_ok(&format!("connecting to {broadcast_server}"), || {
+                cadence_chain::connect(broadcast_server, transport(direct, &broadcast_dir))
+            })
+            .await;
             wallet::compact(&paths.wallet_db)?;
             let mut wallet_db = wallet::open(&paths.wallet_db, paths.network.params())?;
             let store = Store::open(&paths.state_db)?;
@@ -290,6 +317,7 @@ async fn main() -> Result<()> {
                         in_flight: Mutex::new(vec![]),
                         funded: Mutex::new(Default::default()),
                         queue: tokio::sync::Mutex::new(()),
+                        budget: Default::default(),
                     })
                 }
             };
@@ -299,9 +327,12 @@ async fn main() -> Result<()> {
                 let dir = tor_dir.join("drand");
                 fs::create_dir_all(&dir)?;
                 Some(
-                    zcash_client_backend::tor::Client::create(&dir, |_| {})
-                        .await
-                        .map_err(|e| anyhow!("bootstrapping Tor for drand: {e:?}"))?,
+                    until_ok("bootstrapping Tor for drand", || async {
+                        zcash_client_backend::tor::Client::create(&dir, |_| {})
+                            .await
+                            .map_err(|e| anyhow!("{e:?}"))
+                    })
+                    .await,
                 )
             };
             let app = Arc::new(App {
@@ -317,11 +348,14 @@ async fn main() -> Result<()> {
                     webhook_secret,
                     drand_url,
                     tick: Duration::from_secs(tick),
+                    trust_forwarded,
                 },
                 wallet: tokio::sync::Mutex::new(wallet_db),
                 store: Mutex::new(store),
                 sync_client,
                 broadcast_client,
+                decoder: Decoder::new(decode_client),
+                health: Default::default(),
                 identity,
                 recipient: recipient.clone(),
                 chain: DrandChain::quicknet(),
@@ -333,7 +367,11 @@ async fn main() -> Result<()> {
             if !origins.is_empty() {
                 println!("the API also answers pages from {}", origins.join(", "));
             }
-            axum::serve(listener, api::router(app, web_dir, cors)).await?;
+            if trust_forwarded {
+                println!("rate limits count clients by their first X-Forwarded-For hop");
+            }
+            let api = api::router(app, web_dir, cors);
+            axum::serve(listener, api.into_make_service_with_connect_info::<SocketAddr>()).await?;
         }
     }
     Ok(())
@@ -371,7 +409,31 @@ fn origin_of(url: &str, bare: bool) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::origin_of;
+    use super::{backoff, origin_of, Cli, Command, MAX_BACKOFF};
+    use clap::Parser;
+    use std::time::Duration;
+
+    #[test]
+    fn boot_retries_back_off_to_a_cap() {
+        let waits: Vec<u64> = (1..=8).map(|n| backoff(n).as_secs()).collect();
+        assert_eq!(waits, [5, 10, 20, 40, 80, 120, 120, 120]);
+        assert_eq!(backoff(u32::MAX), MAX_BACKOFF);
+        assert_eq!(backoff(0), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn trust_forwarded_takes_the_flag_or_a_boolish_value() {
+        let parse = |extra: &[&str]| {
+            let args = [&["cadence-runner", "serve", "--merchant-token", "a-merchant-token-for-tests"], extra].concat();
+            match Cli::try_parse_from(args).unwrap().command {
+                Command::Serve { trust_forwarded, .. } => trust_forwarded,
+                Command::Init { .. } => unreachable!(),
+            }
+        };
+        // CADENCE_TRUST_FORWARDED is read the same way (`=1` on Railway).
+        assert!(parse(&["--trust-forwarded"]));
+        assert!(!parse(&[]));
+    }
 
     #[test]
     fn origins_are_what_browsers_send() {
