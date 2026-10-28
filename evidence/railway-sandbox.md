@@ -168,3 +168,33 @@ It took 17 s, including Tor bootstrap. The transaction was mined at 4,549,943: v
 - **What it showed:** it opened exactly two remote endpoints, `96.9.98.65:443` and `137.226.34.45:9004`. Both appear in arti's `guards.json` and in its cached Tor consensus, so both are Tor guards.
 - **What it never touched:** the lightwalletd server `testnet.zec.rocks` (66.241.124.102 and 2a09:8280:1::32:da2a:0) was never contacted directly.
 - **Limit:** this is socket sampling, not a packet capture. A connection shorter than 0.2 s could be missed, and a capture (`sudo tcpdump`) needs root.
+
+
+## Charge after cancel, live on the sandbox (2026-10-28)
+
+The fifth sandbox card is live on the sandbox runner (173b42e). It was driven through the sandbox's own page in Chromium.
+
+1. A mandate of 4 installments, one every 300 s, was funded by the faucet and signed (09:21:23 UTC).
+2. The payer pane was closed and reopened, then cancelled at once. The cancel `a9497c84…61e4e9` spent the funding note and was mined at block 4,550,448, so all four installments were voided.
+3. **Charge me after I cancel.** The sandbox runner had kept installment 1's package, as it does for an hour after a sandbox cancel. Once that package's drand round, 33,458,673, passed, it opened the package and broadcast its rung. The node refused it: the card shows `Rejected · node`.
+
+The runner log:
+
+```
+installment 2: its input was spent elsewhere; mandate cancelled
+installment 3: its input was spent elsewhere; mandate cancelled
+installment 4: its input was spent elsewhere; mandate cancelled
+cheat: charge after cancel on installment 1 rejected by node
+```
+
+The merchant's runner held a valid, signed installment, opened it once it fell due, and still could not charge: the cancel had already spent the note it spends.
+
+## The faucet's small notes (2026-10-28)
+
+**The problem.** On Oct 28 the faucet held 7,170,000 zats, in 75 notes, but could not fund a 3-installment demo. Each funding paid from a single note, and the prepay of 330,000 needed one note that large. The day's runs had spent the large notes, and payers' installments and refunds had come back as many small ones.
+
+**The fix (173b42e).** The faucet now pays from the fewest of its largest notes together, up to 20, whenever no single note is enough (`wallet::pay_combining`, `cadence_core::build_payment`).
+
+**After deploying it:**
+- The judge path's funding combined two notes. The faucet went from 75 notes and 7,170,000 zats to 74 notes and 6,830,000: the 330,000 prepay plus a 10,000 fee.
+- The judge path then passed in full on the app host: all four cheats refused, every page at 1440 and 375 px, no off-origin requests, CSP violations, console errors or storage.
