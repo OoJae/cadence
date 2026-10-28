@@ -1,8 +1,10 @@
 # The toolchain the workspace and the served WebAssembly are built with. The wasm
 # modules' hashes, and so the footer's bundle_sha256, reproduce only with this
 # exact rustc (web/README.md, "Build identity"). The minimal profile is all the
-# build needs: rustc, cargo and the standard library.
+# build needs: rustc, cargo and the standard library; clippy and rustfmt are for
+# working on the code, and change no build output.
 [toolchain]
 channel = "1.96.0"
 profile = "minimal"
+components = ["clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]

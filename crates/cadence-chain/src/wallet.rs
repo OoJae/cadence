@@ -194,14 +194,14 @@ pub fn complete(pczt: Pczt, anchor: Anchor, witness: MerklePath) -> Result<Trans
         .set_ironwood_spend_witnesses([(spend_action, witness)])
         .map_err(|e| anyhow!("setting witness: {e:?}"))?
         .finish();
-    let mut rng = UnwrapErr(SysRng);
+    let rng = UnwrapErr(SysRng);
     let pk = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3);
     let pczt = Prover::new(pczt)
-        .create_ironwood_proof(&mut rng, pk)
+        .create_ironwood_proof(rng, pk)
         .map_err(|e| anyhow!("proving: {e:?}"))?
         .finish();
     TransactionExtractor::new(pczt)
-        .extract(&mut rng)
+        .extract(rng)
         .map_err(|e| anyhow!("extracting: {e:?}"))
 }
 

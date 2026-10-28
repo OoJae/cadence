@@ -87,6 +87,8 @@ struct Paths {
     identity: PathBuf,
 }
 
+// `Serve` carries every flag and `Init` a few paths; the enum is parsed once at start.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
     /// Create the wallet and state databases and the runner's age identity.
