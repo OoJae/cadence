@@ -6,7 +6,7 @@
 
 **Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) (also on the [app host](https://app-production-be97.up.railway.app/status#sub=sub_747f99039ba4f43c5234)) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), already signed on Oct 27, will be the first after NU7, which is expected around Nov 5. That crossing was rehearsed on a local regtest chain on Oct 28 ([evidence](evidence/nu7-regtest.md)); the mainnet crossing itself is still ahead. The status page shows times in your browser's time zone, and the app host's names it; the evidence gives them in UTC.
 
-**The 60-second judge path.** Starting takes a minute; the run then finishes on its own in several minutes of testnet blocks.
+**The judge path.** It's about a minute of clicking. Starting takes one to three minutes, mostly waiting for the faucet's payment to be mined, and the run then finishes on its own over several minutes of testnet blocks. In a run on Oct 28, the start took 2.5 minutes and the first installment was mined about 3 minutes after the tab closed.
 
 1. Open the [sandbox](https://app-production-be97.up.railway.app/sandbox) and press **Create mandate and auto-fund**. The faucet pays a fresh pocket, and once that payment is mined your browser signs and seals all three installments and uploads them.
 2. Save the cancel key (or skip it), then press **Close the payer tab**. From here only the runner acts: installments fall due about 90 s apart.
