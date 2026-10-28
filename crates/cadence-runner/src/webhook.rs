@@ -235,6 +235,10 @@ mod tests {
             created_at: 1,
             funding: None,
             installments: vec![inst.clone()],
+            refundable: false,
+            refund: None,
+            payer_auth_key: None,
+            keep_until: None,
         };
         (sub, inst)
     }

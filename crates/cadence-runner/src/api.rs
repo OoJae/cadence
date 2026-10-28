@@ -7,9 +7,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
+    body::Bytes,
+    extract::{DefaultBodyLimit, OriginalUri, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -34,8 +35,9 @@ use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId};
 
 use crate::{
+    pass, payer_auth,
     service::{self, now, parse_account, parse_nullifier, parse_txid, App},
-    store::{Installment, Offer},
+    store::{Installment, Offer, Quote},
 };
 
 pub struct ApiError(pub StatusCode, pub String);
@@ -105,6 +107,9 @@ pub fn router(app: Arc<App>, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderV
         .route("/api/subscriptions", post(create_subscription).get(list_subscriptions))
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}/stop", post(stop_subscription))
+        .route("/api/subscriptions/{id}/pass", post(issue_pass))
+        .route("/api/passes/key", get(pass_key))
+        .route("/api/passes/verify", post(verify_pass))
         .route("/api/decode/{txid}", get(decode))
         .route("/api/sandbox/offer", post(crate::sandbox::offer))
         .route("/api/sandbox/fund", post(crate::sandbox::fund))
@@ -135,7 +140,12 @@ fn with_headers(api: Router, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderV
         let cors = CorsLayer::new()
             .allow_origin(AllowOrigin::list(cors_origins))
             .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-            .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+            .allow_headers([
+                header::CONTENT_TYPE,
+                header::AUTHORIZATION,
+                HeaderName::from_static(payer_auth::TIMESTAMP_HEADER),
+                HeaderName::from_static(payer_auth::SIGNATURE_HEADER),
+            ])
             .max_age(Duration::from_secs(600));
         api.layer(cors)
             .layer(SetResponseHeaderLayer::overriding(corp.clone(), HeaderValue::from_static("cross-origin")))
@@ -177,6 +187,7 @@ async fn status(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Js
         "drand_round": cadence_seal::round_at(&app.chain, now()),
         "sandbox": app.funder.is_some() && app.cfg.network_name == "test",
     });
+    status["features"] = json!(features(&app));
     // How many customers a merchant has is the merchant's to know, as with the list;
     // the sandbox's merchant is its own demo wallet.
     if app.funder.is_some() || is_merchant(&app, &headers) {
@@ -195,8 +206,17 @@ async fn status(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult<Js
     Ok(Json(status))
 }
 
+/// What this runner implements of API v2 (`GET /api/status`).
+fn features(app: &App) -> Vec<&'static str> {
+    let mut features = vec!["trial", "quote", "payer_auth", "pass", "refund_after_stop"];
+    if app.sandbox() {
+        features.push("charge_after_cancel");
+    }
+    features
+}
+
 fn offer_view(app: &App, o: &Offer) -> Value {
-    json!({
+    let mut view = json!({
         "offer_id": o.offer_id,
         "name": o.name,
         "amount_zat": o.amount_zat,
@@ -207,16 +227,37 @@ fn offer_view(app: &App, o: &Offer) -> Value {
         "runner_endpoint": app.cfg.public_url,
         "network": app.cfg.network_name,
         "drand_chain": hex::encode(app.chain.hash),
-    })
+        "trial_secs": o.trial_secs,
+    });
+    if let Some(quote) = &o.quote {
+        view["quote"] = json!(quote);
+    }
+    view
 }
 
+/// The longest trial an offer may have: 30 days.
+pub const MAX_TRIAL_SECS: u64 = 30 * 24 * 60 * 60;
+
 #[derive(Deserialize)]
-struct NewOffer {
-    name: String,
-    amount_zat: u64,
-    period_secs: u64,
-    count: u32,
-    merchant_ua: String,
+pub struct NewOffer {
+    pub name: String,
+    pub amount_zat: u64,
+    pub period_secs: u64,
+    pub count: u32,
+    pub merchant_ua: String,
+    #[serde(default)]
+    pub trial_secs: u64,
+    #[serde(default)]
+    pub quote: Option<Quote>,
+}
+
+/// Checks what an offer may carry besides its schedule: a trial of up to
+/// [`MAX_TRIAL_SECS`], and a well-formed quote.
+pub fn check_extras(trial_secs: u64, quote: Option<&Quote>) -> Result<(), String> {
+    if trial_secs > MAX_TRIAL_SECS {
+        return Err(format!("trial_secs must be between 0 and {MAX_TRIAL_SECS}"));
+    }
+    quote.map_or(Ok(()), Quote::check)
 }
 
 async fn create_offer(
@@ -231,24 +272,27 @@ async fn create_offer(
     if req.amount_zat == 0 || req.period_secs == 0 {
         return Err(bad("amount and period must be positive"));
     }
+    check_extras(req.trial_secs, req.quote.as_ref()).map_err(bad)?;
     match Address::decode(&app.cfg.network, &req.merchant_ua) {
         Some(Address::Unified(ua)) if ua.orchard().is_some() => {}
         _ => return Err(bad("merchant_ua must be a unified address with an Orchard receiver")),
     }
-    let created = insert_offer(&app, req.name, req.amount_zat, req.period_secs, req.count, req.merchant_ua)?;
+    let created = insert_offer(&app, req)?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
 /// Stores an offer and returns `{offer_id, share_url}`.
-pub fn insert_offer(app: &App, name: String, amount_zat: u64, period_secs: u64, count: u32, merchant_ua: String) -> anyhow::Result<Value> {
+pub fn insert_offer(app: &App, req: NewOffer) -> anyhow::Result<Value> {
     let offer = Offer {
         offer_id: random_id("off"),
-        name,
-        amount_zat,
-        period_secs,
-        count,
-        merchant_ua,
+        name: req.name,
+        amount_zat: req.amount_zat,
+        period_secs: req.period_secs,
+        count: req.count,
+        merchant_ua: req.merchant_ua,
         created_at: now(),
+        trial_secs: req.trial_secs,
+        quote: req.quote,
     };
     app.store.lock().unwrap().insert_offer(&offer)?;
     let view = offer_view(app, &offer);
@@ -411,6 +455,9 @@ struct NewSubscription {
     offer_id: String,
     pocket_id: String,
     installments: Vec<NewInstallment>,
+    /// The hex Ed25519 key the payer signs later requests with (`payer_auth.rs`).
+    #[serde(default)]
+    payer_auth_key: Option<String>,
 }
 
 /// How much later than one period from the upload the first installment may be
@@ -419,7 +466,7 @@ pub const FIRST_RELEASE_SLACK_SECS: u64 = 600;
 
 /// Checks an uploaded schedule, given as `(k, release_round)`, against the offer:
 /// exactly `offer.count` installments numbered from 1, a pocket funded for all of
-/// them and their fees, the first released within a period (plus
+/// them and their fees, the first released within the trial and a period (plus
 /// [`FIRST_RELEASE_SLACK_SECS`]) of `now`, and each later one a period after the one
 /// before, give or take half a period. Otherwise a payer could hand the merchant a
 /// ladder that pays a year late, or from a pocket that cannot cover it.
@@ -452,7 +499,10 @@ pub fn check_schedule(
         Some(_) => {}
     }
     let times: Vec<u64> = rounds.iter().map(|(_, round)| cadence_seal::time_of(chain, *round)).collect();
-    let latest_first = now.saturating_add(offer.period_secs).saturating_add(FIRST_RELEASE_SLACK_SECS);
+    let latest_first = now
+        .saturating_add(offer.trial_secs)
+        .saturating_add(offer.period_secs)
+        .saturating_add(FIRST_RELEASE_SLACK_SECS);
     if let Some(&first) = times.first().filter(|t| **t > latest_first) {
         return Err(format!(
             "installment 1 releases {} s after the upload; the offer allows at most {} s",
@@ -499,6 +549,10 @@ async fn create_subscription(
             _ => Err(bad("this pocket already backs a subscription; pockets are single-use")),
         };
     }
+    let payer_auth_key = match &req.payer_auth_key {
+        Some(key) => Some(hex::encode(payer_auth::parse_key(key).map_err(bad)?.to_bytes())),
+        None => None,
+    };
     let rounds: Vec<(u32, u64)> = req.installments.iter().map(|i| (i.k, i.release_round)).collect();
     check_schedule(&app.chain, &offer, pocket.funding.as_ref().map(|f| f.value_zat), &rounds, now())
         .map_err(bad)?;
@@ -526,10 +580,14 @@ async fn create_subscription(
         });
     }
     let id = random_id("sub");
-    app.store
-        .lock()
-        .unwrap()
-        .insert_subscription(&id, &offer.offer_id, &pocket.pocket_id, now(), &installments)?;
+    app.store.lock().unwrap().insert_subscription(
+        &id,
+        &offer.offer_id,
+        &pocket.pocket_id,
+        now(),
+        &installments,
+        payer_auth_key.as_deref(),
+    )?;
     Ok((StatusCode::CREATED, Json(json!({ "subscription_id": id, "status": "active" }))))
 }
 
@@ -570,6 +628,69 @@ async fn stop_subscription(
     }
     service::finish(&app, &sub, "stopped", None).await?;
     Ok(Json(json!({ "subscription_id": id, "status": "stopped" })))
+}
+
+/// `POST /api/subscriptions/{id}/pass`, signed by the payer: a pass for as long as
+/// the subscription is paid up (`pass.rs`).
+async fn issue_pass(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    let sub = app.store.lock().unwrap().subscription(&id)?.ok_or_else(not_found)?;
+    let t = now();
+    payer_auth::verify(sub.payer_auth_key.as_deref(), "POST", uri.path(), &headers, &body, t, &app.payer_replays)
+        .map_err(|e| ApiError(StatusCode::FORBIDDEN, e))?;
+    let offer = app.store.lock().unwrap().offer(&sub.offer_id)?.context("unknown offer")?;
+    let refused = |why: String| ApiError(StatusCode::CONFLICT, why);
+    if !matches!(sub.status.as_str(), "active" | "completed") {
+        return Err(refused(format!("the subscription is {}, so it is not paying", sub.status)));
+    }
+    let valid_until = pass::valid_until(&sub, offer.period_secs).context("no installments")?;
+    if t > valid_until {
+        return Err(refused(format!("the subscription is paid up only until {valid_until}")));
+    }
+    let payload = pass::Payload {
+        v: 1,
+        iss: app.cfg.network_name.into(),
+        offer_id: sub.offer_id.clone(),
+        sub: sub.subscription_id.clone(),
+        paid: sub.installments.iter().filter(|i| i.state == "mined").count() as u32,
+        valid_until,
+        iat: t,
+    };
+    Ok(Json(json!({ "pass": pass::issue(&app.pass_key, &payload)?, "valid_until": valid_until })))
+}
+
+async fn pass_key(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(json!({ "alg": "Ed25519", "public_key": hex::encode(app.pass_key.verifying_key().to_bytes()) }))
+}
+
+#[derive(Deserialize)]
+struct PassToCheck {
+    pass: String,
+}
+
+/// `POST /api/passes/verify`: whether this runner signed the pass, and it still holds.
+async fn verify_pass(State(app): State<Arc<App>>, Json(req): Json<PassToCheck>) -> Json<Value> {
+    // An expired pass still says what it was for; a forged one says nothing.
+    let (reason, payload) = match pass::check(&app.pass_key.verifying_key(), &req.pass, now()) {
+        Ok(payload) => (None, Some(payload)),
+        Err(invalid) => match (invalid.reason(), invalid) {
+            (reason, pass::Invalid::Expired(payload)) => (Some(reason), Some(payload)),
+            (reason, _) => (Some(reason), None),
+        },
+    };
+    Json(json!({
+        "valid": reason.is_none(),
+        "reason": reason,
+        "offer_id": payload.as_ref().map(|p| &p.offer_id),
+        "sub": payload.as_ref().map(|p| &p.sub),
+        "paid": payload.as_ref().map(|p| p.paid),
+        "valid_until": payload.as_ref().map(|p| p.valid_until),
+    }))
 }
 
 /// Blocks a transaction must be under before its decoded shape is kept, so that a
@@ -640,7 +761,7 @@ pub(crate) mod tests {
         store::{Funding, Store},
     };
 
-    const TOKEN: &str = "a-merchant-token-for-tests";
+    pub const TOKEN: &str = "a-merchant-token-for-tests";
     const APP_ORIGIN: &str = "https://app.example";
     const NOW: u64 = 1_792_677_856;
 
@@ -653,6 +774,21 @@ pub(crate) mod tests {
             count,
             merchant_ua: String::new(),
             created_at: 0,
+            trial_secs: 0,
+            quote: None,
+        }
+    }
+
+    /// Terms for `insert_offer`.
+    pub fn plan(count: u32, period_secs: u64, trial_secs: u64) -> NewOffer {
+        NewOffer {
+            name: "Plan".into(),
+            amount_zat: 20_000,
+            period_secs,
+            count,
+            merchant_ua: String::new(),
+            trial_secs,
+            quote: None,
         }
     }
 
@@ -735,6 +871,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_trial_pushes_the_first_installment_back() {
+        let chain = DrandChain::quicknet();
+        let trial = 7 * 86_400;
+        let o = Offer { trial_secs: trial, ..offer(3, 900) };
+        let check = |o: &Offer, lead| {
+            check_schedule(&chain, o, Some(prepaid(o)), &signed_schedule(&chain, o, NOW, lead), NOW)
+        };
+        // The client schedule: the trial, then firstReleaseLead, then every period.
+        assert_eq!(check(&o, trial + 60), Ok(()));
+        assert_eq!(check(&o, trial + 900 + FIRST_RELEASE_SLACK_SECS - 2), Ok(()));
+        let err = check(&o, trial + 900 + FIRST_RELEASE_SLACK_SECS + 1).unwrap_err();
+        assert!(err.ends_with(&format!("the offer allows at most {} s", trial + 1_500)), "{err}");
+        // Without a trial in the offer, the same schedule is refused.
+        let err = check(&offer(3, 900), trial + 60).unwrap_err();
+        assert!(err.starts_with("installment 1 releases 6048"), "{err}");
+        assert!(err.ends_with("the offer allows at most 1500 s"), "{err}");
+    }
+
+    #[test]
     fn pocket_must_cover_every_installment_and_fee() {
         let chain = DrandChain::quicknet();
         let o = offer(3, 90);
@@ -792,6 +947,8 @@ pub(crate) mod tests {
             identity,
             chain: DrandChain::quicknet(),
             tip: AtomicU32::new(0),
+            pass_key: ed25519_dalek::SigningKey::from_bytes(&[9; 32]),
+            payer_replays: Default::default(),
         })
     }
 
@@ -816,6 +973,12 @@ pub(crate) mod tests {
         let (parts, body) = res.into_parts();
         let bytes = to_bytes(body, 1 << 20).await.unwrap();
         (parts.status, parts.headers, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    pub async fn get_json(router: &Router, path: &str) -> Value {
+        let (status, _, body) = send(router, get(path, None, None)).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        body
     }
 
     fn get(path: &str, origin: Option<&str>, token: Option<&str>) -> Request<Body> {
@@ -943,10 +1106,10 @@ pub(crate) mod tests {
     async fn share_links_point_at_the_app() {
         let share_url = |v: &Value| v["share_url"].as_str().unwrap().to_string();
         let app = test_app(false, None);
-        let own = share_url(&insert_offer(&app, "Plan".into(), 20_000, 90, 3, String::new()).unwrap());
+        let own = share_url(&insert_offer(&app, plan(3, 90, 0)).unwrap());
         assert!(own.starts_with("https://runner.example/subscribe#offer="), "{own}");
         let app = test_app(false, Some("https://app.example/"));
-        let elsewhere = share_url(&insert_offer(&app, "Plan".into(), 20_000, 90, 3, String::new()).unwrap());
+        let elsewhere = share_url(&insert_offer(&app, plan(3, 90, 0)).unwrap());
         assert!(elsewhere.starts_with("https://app.example/subscribe#offer="), "{elsewhere}");
         // The offer still names this runner as the API to call.
         let encoded = elsewhere.split("#offer=").nth(1).unwrap();
@@ -956,7 +1119,11 @@ pub(crate) mod tests {
 
     /// An offer, and a pocket the runner has seen funded with `funded_zat`.
     pub fn subscribable(app: &App, count: u32, period_secs: u64, funded_zat: Option<u64>) -> (String, String) {
-        let created = insert_offer(app, "Plan".into(), 20_000, period_secs, count, String::new()).unwrap();
+        subscribable_with(app, plan(count, period_secs, 0), funded_zat)
+    }
+
+    pub fn subscribable_with(app: &App, terms: NewOffer, funded_zat: Option<u64>) -> (String, String) {
+        let created = insert_offer(app, terms).unwrap();
         let offer_id = created["offer_id"].as_str().unwrap().to_string();
         let pocket_id = random_id("pkt");
         let store = app.store.lock().unwrap();
@@ -1038,6 +1205,294 @@ pub(crate) mod tests {
         let (status, _, body) = send(&api, upload(&app, &offer_id, &pocket_id, &fair)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().contains("not seen the pocket's funding"), "{body}");
+    }
+
+    fn post(path: &str, token: Option<&str>, body: &Value) -> Request<Body> {
+        let mut req = Request::post(path).header(header::CONTENT_TYPE, "application/json");
+        if let Some(t) = token {
+            req = req.header(header::AUTHORIZATION, format!("Bearer {t}"));
+        }
+        req.body(Body::from(body.to_string())).unwrap()
+    }
+
+    fn quote() -> Value {
+        json!({ "currency": "USD", "amount_minor": 500, "zec_rate_minor": 4210, "set_at": 1_793_170_000 })
+    }
+
+    #[tokio::test]
+    async fn offers_carry_a_trial_and_a_quote() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let merchant_ua = cadence_core::Pocket::from_seed(&[7; 32], 1).funding_ua(&app.cfg.network);
+        let terms = json!({ "name": "Plan", "amount_zat": 20_000, "period_secs": 90, "count": 3, "merchant_ua": merchant_ua });
+        let with = |extra: Value| {
+            let mut body = terms.clone();
+            body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            post("/api/offers", Some(TOKEN), &body)
+        };
+
+        // An old app's offer: no trial, no quote.
+        let (status, _, made) = send(&api, post("/api/offers", Some(TOKEN), &terms)).await;
+        assert_eq!(status, StatusCode::CREATED, "{made}");
+        let (_, _, view) = send(&api, get(&format!("/api/offers/{}", made["offer_id"].as_str().unwrap()), None, None)).await;
+        assert_eq!(view["trial_secs"], 0);
+        assert!(view.get("quote").is_none(), "{view}");
+
+        let (status, _, made) = send(&api, with(json!({ "trial_secs": 604_800, "quote": quote() }))).await;
+        assert_eq!(status, StatusCode::CREATED, "{made}");
+        let (_, _, view) = send(&api, get(&format!("/api/offers/{}", made["offer_id"].as_str().unwrap()), None, None)).await;
+        assert_eq!(view["trial_secs"], 604_800);
+        assert_eq!(view["quote"], quote());
+        // The share link carries the same view.
+        let encoded = made["share_url"].as_str().unwrap().split("#offer=").nth(1).unwrap();
+        let shared: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).unwrap()).unwrap();
+        assert_eq!(shared, view);
+
+        let wrong_quote = |field: &str, value: Value| {
+            let mut q = quote();
+            q[field] = value;
+            json!({ "quote": q })
+        };
+        for (extra, error) in [
+            (json!({ "trial_secs": MAX_TRIAL_SECS }), None),
+            (json!({ "trial_secs": MAX_TRIAL_SECS + 1 }), Some("trial_secs must be between 0 and 2592000")),
+            (wrong_quote("currency", json!("usd")), Some("quote.currency must be 3 uppercase letters")),
+            (wrong_quote("currency", json!("USDT")), Some("quote.currency must be 3 uppercase letters")),
+            (wrong_quote("currency", json!("ÜSD")), Some("quote.currency must be 3 uppercase letters")),
+            (wrong_quote("amount_minor", json!(0)), Some("quote.amount_minor must be between 1 and 10^9")),
+            (wrong_quote("amount_minor", json!(1_000_000_001)), Some("quote.amount_minor must be between 1 and 10^9")),
+            (wrong_quote("zec_rate_minor", json!(0)), Some("quote.zec_rate_minor must be between 1 and 10^12")),
+            (wrong_quote("zec_rate_minor", json!(1_000_000_000_000u64)), None),
+            (
+                wrong_quote("zec_rate_minor", json!(1_000_000_000_001u64)),
+                Some("quote.zec_rate_minor must be between 1 and 10^12"),
+            ),
+        ] {
+            let (status, _, body) = send(&api, with(extra.clone())).await;
+            match error {
+                None => assert_eq!(status, StatusCode::CREATED, "{extra}: {body}"),
+                Some(error) => {
+                    assert_eq!(status, StatusCode::BAD_REQUEST, "{extra}: {body}");
+                    assert_eq!(body["error"], error, "{extra}");
+                }
+            }
+        }
+        // A quote missing a field is not a quote.
+        let (status, _, _) = send(&api, with(json!({ "quote": { "currency": "USD", "amount_minor": 500 } }))).await;
+        assert!(status.is_client_error(), "{status}");
+    }
+
+    #[tokio::test]
+    async fn sandbox_offers_carry_a_trial_and_a_quote() {
+        let app = test_app(true, None);
+        let api = router(app.clone(), None, vec![]);
+        let terms = json!({ "count": 3, "period_secs": 300, "amount_zat": 20_000, "trial_secs": 600, "quote": quote() });
+        let (status, _, made) = send(&api, post("/api/sandbox/offer", None, &terms)).await;
+        assert_eq!(status, StatusCode::CREATED, "{made}");
+        let offer = app.store.lock().unwrap().offer(made["offer_id"].as_str().unwrap()).unwrap().unwrap();
+        assert_eq!(offer.trial_secs, 600);
+        assert_eq!(offer.quote.as_ref().map(|q| q.currency.as_str()), Some("USD"));
+        let (status, _, body) = send(&api, post("/api/sandbox/offer", None, &json!({ "count": 3, "period_secs": 300, "amount_zat": 20_000, "trial_secs": MAX_TRIAL_SECS + 1 }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        // As the shipped app sends it.
+        let (status, _, view) = send(&api, post("/api/sandbox/offer", None, &json!({ "count": 3, "period_secs": 300, "amount_zat": 20_000 }))).await;
+        assert_eq!(status, StatusCode::CREATED, "{view}");
+    }
+
+    #[tokio::test]
+    async fn status_lists_this_runners_features() {
+        let (_, _, body) = send(&router(test_app(false, None), None, vec![]), get("/api/status", None, None)).await;
+        assert_eq!(body["features"], json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop"]));
+        let (_, _, body) = send(&router(test_app(true, None), None, vec![]), get("/api/status", None, None)).await;
+        let features: Vec<&str> = body["features"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
+        assert!(features.contains(&"charge_after_cancel"), "{features:?}");
+    }
+
+    #[tokio::test]
+    async fn cors_allows_the_payer_signature_headers() {
+        let api = router(test_app(false, None), Some(web_dir()), cors());
+        let req = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/api/subscriptions/sub_x/pass")
+            .header(header::ORIGIN, APP_ORIGIN)
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+            .header(
+                header::ACCESS_CONTROL_REQUEST_HEADERS,
+                "content-type,x-cadence-payer-timestamp,x-cadence-payer-signature",
+            )
+            .body(Body::empty())
+            .unwrap();
+        let (status, headers, _) = send(&api, req).await;
+        assert!(status.is_success(), "{status}");
+        let allowed = header_str(&headers, "access-control-allow-headers").unwrap().to_ascii_lowercase();
+        for h in ["x-cadence-payer-timestamp", "x-cadence-payer-signature"] {
+            assert!(allowed.contains(h), "{allowed}");
+        }
+    }
+
+    /// A subscription to a plan of 2 installments 600 s apart, the first signed to
+    /// release 60 s after `signed`.
+    pub async fn subscribed(app: &App, api: &Router, signed: u64, payer_auth_key: Option<&str>) -> Result<String, Value> {
+        let o = offer(2, 600);
+        let (offer_id, pocket_id) = subscribable(app, 2, 600, Some(prepaid(&o)));
+        let req = upload(app, &offer_id, &pocket_id, &signed_schedule(&app.chain, &o, signed, 60));
+        let mut body: Value = serde_json::from_slice(&to_bytes(req.into_body(), usize::MAX).await.unwrap()).unwrap();
+        if let Some(key) = payer_auth_key {
+            body["payer_auth_key"] = json!(key);
+        }
+        let (status, _, made) = send(api, upload_body(&offer_id, &pocket_id, &body)).await;
+        match status {
+            StatusCode::CREATED => Ok(made["subscription_id"].as_str().unwrap().to_string()),
+            _ => Err(made),
+        }
+    }
+
+    fn pass_request(sub: &str, key: &ed25519_dalek::SigningKey, at: u64) -> Request<Body> {
+        let path = format!("/api/subscriptions/{sub}/pass");
+        let mut req = Request::post(&path).header(header::CONTENT_TYPE, "application/json");
+        for (name, value) in &payer_auth::tests::signed(key, "POST", &path, at, b"{}") {
+            req = req.header(name, value);
+        }
+        req.body(Body::from("{}")).unwrap()
+    }
+
+    fn public_hex(key: &ed25519_dalek::SigningKey) -> String {
+        hex::encode(key.verifying_key().to_bytes())
+    }
+
+    #[tokio::test]
+    async fn payer_auth_keys_are_checked_at_upload() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let err = subscribed(&app, &api, now(), Some("00")).await.unwrap_err();
+        assert_eq!(err["error"], "payer_auth_key must be 64 hex characters");
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key).to_uppercase())).await.unwrap();
+        let sub = app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+        assert_eq!(sub.payer_auth_key, Some(public_hex(&key)));
+        // Never shown.
+        let (_, _, body) = send(&api, get(&format!("/api/subscriptions/{id}"), None, None)).await;
+        assert!(body.get("payer_auth_key").is_none(), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_paying_subscriber_gets_a_pass_that_verifies() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let sub = app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+
+        let (status, _, issued) = send(&api, pass_request(&id, &key, now())).await;
+        assert_eq!(status, StatusCode::OK, "{issued}");
+        // Nothing is mined yet: installment 1's release plus half a period.
+        let valid_until = sub.installments[0].release_at + 300;
+        assert_eq!(issued["valid_until"], valid_until);
+        let pass = issued["pass"].as_str().unwrap();
+        let (encoded, _) = pass.split_once('.').unwrap();
+        let payload: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).unwrap()).unwrap();
+        assert_eq!(payload["v"], 1);
+        assert_eq!(payload["iss"], "test");
+        assert_eq!(payload["offer_id"], sub.offer_id);
+        assert_eq!(payload["sub"], id);
+        assert_eq!(payload["paid"], 0);
+        assert_eq!(payload["valid_until"], valid_until);
+        assert!(payload["iat"].as_u64().unwrap().abs_diff(now()) < 5);
+
+        let (status, _, verdict) = send(&api, post("/api/passes/verify", None, &json!({ "pass": pass }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            verdict,
+            json!({ "valid": true, "reason": null, "offer_id": sub.offer_id, "sub": id, "paid": 0, "valid_until": valid_until })
+        );
+        // Anyone can check it offline with the runner's pass key.
+        let (_, _, published) = send(&api, get("/api/passes/key", None, None)).await;
+        assert_eq!(published["alg"], "Ed25519");
+        let bytes: [u8; 32] = hex::decode(published["public_key"].as_str().unwrap()).unwrap().try_into().unwrap();
+        let public = ed25519_dalek::VerifyingKey::from_bytes(&bytes).unwrap();
+        assert!(pass::check(&public, pass, now()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn passes_are_refused_without_a_good_fresh_signature() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+
+        // Signed with another key.
+        let (status, _, body) = send(&api, pass_request(&id, &payer_auth::tests::derive(&[2; 32]), now())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["error"], "the payer signature does not verify");
+        // Unsigned.
+        let unsigned = post(&format!("/api/subscriptions/{id}/pass"), None, &json!({}));
+        let (status, _, _) = send(&api, unsigned).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        // Replayed.
+        let at = now();
+        let (status, _, _) = send(&api, pass_request(&id, &key, at)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, body) = send(&api, pass_request(&id, &key, at)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["error"], "this signed request was already used");
+        // A subscription made without a key.
+        let keyless = subscribed(&app, &api, now(), None).await.unwrap();
+        let (status, _, body) = send(&api, pass_request(&keyless, &key, now())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["error"], "this subscription has no payer_auth_key");
+        let (status, _, _) = send(&api, pass_request("sub_unknown", &key, now())).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // A forged pass verifies as nothing.
+        let (_, _, issued) = send(&api, pass_request(&id, &key, now() + 1)).await;
+        let (payload, _) = issued["pass"].as_str().unwrap().split_once('.').unwrap();
+        let forged = format!("{payload}.{}", URL_SAFE_NO_PAD.encode([0u8; 64]));
+        let (_, _, verdict) = send(&api, post("/api/passes/verify", None, &json!({ "pass": forged }))).await;
+        assert_eq!(
+            verdict,
+            json!({ "valid": false, "reason": "bad signature", "offer_id": null, "sub": null, "paid": null, "valid_until": null })
+        );
+        let (_, _, verdict) = send(&api, post("/api/passes/verify", None, &json!({ "pass": "not a pass" }))).await;
+        assert_eq!(verdict["reason"], "malformed");
+    }
+
+    #[tokio::test]
+    async fn no_pass_once_the_subscription_stops_paying() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+
+        // Installment 1 fell due a day ago and was never mined: the pass ran out.
+        let late = subscribed(&app, &api, now() - 86_400, Some(&public_hex(&key))).await.unwrap();
+        let (status, _, body) = send(&api, pass_request(&late, &key, now())).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert!(body["error"].as_str().unwrap().starts_with("the subscription is paid up only until "), "{body}");
+
+        // Cancelled by the payer.
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let sub = app.store.lock().unwrap().subscription(&id).unwrap().unwrap();
+        service::finish(&app, &sub, "cancelled", Some(&sub.installments[0])).await.unwrap();
+        let (status, _, body) = send(&api, pass_request(&id, &key, now())).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"], "the subscription is cancelled, so it is not paying");
+
+        // An expired pass still says what it was for.
+        let t = now();
+        let expired = pass::Payload {
+            v: 1,
+            iss: "test".into(),
+            offer_id: sub.offer_id.clone(),
+            sub: id.clone(),
+            paid: 1,
+            valid_until: t - 1,
+            iat: t - 600,
+        };
+        let pass = pass::issue(&app.pass_key, &expired).unwrap();
+        let (_, _, verdict) = send(&api, post("/api/passes/verify", None, &json!({ "pass": pass }))).await;
+        assert_eq!(
+            verdict,
+            json!({ "valid": false, "reason": "expired", "offer_id": sub.offer_id, "sub": id, "paid": 1, "valid_until": t - 1 })
+        );
     }
 }
 
