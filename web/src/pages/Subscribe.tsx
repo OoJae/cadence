@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Offer } from '../api/types';
+import { AccessPass } from '../components/AccessPass';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView, StatusLink } from '../components/FlowViews';
@@ -539,6 +540,7 @@ function SubscribeView({
                 )}
               </div>
               {s.subscriptionId && <StatusLink subscriptionId={s.subscriptionId} closeable={!needsCancelKey(s) || cancelKeySettled(s.key)} />}
+              {s.subscriptionId && s.signer && s.runner && <AccessPass client={s.runner.api} signer={s.signer} subscriptionId={s.subscriptionId} />}
               {!needsCancelKey(s) && s.signer?.keyCustody === 'memory' && (
                 <Callout kind="plain" icon={<KeyIcon size={16} />}>
                   <span className="small">

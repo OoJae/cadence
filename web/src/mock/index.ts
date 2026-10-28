@@ -29,8 +29,10 @@ export class MockTransport implements Transport {
     await sleep(req.path === '/api/status' ? 60 : 120 + Math.random() * 180);
     if (req.signal?.aborted) throw new ApiError(0, 'aborted');
     try {
-      const body = req.body === undefined ? undefined : JSON.parse(JSON.stringify(req.body));
-      const result = this.#route(req.method, req.path, body, req.token);
+      // The text an HTTP transport would send: payer signatures cover it.
+      const raw = req.body === undefined ? '' : JSON.stringify(req.body);
+      const body = req.body === undefined ? undefined : JSON.parse(raw);
+      const result = await this.#route(req.method, req.path, body, req.token, req.headers ?? {}, raw);
       return JSON.parse(JSON.stringify(result)) as T;
     } catch (e) {
       if (e instanceof HttpError) throw new ApiError(e.status, e.message);
@@ -38,7 +40,7 @@ export class MockTransport implements Transport {
     }
   }
 
-  #route(method: string, path: string, body: unknown, token?: string): unknown {
+  #route(method: string, path: string, body: unknown, token: string | undefined, headers: Record<string, string>, raw: string): unknown {
     const seg = path.split('/').filter(Boolean); // ['api', ...]
     if (seg[0] !== 'api') throw new HttpError(404, 'not found');
     const [, a, b, c] = seg;
@@ -49,6 +51,9 @@ export class MockTransport implements Transport {
     if (method === 'GET' && a === 'subscriptions' && !b) return runner.listSubscriptions();
     if (method === 'GET' && a === 'subscriptions' && b && !c) return runner.getSubscription(decodeURIComponent(b));
     if (method === 'POST' && a === 'subscriptions' && b && c === 'stop') return runner.stop(decodeURIComponent(b), token);
+    if (method === 'POST' && a === 'subscriptions' && b && c === 'pass') return runner.issuePass(decodeURIComponent(b), headers, raw, path);
+    if (method === 'GET' && a === 'passes' && b === 'key' && !c) return runner.passKey();
+    if (method === 'POST' && a === 'passes' && b === 'verify' && !c) return runner.verifyPass(body);
     if (method === 'GET' && a === 'decode' && b && !c) return runner.decode(b);
     if (method === 'POST' && a === 'sandbox' && b === 'fund') return runner.fund(body);
     if (method === 'POST' && a === 'sandbox' && b === 'cheat') return runner.cheat(body);

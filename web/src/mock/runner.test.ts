@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Offer } from '../api/types';
+import type { Offer, PassPayload } from '../api/types';
+import { base64urlToBytes } from '../lib/base64url';
 import { firstRoundAtOrAfter, QUICKNET, roundTime } from '../lib/drand';
+import { parsePass, verifyPassSignature } from '../lib/pass';
+import { payerAuthFromSeed } from '../lib/payerAuth';
 import { seededBech32 } from '../lib/prng';
 import { planSchedule } from '../lib/schedule';
 import { cadenceChecks } from '../lib/shape';
@@ -201,5 +204,108 @@ describe('mock runner schedule check', () => {
     const stretched = honest.map((r, i) => (i >= 1 ? r + (365 * 86_400) / QUICKNET.period : r));
     expect(() => runner.createSubscription(body(stretched))).toThrow(/installment 2 releases .* the offer's period is 30 s/);
     expect(runner.createSubscription(body(honest)).status).toBe('active');
+  });
+});
+
+describe('mock runner access passes', () => {
+  const SEED = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+  const PATH = '/api/subscriptions/sub_t/pass';
+  const payload = (pass: string) => JSON.parse(new TextDecoder().decode(base64urlToBytes(pass.split('.')[0]!))) as PassPayload;
+
+  async function signed(now: () => number) {
+    const s = setup(3, 30);
+    const auth = await payerAuthFromSeed(SEED, { now });
+    s.rec.payer_auth_key = auth.publicKeyHex;
+    s.setNow(now());
+    return { ...s, auth, ask: async () => s.runner.issuePass('sub_t', await auth.sign('POST', PATH, '{}'), '{}', PATH) };
+  }
+
+  it('issues a pass to the payer, good until half a period past the next release', async () => {
+    const { ask, rec, runner } = await signed(() => T0);
+    const res = await ask();
+    const p = payload(res.pass);
+    expect(p).toEqual({ v: 1, iss: 'test', offer_id: 'off_t', sub: 'sub_t', paid: 0, valid_until: roundTime(rec.installments[0]!.release_round) + 15, iat: T0 });
+    expect(Object.keys(p)).toEqual(['v', 'iss', 'offer_id', 'sub', 'paid', 'valid_until', 'iat']);
+    expect(res.valid_until).toBe(p.valid_until);
+    const parsed = parsePass(res.pass);
+    if (!parsed.ok) throw new Error(parsed.problem);
+    expect(await verifyPassSignature((await runner.passKey()).public_key, parsed.payloadBytes, parsed.signature)).toBe(true);
+    expect(await runner.verifyPass({ pass: res.pass })).toEqual({ valid: true, reason: null, offer_id: 'off_t', sub: 'sub_t', paid: 0, valid_until: p.valid_until });
+  });
+
+  it('counts mined installments and, once every one is mined, lasts a period and a half past the last release', async () => {
+    let now = T0;
+    const s = await signed(() => now);
+    const lastRelease = roundTime(s.rec.installments[2]!.release_round);
+    now = lastRelease + 40;
+    s.setNow(now);
+    expect(s.runner.getSubscription('sub_t').status).toBe('completed');
+    const p = payload((await s.ask()).pass);
+    expect(p.paid).toBe(3);
+    expect(p.valid_until).toBe(lastRelease + 30 + 15);
+    now = lastRelease + 46;
+    s.setNow(now);
+    await expect(s.ask()).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses a replay, a stale timestamp, another key and a subscription with no key, with 403', async () => {
+    const s = await signed(() => T0);
+    const headers = await s.auth.sign('POST', PATH, '{}');
+    await s.runner.issuePass('sub_t', headers, '{}', PATH);
+    await expect(s.runner.issuePass('sub_t', headers, '{}', PATH)).rejects.toMatchObject({ status: 403, message: 'this payer signature was already used' });
+
+    const stale = await payerAuthFromSeed(SEED, { now: () => T0 - 301 });
+    await expect(s.runner.issuePass('sub_t', await stale.sign('POST', PATH, '{}'), '{}', PATH)).rejects.toMatchObject({ status: 403, message: /300 s/ });
+
+    const other = await payerAuthFromSeed(Uint8Array.from(SEED, (b) => b ^ 1), { now: () => T0 });
+    await expect(s.runner.issuePass('sub_t', await other.sign('POST', PATH, '{}'), '{}', PATH)).rejects.toMatchObject({ status: 403, message: /does not verify/ });
+    // A signature over another body does not stand for this one.
+    await expect(s.runner.issuePass('sub_t', await s.auth.sign('POST', PATH, '{"x":1}'), '{}', PATH)).rejects.toMatchObject({ status: 403 });
+
+    delete s.rec.payer_auth_key;
+    await expect(s.ask()).rejects.toMatchObject({ status: 403, message: /no payer auth key/ });
+  });
+
+  it('refuses a cancelled or stalled subscription with 409', async () => {
+    const s = await signed(() => T0);
+    s.rec.installments[1]!.window = [1, 2];
+    s.setNow(T0 + 600);
+    const late = await payerAuthFromSeed(SEED, { now: () => T0 + 600 });
+    await expect(s.runner.issuePass('sub_t', await late.sign('POST', PATH, '{}'), '{}', PATH)).rejects.toMatchObject({ status: 409, message: 'the subscription is stalled' });
+
+    const c = await signed(() => T0);
+    c.chain.send({ kind: 'cancel', to: 'refund', value_zat: 1, spends_pocket: c.rec.pocket_ufvk }, T0);
+    c.setNow(T0 + 60);
+    const after = await payerAuthFromSeed(SEED, { now: () => T0 + 60 });
+    await expect(c.runner.issuePass('sub_t', await after.sign('POST', PATH, '{}'), '{}', PATH)).rejects.toMatchObject({ status: 409, message: 'the subscription is cancelled' });
+  });
+
+  it('verifies passes: expired, tampered and malformed ones are not valid', async () => {
+    const s = await signed(() => T0);
+    const { pass, valid_until } = await s.ask();
+    s.setNow(valid_until + 1);
+    expect(await s.runner.verifyPass({ pass })).toMatchObject({ valid: false, reason: 'expired', sub: 'sub_t' });
+    const [body, sig] = pass.split('.');
+    const forged = Buffer.from(JSON.stringify({ ...payload(pass), valid_until: valid_until + 86_400 })).toString('base64url');
+    expect(await s.runner.verifyPass({ pass: `${forged}.${sig}` })).toEqual({ valid: false, reason: 'bad signature', offer_id: null, sub: null, paid: null, valid_until: null });
+    expect(await s.runner.verifyPass({ pass: body! })).toMatchObject({ valid: false, reason: 'malformed pass' });
+  });
+
+  it('stores a payer auth key from the upload, and refuses one that is not 64 hex characters', async () => {
+    const { runner, chain, rec } = setup(3, 30);
+    const body = (n: string, key?: unknown) => ({
+      offer_id: rec.offer.offer_id,
+      pocket_ufvk: `uviewtest1${seededBech32(n, 189)}`,
+      birthday_height: 5_000_000,
+      funding_txid: chain.send({ kind: 'wallet', to: n, value_zat: 330_000 }, T0).txid,
+      installments: planSchedule(rec.offer, T0).map((i) => ({ k: i.k, release_round: i.release_round, sealed: 'x'.repeat(64) })),
+      ...(key === undefined ? {} : { payer_auth_key: key }),
+    });
+    expect(() => runner.createSubscription(body('p3', 'AB'.repeat(32)))).toThrow(/64 hex/);
+    const id = runner.createSubscription(body('p4', 'ab'.repeat(32))).subscription_id;
+    expect(runner.subs.get(id)!.payer_auth_key).toBe('ab'.repeat(32));
+    const old = runner.createSubscription(body('p5')).subscription_id;
+    expect(runner.subs.get(old)!.payer_auth_key).toBeUndefined();
+    expect(runner.status().features).toEqual(['payer_auth', 'pass']);
   });
 });

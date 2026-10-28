@@ -6,10 +6,14 @@ import type {
   CreateSubscriptionRequest,
   CreateSubscriptionResponse,
   Offer,
+  PassKey,
+  PassResponse,
+  PassVerifyResponse,
   PocketState,
   PocketWitness,
   RegisterPocketRequest,
   RegisterPocketResponse,
+  RunnerFeature,
   RunnerStatus,
   SandboxCheatRequest,
   SandboxCheatResponse,
@@ -17,6 +21,7 @@ import type {
   SandboxFundResponse,
   Shape,
   Subscription, SandboxOfferRequest } from './types';
+import type { PayerAuth } from '../lib/payerAuth';
 
 export type Method = 'GET' | 'POST';
 
@@ -30,6 +35,8 @@ export interface ApiRequest {
   signal?: AbortSignal;
   /** Overrides the transport's default timeout, for large uploads. */
   timeoutMs?: number;
+  /** Extra headers: the payer's signature (src/lib/payerAuth.ts). */
+  headers?: Record<string, string>;
 }
 
 /** Something that can carry a request to a runner: `fetch`, or the in-memory mock. */
@@ -139,6 +146,27 @@ export class CadenceClient {
     return this.transport.request({ method: 'GET', path: '/api/status', signal });
   }
 
+  // -------------------------------------------------- access passes (runners that list `pass`)
+
+  /** `POST /api/subscriptions/:id/pass`: an access pass, asked for with the payer auth key's signature over the body `{}`. */
+  async getPass(id: string, auth: PayerAuth, signal?: AbortSignal): Promise<PassResponse> {
+    const path = `/api/subscriptions/${idSegment(id, 'subscription id')}/pass`;
+    const body = {};
+    // The transports send JSON.stringify(body), so these are the bytes signed.
+    const headers = await auth.sign('POST', path, JSON.stringify(body));
+    return this.transport.request({ method: 'POST', path, body, headers, signal });
+  }
+
+  /** `GET /api/passes/key`: the public key the runner signs passes with. */
+  passKey(signal?: AbortSignal): Promise<PassKey> {
+    return this.transport.request({ method: 'GET', path: '/api/passes/key', signal });
+  }
+
+  /** `POST /api/passes/verify`: the runner's own check of a pass. */
+  verifyPass(pass: string, signal?: AbortSignal): Promise<PassVerifyResponse> {
+    return this.transport.request({ method: 'POST', path: '/api/passes/verify', body: { pass }, signal });
+  }
+
   // -------------------------------------------------- sandbox extension (testnet only)
 
   /** `POST /api/sandbox/offer`: an offer whose merchant is the sandbox wallet (testnet only). */
@@ -155,6 +183,11 @@ export class CadenceClient {
   sandboxCheat(body: SandboxCheatRequest, signal?: AbortSignal): Promise<SandboxCheatResponse> {
     return this.transport.request({ method: 'POST', path: '/api/sandbox/cheat', body, signal });
   }
+}
+
+/** Whether a runner's status lists a v2 feature. An older runner lists none. */
+export function hasFeature(status: Pick<RunnerStatus, 'features'> | null | undefined, feature: RunnerFeature): boolean {
+  return Array.isArray(status?.features) && status.features.includes(feature);
 }
 
 /**

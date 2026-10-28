@@ -194,6 +194,9 @@ export function Footer() {
               <Link to="/manage">Cancel with your cancel key</Link>
             </li>
             <li>
+              <Link to="/pass">Access pass checker</Link>
+            </li>
+            <li>
               <Link to="/decode/7ae2c96a9ca13ba42097236766582cab0c5c4809777c966c2bdb50e46597e790">Decode a real S2 installment</Link>
             </li>
             <li>

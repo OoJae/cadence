@@ -14,6 +14,7 @@
 import type { Offer, SealedInstallment } from '../api/types';
 import { BECH32_CHARS, isUnifiedAddress } from '../lib/addresses';
 import { bytesToBase64 } from '../lib/base64url';
+import { payerAuthFromSeed, type PayerAuth } from '../lib/payerAuth';
 import { firstReleaseLead, planSchedule } from '../lib/schedule';
 import { INSTALLMENT_FEE_ZAT, totalPrepaidZat, type NetworkId } from '../lib/zat';
 import { NothingToCancelError } from './cancel';
@@ -106,6 +107,7 @@ export class MockSigner implements Signer {
   #seed: Uint8Array | null = null;
   #pocket: PocketInfo | null = null;
   #schedule: Omit<KitFields, 'kind' | 'network' | 'runner' | 'pocket_id' | 'subscription_id' | 'birthday_height' | 'pocket_ua' | 'notes'> | null = null;
+  #payerAuth: Promise<PayerAuth> | null = null;
   #presigned = false;
   #cancelled = false;
   #destroyed = false;
@@ -300,9 +302,24 @@ export class MockSigner implements Signer {
     return { txid: tx.txid, refunded_zat: refunded, fee_zat: INSTALLMENT_FEE_ZAT, target_height: tx.target_height };
   }
 
+  /** The real derivation (WebCrypto HKDF and Ed25519), from the mock pocket's seed. */
+  async payerAuth(): Promise<PayerAuth> {
+    this.#alive();
+    if (!this.#pocket || !this.#seed) throw new SignerError('create a pocket first');
+    const auth = await (this.#payerAuth ??= payerAuthFromSeed(this.#seed));
+    return {
+      publicKeyHex: auth.publicKeyHex,
+      sign: async (method, path, body) => {
+        this.#alive();
+        return auth.sign(method, path, body);
+      },
+    };
+  }
+
   destroy(): void {
     this.#seed?.fill(0);
     this.#seed = null;
+    this.#payerAuth = null;
     this.#schedule = null;
     this.#destroyed = true;
   }
@@ -337,6 +354,9 @@ export class UnavailableSigner implements Signer {
     this.#fail();
   }
   cancel(): Promise<CancelReceipt> {
+    this.#fail();
+  }
+  payerAuth(): Promise<PayerAuth> {
     this.#fail();
   }
   destroy(): void {}

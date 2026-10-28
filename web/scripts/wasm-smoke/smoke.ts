@@ -113,6 +113,7 @@ async function signerFlow() {
   const t0 = performance.now();
   const pocket = await signer.createPocket('test');
   log(`pocket ${pocket.pocket_id} ${pocket.ua.slice(0, 24)}…`);
+  const payerKey = (await signer.payerAuth()).publicKeyHex;
   const total = totalPrepaidZat(AMOUNT, count);
   const funding = await signer.awaitFunding(total);
   log(`funded ${funding.value_zat} zats in ${funding.txid}`);
@@ -170,6 +171,9 @@ async function signerFlow() {
   const { notes, ...kitFields } = opened.fields;
   const back = await restored.restore(opened);
   log(`restored ${back.pocket_id} from the key in ${openMs.toFixed(0)} ms`);
+  // The payer auth key comes from the seed, so the restored signer has the same one.
+  const restoredAuth = await restored.payerAuth();
+  const passHeaders = await restoredAuth.sign('POST', `/api/subscriptions/${sub.subscription_id}/pass`, '{}');
 
   let cancel: Record<string, unknown> | null = null;
   if (refundUa) {
@@ -185,6 +189,12 @@ async function signerFlow() {
     await restored.cancel(refundUa ?? merchant.ua);
   } catch (e) {
     afterDestroy = (e as Error).message;
+  }
+  let signAfterDestroy = '';
+  try {
+    await restoredAuth.sign('POST', '/api/subscriptions/x/pass', '{}');
+  } catch (e) {
+    signAfterDestroy = (e as Error).message;
   }
   return {
     pool_size: signer.poolSize,
@@ -212,6 +222,7 @@ async function signerFlow() {
     },
     cancel,
     after_destroy: afterDestroy,
+    payer_auth: { key: payerKey, restored: restoredAuth.publicKeyHex, headers: passHeaders, sign_after_destroy: signAfterDestroy },
   };
 }
 

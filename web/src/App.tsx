@@ -12,6 +12,8 @@ import { NotFound } from './pages/NotFound';
 
 // The brand book is a page for people looking at the design, not for paying: load it on demand.
 const Brand = lazy(() => import('./pages/Brand').then((m) => ({ default: m.Brand })));
+// So is the access pass checker, a page for merchants.
+const Pass = lazy(() => import('./pages/Pass').then((m) => ({ default: m.Pass })));
 
 function Routes() {
   const { pathname } = useLocation();
@@ -25,6 +27,12 @@ function Routes() {
     return (
       <Suspense fallback={null}>
         <Brand />
+      </Suspense>
+    );
+  if (pathname === '/pass')
+    return (
+      <Suspense fallback={null}>
+        <Pass />
       </Suspense>
     );
   if (pathname === '/decode') return <Decode txid={null} />;

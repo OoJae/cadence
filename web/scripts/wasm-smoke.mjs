@@ -23,6 +23,7 @@
 // Fails on any request to another origin, CSP violation, console error, browser
 // storage write, or a check below.
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -262,6 +263,13 @@ try {
     console.log(`skip the CLI check (no ${cli})`);
   }
   check(/destroyed/.test(s.after_destroy), 'destroy() leaves a signer that refuses to act');
+  const pa = s.payer_auth;
+  check(/^[0-9a-f]{64}$/.test(pa.key) && pa.restored === pa.key, `the payer auth key (${pa.key.slice(0, 16)}…) comes back from the cancel key`);
+  // The runner's check of that signature, with node:crypto: Ed25519 over the payer message.
+  const payerMessage = `cadence-payer-v1\nPOST\n/api/subscriptions/${s.subscription.subscription_id}/pass\n${pa.headers['X-Cadence-Payer-Timestamp']}\n${createHash('sha256').update('{}').digest('hex')}`;
+  const payerKey = createPublicKey({ key: Buffer.from(`302a300506032b6570032100${pa.key}`, 'hex'), format: 'der', type: 'spki' });
+  check(verify(null, Buffer.from(payerMessage), payerKey, Buffer.from(pa.headers['X-Cadence-Payer-Signature'], 'hex')), 'it signs a pass request in the browser that node:crypto verifies');
+  check(/destroyed/.test(pa.sign_after_destroy), 'and stops signing at destroy()');
   summary.signer = {
     pool: s.pool_size,
     rungs: s.rungs,
