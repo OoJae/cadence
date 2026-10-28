@@ -14,7 +14,7 @@ use cadence_chain::{
     lwd,
     wallet::{self, Db, ANCHOR_CONFIRMATIONS},
 };
-use cadence_core::package::{verify_rung, InstallmentLadder};
+use cadence_core::package::{verify_rung, InstallmentLadder, RungPackage};
 use cadence_seal::{age::x25519, DrandChain};
 use orchard::note::Nullifier;
 use pczt::Pczt;
@@ -25,7 +25,7 @@ use zcash_protocol::consensus::{BlockHeight, Network};
 
 use crate::{
     decoder::Decoder,
-    store::{Funding, Installment, Store, Subscription},
+    store::{Funding, Installment, Pocket, Store, Subscription},
     webhook::{self, Event},
 };
 
@@ -228,21 +228,20 @@ async fn advance(
     tip: BlockHeight,
     round_now: u64,
 ) -> Result<()> {
-    let Some(pos) = sub.installments.iter().position(|i| i.state != "mined") else {
+    let Some(pos) = next_unmined(sub) else {
         return finish(app, sub, "completed", None).await;
     };
     let inst = &sub.installments[pos];
     let previous = pos.checked_sub(1).map(|p| &sub.installments[p]);
-    // A missed or invalid installment waits for the payer, who may sweep instead.
-    if matches!(inst.state.as_str(), "sealed" | "missed" | "invalid")
+    if watches_for_cancel(inst)
         && pocket_emptied(app, sub, previous, tip).await?
         && payer_cancelled(app, client, sub, inst, previous).await?
     {
         println!("{} #{}: the pocket was emptied by the payer: cancelled", sub.subscription_id, inst.k);
         return finish(app, sub, "cancelled", Some(inst)).await;
     }
-    match inst.state.as_str() {
-        "sealed" if round_now >= inst.release_round => {
+    match action(inst, round_now) {
+        Action::Open => {
             let round = inst.release_round;
             let beacon = fetch_beacon(app, round).await?;
             app.store.lock().unwrap().set_beacon(&sub.subscription_id, inst.k, &beacon)?;
@@ -258,9 +257,85 @@ async fn advance(
             let previous = pos.checked_sub(1).map(|p| &sub.installments[p]);
             release(app, client, &sub, &sub.installments[pos], previous, tip).await
         }
-        "due" => release(app, client, sub, inst, previous, tip).await,
-        "broadcast" => confirm(app, client, sub, inst, tip).await,
-        _ => Ok(()),
+        Action::Release => release(app, client, sub, inst, previous, tip).await,
+        Action::Confirm => confirm(app, client, sub, inst, tip).await,
+        Action::Wait => Ok(()),
+    }
+}
+
+/// The installment a tick works on: the first not yet mined. `None` once all are.
+fn next_unmined(sub: &Subscription) -> Option<usize> {
+    sub.installments.iter().position(|i| i.state != "mined")
+}
+
+/// Whether the scheduler first checks that the payer has not emptied the pocket. A
+/// missed or invalid installment waits for the payer, who may sweep instead.
+fn watches_for_cancel(inst: &Installment) -> bool {
+    matches!(inst.state.as_str(), "sealed" | "missed" | "invalid")
+}
+
+/// What a tick does with the installment it works on.
+#[derive(Debug, PartialEq)]
+enum Action {
+    /// Its drand round has passed: fetch the beacon, open the package and release.
+    Open,
+    /// Opened: release it once its input is anchor-deep and a rung fits the tip.
+    Release,
+    /// Broadcast: see whether it was mined, or lapsed and must be released again.
+    Confirm,
+    Wait,
+}
+
+fn action(inst: &Installment, round_now: u64) -> Action {
+    match inst.state.as_str() {
+        "sealed" if round_now >= inst.release_round => Action::Open,
+        "due" => Action::Release,
+        "broadcast" => Action::Confirm,
+        _ => Action::Wait,
+    }
+}
+
+/// When an installment's input appeared on chain: the funding note for #1, else the
+/// change of #k-1. `None` until it is mined.
+fn input_height(pocket: &Pocket, previous: Option<&Installment>) -> Option<u32> {
+    match previous {
+        None => pocket.funding.as_ref().map(|f| f.mined_height),
+        Some(p) => p.mined_height,
+    }
+}
+
+/// Whether a note mined at `height` is [`ANCHOR_CONFIRMATIONS`] deep at `tip`, so that
+/// the wallet's view of whether it is spent can be trusted.
+fn settled(height: u32, tip: BlockHeight) -> bool {
+    u32::from(tip) >= height + ANCHOR_CONFIRMATIONS
+}
+
+/// Whether a note mined at `mined` can be spent by a transaction for `target`, whose
+/// anchor is [`ANCHOR_CONFIRMATIONS`] blocks behind it, as stock wallets anchor.
+fn anchor_deep(mined: BlockHeight, target: BlockHeight) -> bool {
+    mined <= target - ANCHOR_CONFIRMATIONS
+}
+
+/// Which rung of a ladder to release when the next block is `target`.
+enum RungChoice<'a> {
+    /// The rung signed for exactly `target`. Fail closed: only it carries the expiry a
+    /// fresh send would carry now.
+    Signed(&'a RungPackage),
+    /// `target` is past every rung, so the installment can never be released.
+    Missed,
+    /// No rung for `target` yet: wait for the chain.
+    Wait,
+}
+
+fn choose_rung(rungs: &[RungPackage], target: u32) -> RungChoice<'_> {
+    if let Some(rung) = rungs.iter().find(|r| r.target_height == target) {
+        return RungChoice::Signed(rung);
+    }
+    let last = rungs.iter().map(|r| r.target_height).max().unwrap_or(0);
+    if target > last {
+        RungChoice::Missed
+    } else {
+        RungChoice::Wait
     }
 }
 
@@ -270,12 +345,8 @@ async fn advance(
 /// rather than when the next one falls due.
 async fn pocket_emptied(app: &App, sub: &Subscription, previous: Option<&Installment>, tip: BlockHeight) -> Result<bool> {
     let pocket = app.store.lock().unwrap().pocket_for_subscription(&sub.subscription_id)?;
-    let settled_at = match previous {
-        None => pocket.funding.as_ref().map(|f| f.mined_height),
-        Some(p) => p.mined_height,
-    };
-    let Some(h) = settled_at else { return Ok(false) };
-    if u32::from(tip) < h + ANCHOR_CONFIRMATIONS {
+    let Some(h) = input_height(&pocket, previous) else { return Ok(false) };
+    if !settled(h, tip) {
         return Ok(false);
     }
     let account = parse_account(&pocket.account)?;
@@ -366,11 +437,7 @@ async fn release(
     }
     let nf = parse_nullifier(&ladder.spends_nullifier)?;
 
-    // When the input appeared on chain: the funding note for #1, else the change of #k-1.
-    let input_height = match previous {
-        None => pocket.funding.as_ref().map(|f| f.mined_height),
-        Some(p) => p.mined_height,
-    };
+    let input_height = input_height(&pocket, previous);
     // Target the block after the tip as it is now, not as it was when this tick
     // began: the sync, the beacon fetch and earlier subscriptions take seconds over
     // Tor. If the chain moved, catch the wallet up so the anchor below is scanned.
@@ -390,7 +457,7 @@ async fn release(
     let fvk = wallet::pocket_fvk(&db, account)?;
     let Some(input) = wallet::find_unspent(&db, account, &fvk, &nf, target)? else {
         if let Some(h) = input_height {
-            if u32::from(tip) >= h + ANCHOR_CONFIRMATIONS {
+            if settled(h, tip) {
                 drop(db);
                 if payer_cancelled(app, client, sub, inst, previous).await? {
                     println!("{} #{}: input spent by the payer: cancelled", sub.subscription_id, inst.k);
@@ -400,22 +467,21 @@ async fn release(
         }
         return Ok(());
     };
-    if input.mined > anchor_height {
+    if !anchor_deep(input.mined, target) {
         return Ok(());
     }
 
-    // Fail closed: only the rung signed for exactly this target carries the expiry a
-    // fresh send would carry now.
-    let Some(rung) = ladder.rungs.iter().find(|r| r.target_height == u32::from(target)) else {
-        let last = ladder.rungs.iter().map(|r| r.target_height).max().unwrap_or(0);
-        if u32::from(target) > last {
+    let rung = match choose_rung(&ladder.rungs, u32::from(target)) {
+        RungChoice::Signed(rung) => rung,
+        RungChoice::Missed => {
             drop(db);
             println!("{} #{}: no rung for target {target}: missed", sub.subscription_id, inst.k);
             app.store.lock().unwrap().set_state(&sub.subscription_id, inst.k, "missed")?;
             app.store.lock().unwrap().set_status(&sub.subscription_id, "stalled")?;
             send_webhook(app, Event::expired(sub, inst));
+            return Ok(());
         }
-        return Ok(());
+        RungChoice::Wait => return Ok(()),
     };
 
     // Broadcast only what the payer agreed to: the offer's merchant and amount, down
@@ -465,21 +531,24 @@ async fn confirm(
     if let Ok((_, Some(height))) = lwd::raw_transaction(client, &txid).await {
         println!("{} #{}: mined at {height}", sub.subscription_id, inst.k);
         record_mined(app, sub, inst, u32::from(height)).await?;
-    } else if inst.expiry_height.is_some_and(|e| u32::from(tip) > e) || branch_passed(app, inst, tip) {
-        // Expired unmined, or signed for a branch an upgrade has since replaced:
-        // release again with the rung for the new tip.
+    } else if lapsed(&app.cfg.network, inst, tip) {
         app.store.lock().unwrap().set_state(&sub.subscription_id, inst.k, "due")?;
     }
     Ok(())
 }
 
+/// Whether an unmined broadcast can never be mined: expired, or signed for a branch
+/// an upgrade has since replaced. It is then released again with the rung for the new tip.
+fn lapsed(network: &Network, inst: &Installment, tip: BlockHeight) -> bool {
+    inst.expiry_height.is_some_and(|e| u32::from(tip) > e) || branch_passed(network, inst, tip)
+}
+
 /// Whether a network upgrade has activated since the broadcast rung's target, so
 /// that it can never be mined although its expiry has not passed.
-fn branch_passed(app: &App, inst: &Installment, tip: BlockHeight) -> bool {
+fn branch_passed(network: &Network, inst: &Installment, tip: BlockHeight) -> bool {
     use zcash_protocol::consensus::BranchId;
     inst.target_height.is_some_and(|t| {
-        BranchId::for_height(&app.cfg.network, BlockHeight::from_u32(t))
-            != BranchId::for_height(&app.cfg.network, tip + 1)
+        BranchId::for_height(network, BlockHeight::from_u32(t)) != BranchId::for_height(network, tip + 1)
     })
 }
 
@@ -545,3 +614,6 @@ fn send_webhook(app: &App, event: Event) {
         tokio::spawn(webhook::deliver(url, secret, event));
     }
 }
+
+#[cfg(test)]
+mod scheduler_tests;
