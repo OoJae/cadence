@@ -113,3 +113,34 @@ sub_312b987910f4597d3023 #2: webhook invoice.confirmed (622df06a-2901-4b5e-8237-
 ```
 
 Each delivery carried both signatures: Cadence's `X-Cadence-Signature` and CipherPay's headers, computed as CipherPay documents. The echo verified both.
+
+
+## A browser cancel on the app host, live (2026-10-28)
+
+The payer was Edge on macOS, using the app host at build `a594f3d`, with the sandbox runner.
+- **Subscription:** `sub_2783c7d86a562e351b6d`, 4 × 0.001 TAZ, one every 300 s.
+- **Funding:** prepaid 0.0044 TAZ in funding transaction `66d8e5d23633208c88765d4760a430b8f7772d18ca7cea460fd1ba795d03c3a9`.
+- **The tab:** the payer pane was closed after signing, then reopened in the same tab to cancel.
+
+| Block | Event |
+|---|---|
+| 4,549,834 | funding mined |
+| 4,549,844 | installment 1 mined (`b698115d3a482889ea2b91a72b6f0321f62bd5034367ca5d02ca7de2180c1016`) |
+| 4,549,861 | installment 2 mined (`a4f8a1f43e2bc61b2250b1f003c06ba61d536598572f7954e9c69e3c89a40d42`) |
+| 4,549,865 | cancel mined (`75c1c91437e07f422be8df9e9929d65a3c50d566ba925ac4ca47ddc1a235d048`), spending installment 2's change |
+
+1. **First try (05:18 UTC).** The cancel started before installment 2 opened, refunding installment 1's change. Proving took over a minute with the tab in the background. Installment 2 was broadcast first and spent that note, so the node refused the cancel.
+2. **Second try.** The page re-read the pocket and waited for installment 2's change to be 3 blocks deep. It then proved the refund of that note and broadcast it at about 05:22 UTC, some 90 s before installment 3 opened.
+3. **The runner's view.** It reports the subscription `cancelled`, with installments 3 and 4 `cancelled`.
+
+**The certificate:**
+- **Never valid now:** installments 3 and 4.
+- **Returned:** 0.0021 TAZ to the sandbox faucet, with a fee of 0.0001 TAZ.
+- **Spent nullifier:** `ea74a17223272a768a9e9cd05b04c21691e327e293e918bc2158f747b4bf2b01`.
+
+On the app host, the decoder at `/decode/75c1c91437e0…?nf=ea74a1722327…`:
+- shows 11 of 11 Cadence invariants holding;
+- matches the stock-send profile on 11 of 11 fields;
+- confirms that the transaction reveals the certificate's nullifier.
+
+**Earlier attempts the same night.** These ran at 4 × 180 s, on blocks about 50 s apart. Three cancels in a row lost the note to the next installment: both wait for the same note to be 3 blocks deep, and the runner's installment was already signed. That is why the sandbox now offers a 300 s period.
