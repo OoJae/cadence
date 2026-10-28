@@ -5,6 +5,7 @@
 //! ladders is the caller's job (see `cadence-seal`).
 
 use orchard::{keys::Scope, Address, Note};
+use pczt::Pczt;
 use zcash_primitives::transaction::{fees::zip317::MARGINAL_FEE, Transaction};
 use zcash_protocol::{
     consensus::{BlockHeight, BranchId, NetworkType, NetworkUpgrade, Parameters},
@@ -14,7 +15,7 @@ use zcash_protocol::{
 
 use crate::{
     build_rung,
-    package::{redact_for_runner, InstallmentLadder, RungPackage},
+    package::{change_of, redact_for_runner, verify_rung, InstallmentLadder, RungPackage},
     seed, Installment, Pocket,
 };
 
@@ -112,6 +113,7 @@ pub enum Error {
     NoFundingNote,
     Transaction(String),
     EmptyWindow(u32),
+    Schedule(String),
 }
 
 /// The memo of installment `k`: ZIP 302 text that the merchant's own wallet shows,
@@ -258,7 +260,7 @@ pub fn presign<P: Parameters + Clone>(
     tip: BlockHeight,
     now: u64,
     mandate_id: [u8; 16],
-    mut progress: impl FnMut(u32, usize, usize),
+    progress: impl FnMut(u32, usize, usize),
 ) -> Result<Vec<Presigned>, Error> {
     let needed = funding_total(terms).ok_or(Error::Underfunded { needed: u64::MAX, available: 0 })?;
     let available = funding.value().inner();
@@ -268,22 +270,98 @@ pub fn presign<P: Parameters + Clone>(
             available,
         });
     }
+    let schedule: Vec<(u32, u64)> = (1..=terms.count).map(|k| (k, terms.release_at(k))).collect();
+    let windows = windows(params, tip, now, &schedule)?;
+    sign_chain(params, pocket, funding, terms, &schedule, windows, mandate_id, progress)
+}
 
+/// Re-signs the installments of a mandate still to pay, under today's rules, from
+/// `current`: the pocket's live note, which is the funding note or the change of the
+/// last installment mined. `schedule` lists them as `(k, release_at)`, consecutive
+/// and ending at `terms.count`, each at the time its package is already sealed to.
+///
+/// Rung seeds are derived as the first signing derived them, so while the fee stays
+/// the same each re-signed installment leaves the same change note as before. The
+/// pocket must cover the rest at the fee of each installment's window.
+#[allow(clippy::too_many_arguments)]
+pub fn presign_remaining<P: Parameters + Clone>(
+    params: &P,
+    pocket: &Pocket,
+    current: Note,
+    terms: &Terms,
+    schedule: &[(u32, u64)],
+    tip: BlockHeight,
+    now: u64,
+    mandate_id: [u8; 16],
+    progress: impl FnMut(u32, usize, usize),
+) -> Result<Vec<Presigned>, Error> {
+    let consecutive = schedule.windows(2).all(|pair| pair[1].0 == pair[0].0 + 1);
+    match (schedule.first(), schedule.last()) {
+        (Some(&(first, _)), Some(&(last, _))) if first >= 1 && last == terms.count && consecutive => {}
+        _ => {
+            return Err(Error::Schedule(format!(
+                "the installments to re-sign must run consecutively to installment {}",
+                terms.count
+            )))
+        }
+    }
+    let windows = windows(params, tip, now, schedule)?;
+    let needed = windows
+        .iter()
+        .try_fold(0u64, |sum, heights| {
+            let per = (terms.amount + installment_fee_at(params, heights[0]))?;
+            sum.checked_add(per.into())
+        })
+        .ok_or(Error::Underfunded { needed: u64::MAX, available: 0 })?;
+    let available = current.value().inner();
+    if available < needed {
+        return Err(Error::Underfunded { needed, available });
+    }
+    sign_chain(params, pocket, current, terms, schedule, windows, mandate_id, progress)
+}
+
+/// The candidate heights of each installment in `schedule`.
+fn windows<P: Parameters>(
+    params: &P,
+    tip: BlockHeight,
+    now: u64,
+    schedule: &[(u32, u64)],
+) -> Result<Vec<Vec<BlockHeight>>, Error> {
+    schedule
+        .iter()
+        .map(|&(k, release_at)| {
+            let heights = window(params, tip, now, release_at);
+            if heights.is_empty() {
+                Err(Error::EmptyWindow(k))
+            } else {
+                Ok(heights)
+            }
+        })
+        .collect()
+}
+
+/// Signs the installments of `schedule` over their `windows`, the first spending
+/// `input` and each later one the change of the one before.
+#[allow(clippy::too_many_arguments)]
+fn sign_chain<P: Parameters + Clone>(
+    params: &P,
+    pocket: &Pocket,
+    mut input: Note,
+    terms: &Terms,
+    schedule: &[(u32, u64)],
+    windows: Vec<Vec<BlockHeight>>,
+    mandate_id: [u8; 16],
+    mut progress: impl FnMut(u32, usize, usize),
+) -> Result<Vec<Presigned>, Error> {
     let secret = seed::app_secret(pocket);
-    let mut input = funding;
-    let mut out = Vec::with_capacity(terms.count as usize);
-    for k in 1..=terms.count {
+    let mut out = Vec::with_capacity(schedule.len());
+    for (&(k, release_at), heights) in schedule.iter().zip(windows) {
         let inst = Installment {
             input,
             amount: terms.amount,
             merchant: terms.merchant,
             memo: installment_memo(&terms.label, k, terms.count),
         };
-        let release_at = terms.release_at(k);
-        let heights = window(params, tip, now, release_at);
-        if heights.is_empty() {
-            return Err(Error::EmptyWindow(k));
-        }
         let rung_seed = seed::rung_seed(&secret, &mandate_id, k, 0);
 
         let mut rungs = Vec::with_capacity(heights.len());
@@ -322,6 +400,59 @@ pub fn presign<P: Parameters + Clone>(
         }
     }
     Ok(out)
+}
+
+/// Checks signed ladders before they are sealed, from their PCZTs alone: every rung
+/// pays the merchant the amount with the branch and expiry of its target height
+/// ([`verify_rung`]), the first installment spends `input`, all rungs of an
+/// installment leave the same change, and each later installment spends the change
+/// the one before it leaves.
+pub fn check_chain<P: Parameters>(
+    params: &P,
+    pocket: &Pocket,
+    input: &Note,
+    terms: &Terms,
+    presigned: &[Presigned],
+) -> Result<(), String> {
+    let mut spends = input.nullifier(pocket.fvk()).to_bytes();
+    for (i, p) in presigned.iter().enumerate() {
+        let k = p.k;
+        if p.ladder.k != k || p.ladder.amount_zat != u64::from(terms.amount) {
+            return Err(format!("installment {k}: the ladder is for another installment or amount"));
+        }
+        if p.ladder.spends_nullifier != hex::encode(spends) {
+            return Err(format!("installment {k} does not name the note it must spend, {}", hex::encode(spends)));
+        }
+        if p.ladder.rungs.is_empty() {
+            return Err(format!("installment {k} has no rungs"));
+        }
+        let mut change: Option<Option<Note>> = None;
+        for rung in &p.ladder.rungs {
+            let target = BlockHeight::from_u32(rung.target_height);
+            let at = |why: String| format!("installment {k} at {target}: {why}");
+            let bytes = hex::decode(&rung.pczt).map_err(|_| at("the PCZT is not hex".into()))?;
+            let pczt = Pczt::parse(&bytes).map_err(|e| at(format!("{e:?}")))?;
+            verify_rung(params, &pczt, &terms.merchant, terms.amount.into(), target).map_err(at)?;
+            if *pczt.global().expiry_height() != rung.expiry_height {
+                return Err(at(format!("the package says expiry {}", rung.expiry_height)));
+            }
+            if !pczt.ironwood().actions().iter().any(|a| *a.spend().nullifier() == spends) {
+                return Err(at(format!("no action spends {}", hex::encode(spends))));
+            }
+            let left = change_of(&pczt, &pocket.change_address());
+            match &change {
+                None => change = Some(left),
+                Some(first) if *first == left => {}
+                Some(_) => return Err(at("this rung leaves other change than the first".into())),
+            }
+        }
+        match change.flatten() {
+            Some(c) => spends = c.nullifier(pocket.fvk()).to_bytes(),
+            None if i + 1 < presigned.len() => return Err(format!("installment {k} leaves no change for the next")),
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

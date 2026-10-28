@@ -585,7 +585,8 @@ async fn record_mined(app: &App, sub: &Subscription, inst: &Installment, height:
 
 /// Refuses an installment whose package is not what the payer agreed to. Nothing is
 /// broadcast; the merchant hears `invoice.expired`, and the payer can cancel or sweep
-/// and subscribe again (there is no re-signing flow).
+/// and subscribe again (a re-sign only replaces packages before they open, while the
+/// subscription is active).
 fn reject(app: &App, sub: &Subscription, inst: &Installment, why: &str) -> Result<()> {
     eprintln!("{} #{}: refusing the package: {why}", sub.subscription_id, inst.k);
     app.store

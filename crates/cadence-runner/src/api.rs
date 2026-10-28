@@ -118,6 +118,11 @@ pub fn router(app: Arc<App>, web_dir: Option<PathBuf>, cors_origins: Vec<HeaderV
         .route("/api/subscriptions/{id}", get(get_subscription))
         .route("/api/subscriptions/{id}/stop", post(stop_subscription))
         .route("/api/subscriptions/{id}/pass", post(issue_pass))
+        // As large as the upload: a re-sign carries every sealed package again.
+        .route(
+            "/api/subscriptions/{id}/resign",
+            post(resign_subscription).layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT)),
+        )
         .route("/api/passes/key", get(pass_key))
         .route("/api/passes/verify", post(verify_pass))
         .route("/api/decode/{txid}", get(decode))
@@ -195,7 +200,7 @@ const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
 
 /// The parts of contract v2 this runner implements (`features` in `GET /api/status`).
 fn features(app: &App) -> Vec<&'static str> {
-    let mut features = vec!["trial", "quote", "payer_auth", "pass", "refund_after_stop"];
+    let mut features = vec!["trial", "quote", "payer_auth", "pass", "refund_after_stop", "resign"];
     if app.sandbox() {
         features.extend(["charge_after_cancel", "fund_offer"]);
     }
@@ -583,13 +588,7 @@ async fn create_subscription(
         .map_err(bad)?;
     let mut installments = Vec::with_capacity(req.installments.len());
     for inst in &req.installments {
-        let sealed = STANDARD.decode(&inst.sealed).map_err(|_| bad("sealed is not base64"))?;
-        // The tlock header names the round the package opens at; it must be the
-        // round the payer claims, or the schedule shown to the merchant is a lie.
-        let round = cadence_seal::header_round(&sealed).map_err(|e| bad(format!("bad package: {e:?}")))?;
-        if round != inst.release_round {
-            return Err(bad(format!("installment {} is sealed to round {round}", inst.k)));
-        }
+        let sealed = package(inst)?;
         installments.push(Installment {
             k: inst.k,
             amount_zat: offer.amount_zat,
@@ -614,6 +613,89 @@ async fn create_subscription(
         payer_auth_key.as_deref(),
     )?;
     Ok((StatusCode::CREATED, Json(json!({ "subscription_id": id, "status": "active" }))))
+}
+
+/// An uploaded installment's sealed package, decoded.
+fn package(inst: &NewInstallment) -> ApiResult<Vec<u8>> {
+    let sealed = STANDARD.decode(&inst.sealed).map_err(|_| bad("sealed is not base64"))?;
+    // The tlock header names the round the package opens at; it must be the
+    // round the payer claims, or the schedule shown to the merchant is a lie.
+    let round = cadence_seal::header_round(&sealed).map_err(|e| bad(format!("bad package: {e:?}")))?;
+    if round != inst.release_round {
+        return Err(bad(format!("installment {} is sealed to round {round}", inst.k)));
+    }
+    Ok(sealed)
+}
+
+#[derive(Deserialize)]
+struct Resign {
+    installments: Vec<NewInstallment>,
+}
+
+/// `POST /api/subscriptions/{id}/resign`, signed by the payer: replaces the packages
+/// of every installment still sealed with freshly signed ones, for the same rounds,
+/// so a payer whose packages a rule change would void need not cancel and subscribe
+/// again. Nothing is spent, and states, rounds and the schedule stay as they were.
+///
+/// The runner cannot see inside the new packages until they open, as at the upload.
+/// A payer who seals garbage only harms themselves: they could cancel at any time
+/// anyway, so the merchant takes no new risk. The signature keeps anyone else from
+/// replacing a payer's packages.
+async fn resign_subscription(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    let sub = app.store.lock().unwrap().subscription(&id)?.ok_or_else(not_found)?;
+    payer_auth::verify(sub.payer_auth_key.as_deref(), "POST", uri.path(), &headers, &body, now(), &app.payer_replays)
+        .map_err(|e| ApiError(StatusCode::FORBIDDEN, e))?;
+    let req: Resign = serde_json::from_slice(&body).map_err(|e| bad(format!("bad request body: {e}")))?;
+    let changed = |why: String| ApiError(StatusCode::CONFLICT, why);
+    if sub.status != "active" {
+        return Err(changed(format!("the subscription is {}; only an active one can be re-signed", sub.status)));
+    }
+    if !sub.installments.iter().any(|i| i.state == "sealed") {
+        return Err(changed("no installment is still sealed, so there is nothing to re-sign".into()));
+    }
+    // Exactly the installments still sealed, each at the round it has.
+    let mut packages = Vec::with_capacity(req.installments.len());
+    for inst in &req.installments {
+        let k = inst.k;
+        let have = sub
+            .installments
+            .iter()
+            .find(|i| i.k == k)
+            .ok_or_else(|| bad(format!("installment {k} is not one of this subscription's")))?;
+        if packages.iter().any(|(seen, _, _)| *seen == k) {
+            return Err(bad(format!("installment {k} is given twice")));
+        }
+        if have.state != "sealed" {
+            return Err(changed(format!(
+                "installment {k} is {}, no longer sealed; fetch the subscription and re-sign what is still sealed",
+                have.state
+            )));
+        }
+        if inst.release_round != have.release_round {
+            return Err(bad(format!(
+                "installment {k} releases at round {}; a re-sign keeps the schedule, so it must stay at that round",
+                have.release_round
+            )));
+        }
+        packages.push((k, inst.release_round, package(inst)?));
+    }
+    if let Some(missing) = sub.installments.iter().find(|i| i.state == "sealed" && !packages.iter().any(|(k, _, _)| *k == i.k)) {
+        return Err(bad(format!(
+            "installment {} is still sealed but not given; a re-sign replaces every sealed installment",
+            missing.k
+        )));
+    }
+    packages.sort_by_key(|(k, _, _)| *k);
+    app.store.lock().unwrap().replace_sealed(&id, &packages)?.map_err(changed)?;
+    let replaced: Vec<u32> = packages.iter().map(|(k, _, _)| *k).collect();
+    println!("{id}: the payer re-signed installments {replaced:?}");
+    Ok(Json(json!({ "subscription_id": id, "replaced": replaced })))
 }
 
 /// Whether an upload carries exactly the packages a subscription already holds.
@@ -1118,7 +1200,7 @@ pub(crate) mod tests {
         let app = test_app(false, None);
         let api = router(app.clone(), None, vec![]);
         let (_, _, body) = send(&api, get("/api/status", None, None)).await;
-        assert_eq!(body["features"], json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop"]));
+        assert_eq!(body["features"], json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop", "resign"]));
         // No tick has finished yet.
         assert_eq!(body["scheduler"], json!({ "last_tick_at": 0, "healthy": false }));
 
@@ -1139,7 +1221,7 @@ pub(crate) mod tests {
         let (_, _, body) = send(&sandbox, get("/api/status", None, None)).await;
         assert_eq!(
             body["features"],
-            json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop", "charge_after_cancel", "fund_offer"])
+            json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop", "resign", "charge_after_cancel", "fund_offer"])
         );
     }
 
@@ -1442,7 +1524,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn status_lists_this_runners_features() {
         let (_, _, body) = send(&router(test_app(false, None), None, vec![]), get("/api/status", None, None)).await;
-        assert_eq!(body["features"], json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop"]));
+        assert_eq!(body["features"], json!(["trial", "quote", "payer_auth", "pass", "refund_after_stop", "resign"]));
         let (_, _, body) = send(&router(test_app(true, None), None, vec![]), get("/api/status", None, None)).await;
         let features: Vec<&str> = body["features"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
         assert!(features.contains(&"charge_after_cancel"), "{features:?}");
@@ -1633,6 +1715,247 @@ pub(crate) mod tests {
             verdict,
             json!({ "valid": false, "reason": "expired", "offer_id": sub.offer_id, "sub": id, "paid": 1, "valid_until": t - 1 })
         );
+    }
+
+    /// A re-sign body with fresh packages for `rounds`, as `(k, release_round)`, and
+    /// those packages.
+    fn resign_body(app: &App, rounds: &[(u32, u64)]) -> (String, Vec<Vec<u8>>) {
+        let recipient = app.identity.to_public();
+        let sealed: Vec<Vec<u8>> = rounds
+            .iter()
+            .map(|(_, round)| cadence_seal::seal(br#"{"resigned":true}"#, &recipient, &app.chain, *round).unwrap())
+            .collect();
+        let installments: Vec<Value> = rounds
+            .iter()
+            .zip(&sealed)
+            .map(|((k, round), s)| json!({ "k": k, "release_round": round, "sealed": STANDARD.encode(s) }))
+            .collect();
+        (json!({ "installments": installments }).to_string(), sealed)
+    }
+
+    /// `body` posted to `sub`'s re-sign, signed with `key` at `at`.
+    fn resign_request(sub: &str, key: &ed25519_dalek::SigningKey, at: u64, body: &str) -> Request<Body> {
+        let path = format!("/api/subscriptions/{sub}/resign");
+        let mut req = Request::post(&path).header(header::CONTENT_TYPE, "application/json");
+        for (name, value) in &payer_auth::tests::signed(key, "POST", &path, at, body.as_bytes()) {
+            req = req.header(name, value);
+        }
+        req.body(Body::from(body.to_string())).unwrap()
+    }
+
+    fn stored(app: &App, id: &str) -> crate::store::Subscription {
+        app.store.lock().unwrap().subscription(id).unwrap().unwrap()
+    }
+
+    fn rounds(sub: &crate::store::Subscription) -> Vec<(u32, u64)> {
+        sub.installments.iter().map(|i| (i.k, i.release_round)).collect()
+    }
+
+    fn packages(sub: &crate::store::Subscription) -> Vec<Option<Vec<u8>>> {
+        sub.installments.iter().map(|i| i.sealed.clone()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_payer_resigns_the_installments_still_sealed() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let before = stored(&app, &id);
+
+        let (body, sealed) = resign_body(&app, &rounds(&before));
+        let (status, _, answer) = send(&api, resign_request(&id, &key, now(), &body)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(answer, json!({ "subscription_id": id, "replaced": [1, 2] }));
+        let after = stored(&app, &id);
+        assert_eq!(packages(&after), sealed.into_iter().map(Some).collect::<Vec<_>>());
+        assert_ne!(packages(&after), packages(&before));
+        // The schedule and every state stay as they were.
+        assert_eq!(rounds(&after), rounds(&before));
+        for (a, b) in after.installments.iter().zip(&before.installments) {
+            assert_eq!((a.state.as_str(), a.release_at), ("sealed", b.release_at));
+        }
+        assert_eq!(after.status, "active");
+
+        // Once installment 1 is mined, only installment 2 is still sealed.
+        app.store.lock().unwrap().set_mined(&id, 1, 4_550_000).unwrap();
+        let (body, sealed) = resign_body(&app, &rounds(&before)[1..]);
+        let (status, _, answer) = send(&api, resign_request(&id, &key, now() + 1, &body)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(answer["replaced"], json!([2]));
+        let last = stored(&app, &id);
+        assert_eq!(last.installments[0].sealed, after.installments[0].sealed);
+        assert_eq!(last.installments[1].sealed.as_ref(), Some(&sealed[0]));
+        assert_eq!(last.installments[0].state, "mined");
+    }
+
+    #[tokio::test]
+    async fn resigns_are_refused_without_a_good_fresh_signature() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let before = packages(&stored(&app, &id));
+        let (body, _) = resign_body(&app, &rounds(&stored(&app, &id)));
+
+        // Signed with another key.
+        let (status, _, answer) = send(&api, resign_request(&id, &payer_auth::tests::derive(&[2; 32]), now(), &body)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"], "the payer signature does not verify");
+        // Unsigned.
+        let (status, _, _) = send(&api, post(&format!("/api/subscriptions/{id}/resign"), None, &serde_json::from_str(&body).unwrap())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        // Signed over another body than the one sent.
+        let mut swapped = resign_request(&id, &key, now(), &resign_body(&app, &rounds(&stored(&app, &id))).0);
+        *swapped.body_mut() = Body::from(body.clone());
+        let (status, _, answer) = send(&api, swapped).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"], "the payer signature does not verify");
+        // Out of the clock window.
+        let (status, _, _) = send(&api, resign_request(&id, &key, now() - 3_600, &body)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(packages(&stored(&app, &id)), before);
+
+        // Replayed.
+        let at = now();
+        let (status, _, _) = send(&api, resign_request(&id, &key, at, &body)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, answer) = send(&api, resign_request(&id, &key, at, &body)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"], "this signed request was already used");
+
+        // A subscription made without a key, and one that does not exist.
+        let keyless = subscribed(&app, &api, now(), None).await.unwrap();
+        let (body, _) = resign_body(&app, &rounds(&stored(&app, &keyless)));
+        let (status, _, answer) = send(&api, resign_request(&keyless, &key, now(), &body)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"], "this subscription has no payer_auth_key");
+        let (status, _, _) = send(&api, resign_request("sub_unknown", &key, now(), &body)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_resign_gives_exactly_the_sealed_installments_at_their_rounds() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let before = stored(&app, &id);
+        let [(_, r1), (_, r2)] = rounds(&before)[..] else { unreachable!() };
+
+        let refused = |rounds: Vec<(u32, u64)>, error: String| (resign_body(&app, &rounds).0, error);
+        let mut cases = vec![
+            refused(vec![(1, r1)], "installment 2 is still sealed but not given; a re-sign replaces every sealed installment".into()),
+            refused(vec![(1, r1), (2, r2), (3, r2 + 200)], "installment 3 is not one of this subscription's".into()),
+            refused(vec![(1, r1), (1, r1), (2, r2)], "installment 1 is given twice".into()),
+            refused(
+                vec![(1, r1), (2, r2 + 1)],
+                format!("installment 2 releases at round {r2}; a re-sign keeps the schedule, so it must stay at that round"),
+            ),
+            refused(vec![], "installment 1 is still sealed but not given; a re-sign replaces every sealed installment".into()),
+        ];
+        // A package sealed to another round than the one it claims, or not base64.
+        let mut lying: Value = serde_json::from_str(&resign_body(&app, &[(1, r1), (2, r2 + 1)]).0).unwrap();
+        lying["installments"][1]["release_round"] = json!(r2);
+        cases.push((lying.to_string(), format!("installment 2 is sealed to round {}", r2 + 1)));
+        lying["installments"][1]["sealed"] = json!("not base64!");
+        cases.push((lying.to_string(), "sealed is not base64".into()));
+        cases.push(("{\"installments\": 3}".into(), String::new()));
+
+        for (i, (body, error)) in cases.iter().enumerate() {
+            let (status, _, answer) = send(&api, resign_request(&id, &key, now() + i as u64, body)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            if !error.is_empty() {
+                assert_eq!(answer["error"], *error.as_str(), "{body}");
+            }
+        }
+        assert_eq!(packages(&stored(&app, &id)), packages(&before));
+    }
+
+    #[tokio::test]
+    async fn installments_that_opened_are_not_resigned() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+        let id = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let all = rounds(&stored(&app, &id));
+
+        // Installment 1's round passed and the runner opened it.
+        app.store.lock().unwrap().set_beacon(&id, 1, b"beacon").unwrap();
+        let before = packages(&stored(&app, &id));
+        let (status, _, answer) = send(&api, resign_request(&id, &key, now(), &resign_body(&app, &all).0)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+        assert_eq!(
+            answer["error"],
+            "installment 1 is due, no longer sealed; fetch the subscription and re-sign what is still sealed"
+        );
+        assert_eq!(packages(&stored(&app, &id)), before);
+        let (status, _, answer) = send(&api, resign_request(&id, &key, now() + 1, &resign_body(&app, &all[1..]).0)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+
+        // Once every one has opened there is nothing left to re-sign.
+        app.store.lock().unwrap().set_beacon(&id, 2, b"beacon").unwrap();
+        let (status, _, answer) = send(&api, resign_request(&id, &key, now() + 2, &resign_body(&app, &[]).0)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+        assert_eq!(answer["error"], "no installment is still sealed, so there is nothing to re-sign");
+    }
+
+    #[tokio::test]
+    async fn only_an_active_subscription_is_resigned() {
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let key = payer_auth::tests::derive(&[1; 32]);
+
+        let stalled = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let body = resign_body(&app, &rounds(&stored(&app, &stalled))[1..]).0;
+        app.store.lock().unwrap().stall(&stalled, 1, "missed", now() + 60).unwrap();
+        let (status, _, answer) = send(&api, resign_request(&stalled, &key, now(), &body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+        assert_eq!(answer["error"], "the subscription is stalled; only an active one can be re-signed");
+
+        let cancelled = subscribed(&app, &api, now(), Some(&public_hex(&key))).await.unwrap();
+        let sub = stored(&app, &cancelled);
+        let body = resign_body(&app, &rounds(&sub)).0;
+        service::finish(&app, &sub, "cancelled", Some(&sub.installments[0])).await.unwrap();
+        let (status, _, answer) = send(&api, resign_request(&cancelled, &key, now(), &body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+        assert_eq!(answer["error"], "the subscription is cancelled; only an active one can be re-signed");
+    }
+
+    #[tokio::test]
+    async fn a_resign_replaces_every_package_or_none() {
+        // What the store does when the subscription changes between the checks above
+        // and the replacement: nothing.
+        let app = test_app(false, None);
+        let api = router(app.clone(), None, vec![]);
+        let id = subscribed(&app, &api, now(), None).await.unwrap();
+        let sub = stored(&app, &id);
+        let fresh: Vec<(u32, u64, Vec<u8>)> = sub.installments.iter().map(|i| (i.k, i.release_round, vec![i.k as u8; 4])).collect();
+        let replace = |packages: &[(u32, u64, Vec<u8>)]| app.store.lock().unwrap().replace_sealed(&id, packages).unwrap();
+
+        // Installment 2 opened: installment 1's replacement is rolled back too.
+        app.store.lock().unwrap().set_beacon(&id, 2, b"beacon").unwrap();
+        let err = replace(&fresh).unwrap_err();
+        assert!(err.starts_with("installment 2 opened while the re-sign was checked; nothing was replaced"), "{err}");
+        assert_eq!(packages(&stored(&app, &id)), packages(&sub));
+        // Not every sealed installment, or another round.
+        let id2 = subscribed(&app, &api, now(), None).await.unwrap();
+        let sub2 = stored(&app, &id2);
+        let fresh2: Vec<(u32, u64, Vec<u8>)> = sub2.installments.iter().map(|i| (i.k, i.release_round, vec![9; 4])).collect();
+        let mut store = app.store.lock().unwrap();
+        assert_eq!(store.replace_sealed(&id2, &fresh2[..1]).unwrap(), Err("2 installments are sealed, but 1 packages were given".into()));
+        let moved = [(1, fresh2[0].1 + 1, vec![9; 4]), fresh2[1].clone()];
+        assert!(store.replace_sealed(&id2, &moved).unwrap().is_err());
+        store.set_status(&id2, "stopped").unwrap();
+        assert_eq!(
+            store.replace_sealed(&id2, &fresh2).unwrap(),
+            Err("the subscription is stopped now, so its packages were left as they were".into())
+        );
+        drop(store);
+        assert_eq!(packages(&stored(&app, &id2)), packages(&sub2));
+        app.store.lock().unwrap().set_status(&id2, "active").unwrap();
+        assert_eq!(app.store.lock().unwrap().replace_sealed(&id2, &fresh2).unwrap(), Ok(()));
+        assert_eq!(packages(&stored(&app, &id2)), vec![Some(vec![9; 4]); 2]);
     }
 }
 
