@@ -17,7 +17,7 @@ export class HttpTransport implements Transport {
   }
 
   async request<T>(req: ApiRequest): Promise<T> {
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers: Record<string, string> = { ...req.headers, Accept: 'application/json' };
     if (req.body !== undefined) headers['Content-Type'] = 'application/json';
     if (req.token) headers.Authorization = `Bearer ${req.token}`;
 

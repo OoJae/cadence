@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import type { PocketState, Subscription } from '../api/types';
+import { AccessPass } from '../components/AccessPass';
 import { Command } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
 import { CancelPanel, CancelReceiptView } from '../components/FlowViews';
@@ -236,6 +237,8 @@ function Restored({ kit, signer, fileName }: { kit: KitSummary; signer: Signer; 
         {sub.error && !unreachable && <ErrorNote error={sub.error} retry={sub.refresh} />}
         {pocket.error && !unreachable && !pocketGone && <ErrorNote error={pocket.error} retry={pocket.refresh} />}
         {data ? <Timeline installments={data.installments} network={kit.network} /> : kit.subscription_id && !sub.error && <Spinner label="Asking the runner…" />}
+        {/* The restored signer holds the key's seed, so it signs for the pass; the page never sees the seed. */}
+        {data?.status === 'active' && kit.subscription_id && !s.cancel && <AccessPass client={client} signer={signer} subscriptionId={kit.subscription_id} />}
       </section>
 
       <section className="card stack" style={{ ['--gap' as string]: '12px' }} aria-labelledby="manage-cancel">

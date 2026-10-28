@@ -7,14 +7,15 @@
  * presign() → sealKit() → verifyKit() → (later) cancel(). A signer can instead
  * start from a saved cancel key: openKit() → restore() → cancel(). Key material
  * leaves the signer only encrypted to the payer's passphrase (sealKit); otherwise
- * the app only ever sees the pocket's address, its view-only UFVK and sealed
- * packages.
+ * the app only ever sees the pocket's address, its view-only UFVK, sealed
+ * packages, and the payer auth public key and its signatures (payerAuth).
  */
 import type { Offer, SealedInstallment } from '../api/types';
+import type { PayerAuth } from '../lib/payerAuth';
 import type { NetworkId } from '../lib/zat';
 import type { KitCheck, OpenedKit, SealedKit } from './kit';
 
-export type { SealedInstallment };
+export type { PayerAuth, SealedInstallment };
 
 /** Public facts about a freshly created pocket. Nothing here can spend. */
 export interface PocketInfo {
@@ -154,6 +155,14 @@ export interface Signer {
    * NothingToCancelError when every installment was released first.
    */
   cancel(refundUa: string, opts?: CancelOptions): Promise<CancelReceipt>;
+
+  /**
+   * The pocket's payer auth key (src/lib/payerAuth.ts), derived from its seed: the public
+   * key the upload registers, and signatures for requests only the payer may make, such
+   * as asking for an access pass. The seed stays in the signer, and signing stops at
+   * destroy(). Needs a pocket, made or restored.
+   */
+  payerAuth(): Promise<PayerAuth>;
 
   /** Zeroises all key material. The signer is unusable afterwards. */
   destroy(): void;

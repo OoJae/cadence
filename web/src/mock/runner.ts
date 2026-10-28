@@ -15,6 +15,9 @@ import type {
   Installment,
   InstallmentState,
   Offer,
+  PassKey,
+  PassResponse,
+  PassVerifyResponse,
   RunnerStatus,
   SandboxCheatResponse,
   Shape,
@@ -22,8 +25,11 @@ import type {
   SubscriptionStatus,
 } from '../api/types';
 import { isUfvk, isUnifiedAddress, shorten } from '../lib/addresses';
+import { bytesToBase64url, utf8Encode } from '../lib/base64url';
 import { QUICKNET, roundAt, roundTime } from '../lib/drand';
 import { buildShareUrl, LIMITS } from '../lib/offer';
+import { parsePass, passValidUntil, verifyPassSignature } from '../lib/pass';
+import { ed25519FromSeed, fromHex, PAYER_SIGNATURE_HEADER, PAYER_TIMESTAMP_HEADER, toHex, verifyPayerSignature } from '../lib/payerAuth';
 import { seededBech32, seededHex, seededInt } from '../lib/prng';
 import { INSTALLMENT_FEE_ZAT, MAX_MONEY_ZAT, totalPrepaidZat } from '../lib/zat';
 import { findS2Shape } from '../data/s2';
@@ -35,6 +41,8 @@ export const EXPIRY_DELTA = 120;
 export const ANCHOR_CONFIRMATIONS = 3;
 /** Poll interval plus sync plus proving: how long after its round the runner acts. */
 export const RUNNER_LATENCY_SECS = 4;
+/** How far a payer's signed timestamp may be from the runner's clock, and how long a signature it has seen stays refused. */
+export const PAYER_SKEW_SECS = 300;
 
 /**
  * Why a schedule does not match its offer, or null. Installments are numbered 1…N,
@@ -83,6 +91,8 @@ export interface MockSubRecord {
   funding: { txid: string; mined_height: number; amount_zat: number };
   pocket_ufvk: string;
   installments: MockInstallmentRecord[];
+  /** The payer auth public key the upload registered (hex), if any. */
+  payer_auth_key?: string;
   stopped_at?: number;
   /** Shown in the dashboard: where a fixture's data comes from. */
   provenance?: string;
@@ -251,6 +261,10 @@ export class MockRunner {
   readonly subs = new Map<string, MockSubRecord>();
   /** Rung windows, keyed by sealed package. Stands in for "the runner opens the package". */
   readonly #windows = new Map<string, [number, number]>();
+  /** Payer signatures seen in the last PAYER_SKEW_SECS, and when. */
+  readonly #seenSignatures = new Map<string, number>();
+  /** The pass key, from a fixed seed: the mock is no secret, and its public key reads the same on every load. */
+  #passKey: ReturnType<typeof ed25519FromSeed> | null = null;
   #seq = 0;
 
   constructor(chain: MockChain, clock: () => number, appOrigin: string) {
@@ -301,7 +315,7 @@ export class MockRunner {
 
   status(): RunnerStatus {
     const now = this.clock();
-    return { network: 'test', tip: this.chain.tipAt(now), drand_round: roundAt(now), subscriptions: this.subs.size };
+    return { network: 'test', tip: this.chain.tipAt(now), drand_round: roundAt(now), subscriptions: this.subs.size, features: ['payer_auth', 'pass'] };
   }
 
   createOffer(body: unknown, token: string | undefined): { offer_id: string; share_url: string } {
@@ -342,6 +356,7 @@ export class MockRunner {
     if (!offer) throw new HttpError(404, 'no such offer');
     if (typeof b.pocket_ufvk !== 'string' || !isUfvk(b.pocket_ufvk, 'test')) throw new HttpError(422, 'pocket_ufvk must be a testnet UFVK');
     if ([...this.subs.values()].some((r) => r.pocket_ufvk === b.pocket_ufvk)) throw new HttpError(409, 'this pocket already backs a subscription; pockets are single-use');
+    if (b.payer_auth_key !== undefined && (typeof b.payer_auth_key !== 'string' || !/^[0-9a-f]{64}$/.test(b.payer_auth_key))) throw new HttpError(422, 'payer_auth_key must be 64 hex characters');
     if (!Number.isSafeInteger(b.birthday_height)) throw new HttpError(422, 'birthday_height must be a height');
     const funding = typeof b.funding_txid === 'string' ? this.chain.get(b.funding_txid) : undefined;
     if (!funding || funding.kind === 'cancel') throw new HttpError(422, 'funding_txid is not a payment the runner can see');
@@ -370,6 +385,7 @@ export class MockRunner {
       funding: { txid: funding.txid, mined_height: funding.mined_height, amount_zat: funding.value_zat },
       pocket_ufvk: b.pocket_ufvk,
       installments,
+      ...(b.payer_auth_key ? { payer_auth_key: b.payer_auth_key } : {}),
     });
     return { subscription_id, status: 'active' };
   }
@@ -406,6 +422,58 @@ export class MockRunner {
     const tx: MockTx | undefined = this.chain.get(txid);
     if (tx) return synthShape(txid, tx.target_height, tx.mined_height <= tip ? tx.mined_height : 0);
     throw new HttpError(404, "transaction not found on the runner's node");
+  }
+
+  // ------------------------------------------------ access passes
+
+  #passKeyPair(): ReturnType<typeof ed25519FromSeed> {
+    return (this.#passKey ??= ed25519FromSeed(fromHex(seededHex('mock-runner-pass-key'))));
+  }
+
+  /**
+   * `POST /api/subscriptions/:id/pass`, signed by the payer: the same checks as the real
+   * runner (timestamp within 300 s, signature under the registered key, no replay), then
+   * 409 unless the subscription is paying.
+   */
+  async issuePass(id: string, headers: Record<string, string>, rawBody: string, path = `/api/subscriptions/${id}/pass`): Promise<PassResponse> {
+    const rec = this.subs.get(id);
+    if (!rec) throw new HttpError(404, 'no such subscription');
+    if (!rec.payer_auth_key) throw new HttpError(403, 'this subscription has no payer auth key');
+    const header = (name: string) => Object.entries(headers).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+    const ts = Number(header(PAYER_TIMESTAMP_HEADER));
+    const sig = header(PAYER_SIGNATURE_HEADER) ?? '';
+    const now = this.clock();
+    if (!Number.isSafeInteger(ts) || Math.abs(now - ts) > PAYER_SKEW_SECS) throw new HttpError(403, 'the payer timestamp is missing or more than 300 s from the runner clock');
+    if (!(await verifyPayerSignature(rec.payer_auth_key, 'POST', path, ts, rawBody, sig))) throw new HttpError(403, 'the payer signature does not verify');
+    for (const [seen, at] of this.#seenSignatures) if (now - at > PAYER_SKEW_SECS) this.#seenSignatures.delete(seen);
+    if (this.#seenSignatures.has(sig)) throw new HttpError(403, 'this payer signature was already used');
+    this.#seenSignatures.set(sig, now);
+
+    const { subscription } = this.derive(id);
+    const validUntil = passValidUntil(subscription.installments, rec.offer.period_secs);
+    if (subscription.status === 'cancelled' || subscription.status === 'stopped' || subscription.status === 'stalled') throw new HttpError(409, `the subscription is ${subscription.status}`);
+    if (now > validUntil) throw new HttpError(409, 'the subscription is past its paid time');
+    const payload = utf8Encode(
+      JSON.stringify({ v: 1, iss: 'test', offer_id: rec.offer.offer_id, sub: id, paid: subscription.installments.filter((i) => i.state === 'mined').length, valid_until: validUntil, iat: Math.floor(now) }),
+    );
+    const signature = new Uint8Array(await crypto.subtle.sign('Ed25519', (await this.#passKeyPair()).privateKey, payload as BufferSource));
+    return { pass: `${bytesToBase64url(payload)}.${bytesToBase64url(signature)}`, valid_until: validUntil };
+  }
+
+  async passKey(): Promise<PassKey> {
+    return { alg: 'Ed25519', public_key: toHex((await this.#passKeyPair()).publicKey) };
+  }
+
+  async verifyPass(body: unknown): Promise<PassVerifyResponse> {
+    const b = body as { pass?: unknown } | null;
+    if (!b || typeof b.pass !== 'string') throw new HttpError(422, 'pass must be a string');
+    const unread = { offer_id: null, sub: null, paid: null, valid_until: null };
+    const parsed = parsePass(b.pass);
+    if (!parsed.ok) return { valid: false, reason: 'malformed pass', ...unread };
+    if (!(await verifyPassSignature((await this.passKey()).public_key, parsed.payloadBytes, parsed.signature))) return { valid: false, reason: 'bad signature', ...unread };
+    const { offer_id, sub, paid, valid_until } = parsed.payload;
+    const valid = this.clock() <= valid_until;
+    return { valid, reason: valid ? null : 'expired', offer_id, sub, paid, valid_until };
   }
 
   // ------------------------------------------------ sandbox extension

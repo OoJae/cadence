@@ -54,6 +54,65 @@ describe('uploads', () => {
   });
 });
 
+describe('the payer auth key in the upload', () => {
+  const KEY = 'ab'.repeat(32);
+  const oldBody = {
+    offer_id: 'off_t',
+    pocket_id: 'pkt_t',
+    pocket_ufvk: 'uviewtest1x',
+    birthday_height: 100,
+    funding_txid: 'aa'.repeat(32),
+    installments: held.sealed,
+  };
+  const runner = (status: () => Promise<unknown>) => {
+    const bodies: unknown[] = [];
+    const api = {
+      status: vi.fn(status),
+      createSubscription: vi.fn(async (body: unknown) => (bodies.push(body), { subscription_id: 'sub_k', status: 'active' })),
+    } as unknown as CadenceClient;
+    return { api, bodies };
+  };
+
+  it('is added when the runner lists payer_auth', async () => {
+    const { api, bodies } = runner(async () => ({ network: 'test', features: ['payer_auth', 'pass'] }));
+    await retryUpload(offer, { ...held, payerAuthKey: KEY }, () => {}, { api });
+    expect(bodies).toEqual([{ ...oldBody, payer_auth_key: KEY }]);
+  });
+
+  it('is left out, byte for byte, for a runner without the feature or without features at all', async () => {
+    for (const status of [{ network: 'test', features: ['pass'] }, { network: 'test', tip: 1, drand_round: 1, subscriptions: 0 }]) {
+      const { api, bodies } = runner(async () => status);
+      await retryUpload(offer, { ...held, payerAuthKey: KEY }, () => {}, { api });
+      expect(JSON.stringify(bodies[0])).toBe(JSON.stringify(oldBody));
+    }
+  });
+
+  it('is left out when the status does not answer, and the upload goes on', async () => {
+    const { api, bodies } = runner(async () => {
+      throw new ApiError(0, 'could not reach the runner');
+    });
+    const patches: Partial<FlowState>[] = [];
+    await retryUpload(offer, { ...held, payerAuthKey: KEY }, (p) => patches.push(p), { api });
+    expect(JSON.stringify(bodies[0])).toBe(JSON.stringify(oldBody));
+    expect(patches.at(-1)).toEqual({ subscriptionId: 'sub_k', phase: 'done' });
+  });
+
+  it('comes from the signer after signing, and the runner is not asked about features without one', async () => {
+    const sealed = held.sealed!;
+    const signer = { presign: vi.fn(async () => sealed), payerAuth: vi.fn(async () => ({ publicKeyHex: KEY, sign: vi.fn() })) } as unknown as Signer;
+    const { api, bodies } = runner(async () => ({ network: 'test', features: ['payer_auth'] }));
+    const patches: Partial<FlowState>[] = [];
+    await retrySigning(offer, signer, { ...held, sealed: undefined }, (p) => patches.push(p), { api });
+    expect(patches).toContainEqual(expect.objectContaining({ phase: 'uploading', payerAuthKey: KEY }));
+    expect(bodies).toEqual([{ ...oldBody, payer_auth_key: KEY }]);
+
+    const bare = runner(async () => ({ network: 'test', features: ['payer_auth'] }));
+    await retryUpload(offer, held, () => {}, { api: bare.api });
+    expect(bare.api.status).not.toHaveBeenCalled();
+    expect(JSON.stringify(bare.bodies[0])).toBe(JSON.stringify(oldBody));
+  });
+});
+
 describe('a plan past the horizon', () => {
   it('is refused before any pocket exists', async () => {
     const signer = { createPocket: vi.fn() } as unknown as Signer;

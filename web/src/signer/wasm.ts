@@ -22,6 +22,9 @@
  *   and proves it in a dedicated prover worker (its proving key starts building
  *   the moment cancel() is called), then `POST /api/broadcast`. Waiting for anchor
  *   depth and losing the race to an installment are handled in ./cancel.ts.
+ * - Payer auth: payerAuth() derives an Ed25519 key from the seed with WebCrypto
+ *   (src/lib/payerAuth.ts), on this thread, and hands out only its public key and
+ *   signatures, as for an access pass.
  *
  * All wasm and worker scripts are served from this origin (/wasm/, from src/wasm, and the
  * bundle); the only network peer is the configured runner.
@@ -30,6 +33,7 @@ import type { CadenceClient } from '../api/client';
 import type { Offer, PocketWitness, SealedInstallment } from '../api/types';
 import { isUnifiedAddress } from '../lib/addresses';
 import { QUICKNET } from '../lib/drand';
+import { payerAuthFromSeed, type PayerAuth } from '../lib/payerAuth';
 import { firstReleaseLead } from '../lib/schedule';
 import { nowSecs } from '../lib/time';
 import { totalPrepaidZat, type NetworkId } from '../lib/zat';
@@ -110,6 +114,7 @@ export class WasmSigner implements Signer {
   #funding: (WasmNote & { txid: string; mined_height: number; tx_hex: string }) | null = null;
   #notes = new Map<string, KnownNote>();
   #schedule: Schedule | null = null;
+  #payerAuth: Promise<PayerAuth> | null = null;
   #presigned = false;
   #cancelled = false;
   #cancelling = false;
@@ -353,9 +358,22 @@ export class WasmSigner implements Signer {
     }
   }
 
+  async payerAuth(): Promise<PayerAuth> {
+    const { seed } = this.#key();
+    const auth = await (this.#payerAuth ??= payerAuthFromSeed(seed));
+    return {
+      publicKeyHex: auth.publicKeyHex,
+      sign: async (method, path, body) => {
+        this.#alive();
+        return auth.sign(method, path, body);
+      },
+    };
+  }
+
   destroy(): void {
     this.#seed?.fill(0);
     this.#seed = null;
+    this.#payerAuth = null;
     this.#notes.clear();
     this.#funding = null;
     this.#schedule = null;

@@ -61,6 +61,8 @@ export interface CreateSubscriptionRequest {
   birthday_height: number;
   funding_txid: string;
   installments: SealedInstallment[];
+  /** Hex of the payer auth public key (src/lib/payerAuth.ts). Sent only to a runner that lists `payer_auth`. */
+  payer_auth_key?: string;
 }
 
 export interface CreateSubscriptionResponse {
@@ -188,6 +190,9 @@ export interface Shape {
   supplied_ovk_recoverable: number;
 }
 
+/** What a runner may list in `features`. Each is sent or shown only when listed. */
+export type RunnerFeature = 'trial' | 'quote' | 'payer_auth' | 'pass' | 'refund_after_stop' | 'charge_after_cancel' | 'fund_offer' | 'resign';
+
 /** `GET /api/status`. */
 export interface RunnerStatus {
   network: NetworkId;
@@ -196,6 +201,48 @@ export interface RunnerStatus {
   subscriptions: number;
   /** True when this runner serves the testnet-only `/api/sandbox` endpoints. */
   sandbox?: boolean;
+  /** The v2 features this runner implements. An older runner sends none: read that as []. */
+  features?: RunnerFeature[];
+}
+
+// ---------------------------------------------------------------- access passes
+
+/** `200` response of `POST /api/subscriptions/:id/pass` (payer-signed, body `{}`). */
+export interface PassResponse {
+  /** `<b64url(payload)>.<b64url(Ed25519 signature)>`. */
+  pass: string;
+  valid_until: number;
+}
+
+/** What a pass says, signed by the runner's pass key. It names the subscription, never the payer. */
+export interface PassPayload {
+  v: 1;
+  /** The issuing runner's network. */
+  iss: NetworkId;
+  offer_id: string;
+  sub: string;
+  /** Installments mined so far. */
+  paid: number;
+  valid_until: number;
+  iat: number;
+}
+
+/** `GET /api/passes/key`. */
+export interface PassKey {
+  alg: 'Ed25519';
+  /** Hex of the 32-byte public key. */
+  public_key: string;
+}
+
+/** `POST /api/passes/verify` with `{ pass }`: the runner's own check. Null fields for a pass it cannot read. */
+export interface PassVerifyResponse {
+  /** The signature checks and `now ≤ valid_until`. */
+  valid: boolean;
+  reason: string | null;
+  offer_id: string | null;
+  sub: string | null;
+  paid: number | null;
+  valid_until: number | null;
 }
 
 // ---------------------------------------------------------------- webhooks (runner → merchant)

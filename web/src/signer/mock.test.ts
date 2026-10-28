@@ -3,6 +3,7 @@ import type { Offer } from '../api/types';
 import { isUfvk, isUnifiedAddress } from '../lib/addresses';
 import { QUICKNET } from '../lib/drand';
 import { seededBech32 } from '../lib/prng';
+import { PAYER_SIGNATURE_HEADER, PAYER_TIMESTAMP_HEADER, payerAuthFromSeed, verifyPayerSignature } from '../lib/payerAuth';
 import { totalPrepaidZat } from '../lib/zat';
 import { NothingToCancelError } from './cancel';
 import { KIT_KIND } from './kit';
@@ -189,5 +190,45 @@ describe('MockSigner cancel key', () => {
     l.pocketBalance = () => 0;
     const { signer } = await subscribed(l);
     await expect(signer.cancel(`utest1${seededBech32('r', 104)}`)).rejects.toBeInstanceOf(NothingToCancelError);
+  });
+});
+
+describe('MockSigner payer auth key', () => {
+  const ctx = { runner: 'http://localhost:5173', subscriptionId: 'sub_t' };
+  const PATH = '/api/subscriptions/sub_t/pass';
+
+  it('derives the key from the pocket seed, so a restored cancel key has the same one, and never hands out the seed', async () => {
+    const { l } = ledger([{ value_zat: totalPrepaidZat(100_000, 2) }]);
+    const signer = new MockSigner(l);
+    await expect(signer.payerAuth()).rejects.toThrow(/create a pocket first/);
+    await signer.createPocket('test');
+    const auth = await signer.payerAuth();
+    expect(auth.publicKeyHex).toMatch(/^[0-9a-f]{64}$/);
+    expect(Object.keys(auth).sort()).toEqual(['publicKeyHex', 'sign']);
+    expect((await signer.payerAuth()).publicKeyHex).toBe(auth.publicKeyHex);
+
+    const headers = await auth.sign('POST', PATH, '{}');
+    expect(await verifyPayerSignature(auth.publicKeyHex, 'POST', PATH, Number(headers[PAYER_TIMESTAMP_HEADER]), '{}', headers[PAYER_SIGNATURE_HEADER])).toBe(true);
+
+    await signer.presign(offer, await signer.awaitFunding(totalPrepaidZat(100_000, 2)));
+    const kit = await signer.sealKit('correct horse battery', ctx);
+    const opened = await new MockSigner(l).openKit(kit.bytes, 'correct horse battery');
+    // The same derivation from the seed in the key, with nothing of the signer's.
+    expect((await payerAuthFromSeed(opened.seed)).publicKeyHex).toBe(auth.publicKeyHex);
+    const fresh = new MockSigner(l);
+    await fresh.restore(opened);
+    expect((await fresh.payerAuth()).publicKeyHex).toBe(auth.publicKeyHex);
+  });
+
+  it('gives each pocket its own key, and stops signing once destroyed', async () => {
+    const a = new MockSigner(ledger().l);
+    const b = new MockSigner(ledger().l);
+    await a.createPocket('test');
+    await b.createPocket('test');
+    const auth = await a.payerAuth();
+    expect(auth.publicKeyHex).not.toBe((await b.payerAuth()).publicKeyHex);
+    a.destroy();
+    await expect(auth.sign('POST', PATH, '{}')).rejects.toThrow(/destroyed/);
+    await expect(a.payerAuth()).rejects.toThrow(/destroyed/);
   });
 });

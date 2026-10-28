@@ -2,8 +2,8 @@
  * The payer's mandate flow, shared by /subscribe and the sandbox:
  * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
-import { ApiError, type CadenceClient } from './api/client';
-import type { Offer, SealedInstallment } from './api/types';
+import { ApiError, hasFeature, type CadenceClient } from './api/client';
+import type { Offer, RunnerFeature, SealedInstallment } from './api/types';
 import { horizonProblem } from './lib/offer';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
 import { buildZip321Uri } from './lib/zip321';
@@ -24,6 +24,8 @@ export interface FlowState {
   finished?: PresignProgress[];
   sealed?: SealedInstallment[];
   signedAt?: number;
+  /** The pocket's payer auth public key, for an upload to a runner that lists `payer_auth`. */
+  payerAuthKey?: string;
   subscriptionId?: string;
   error?: string;
   /** The signer refused what it saw (an underpaid pocket, say), so watching again would repeat the error. */
@@ -88,9 +90,32 @@ async function signAndUpload(
       update({ progress, finished: [...finished] });
     },
   });
-  update({ sealed, signedAt, phase: 'uploading' });
-  const subscriptionId = await uploadSealed(offer, pocket, funding, sealed, opts);
+  const payerAuthKey = await payerAuthKeyOf(signer);
+  update({ sealed, signedAt, ...(payerAuthKey ? { payerAuthKey } : {}), phase: 'uploading' });
+  const subscriptionId = await uploadSealed(offer, pocket, funding, sealed, { ...opts, payerAuthKey });
   update({ subscriptionId, phase: 'done' });
+}
+
+/**
+ * The pocket's payer auth public key, or undefined where the signer cannot make one (a
+ * browser without WebCrypto Ed25519): the subscription works without it, and only
+ * cannot get an access pass.
+ */
+async function payerAuthKeyOf(signer: Signer): Promise<string | undefined> {
+  try {
+    return (await signer.payerAuth()).publicKeyHex;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the runner's status lists `feature`. A status that does not answer counts as no. */
+async function runnerLists(client: CadenceClient, feature: RunnerFeature, signal?: AbortSignal): Promise<boolean> {
+  try {
+    return hasFeature(await client.status(signal), feature);
+  } catch {
+    return false;
+  }
 }
 
 /** Upload attempts, and the wait before each retry. */
@@ -100,13 +125,17 @@ const UPLOAD_RETRY_MS = [3_000, 10_000];
  * Uploads the sealed packages. A timeout or a 5xx is retried: the runner accepts the
  * same packages again for the same pocket and answers with the same subscription, so
  * an upload that landed after the page gave up costs nothing.
+ *
+ * The payer auth key goes only to a runner whose status lists `payer_auth`; any other
+ * runner gets the body it always got. A status that does not answer counts as not
+ * listing it: a missing key costs only the access pass, never the upload.
  */
 async function uploadSealed(
   offer: Offer,
   pocket: PocketInfo,
   funding: FundingTx,
   sealed: SealedInstallment[],
-  opts: { signal?: AbortSignal; api?: CadenceClient; sleep?: (ms: number) => Promise<void> },
+  opts: { signal?: AbortSignal; api?: CadenceClient; sleep?: (ms: number) => Promise<void>; payerAuthKey?: string },
 ): Promise<string> {
   const body = {
     offer_id: offer.offer_id,
@@ -116,10 +145,12 @@ async function uploadSealed(
     funding_txid: funding.txid,
     installments: sealed,
   };
+  const client = opts.api ?? api;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 0; ; attempt++) {
     try {
-      return (await (opts.api ?? api).createSubscription(body, opts.signal)).subscription_id;
+      const key = opts.payerAuthKey && (await runnerLists(client, 'payer_auth', opts.signal)) ? opts.payerAuthKey : undefined;
+      return (await client.createSubscription(key ? { ...body, payer_auth_key: key } : body, opts.signal)).subscription_id;
     } catch (e) {
       const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500);
       if (!retriable || attempt >= UPLOAD_RETRY_MS.length || opts.signal?.aborted) throw e;
@@ -141,7 +172,7 @@ export async function retryUpload(
   if (!s.pocket || !s.funding || !s.sealed) return;
   try {
     update({ phase: 'uploading', error: undefined });
-    const subscriptionId = await uploadSealed(offer, s.pocket, s.funding, s.sealed, opts);
+    const subscriptionId = await uploadSealed(offer, s.pocket, s.funding, s.sealed, { ...opts, payerAuthKey: s.payerAuthKey });
     update({ subscriptionId, phase: 'done' });
   } catch (e) {
     if (opts.signal?.aborted) return;
