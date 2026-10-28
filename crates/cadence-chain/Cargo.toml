@@ -22,3 +22,6 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+zip32 = { workspace = true }
