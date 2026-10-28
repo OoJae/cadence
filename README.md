@@ -2,6 +2,8 @@
 
 **Subscribe once. Close the tab.** Pre-authorized shielded payments on Zcash's Ironwood pool.
 
+**Demo video (1 min 40 s):** [youtu.be/lS39MB9Cxcs](https://youtu.be/lS39MB9Cxcs)
+
 **Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is a separate app host, which shows its commit and bundle hash in the footer. The sandbox runner also serves the app on its own origin ([sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox)), and the mainnet runner serves an earlier build of it (7244e6a, before the redesign).
 
 **Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) (also on the [app host](https://app-production-be97.up.railway.app/status#sub=sub_747f99039ba4f43c5234)) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), already signed on Oct 27, will be the first after NU7, which is expected around Nov 5. That crossing was rehearsed on a local regtest chain on Oct 28 ([evidence](evidence/nu7-regtest.md)); the mainnet crossing itself is still ahead. The status page shows times in your browser's time zone, and the app host's names it; the evidence gives them in UTC.
