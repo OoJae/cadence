@@ -69,4 +69,16 @@ re-signed: the runner replaced installments 1, 2, 3 of sub_9e95df52ed8afaefafdd
 - **Runners with a sandbox funder never reach this.** Their wallet always holds the funder's account. This covers the deployed sandbox.
 - **Runners without one do reach it.** This covers the mainnet runner's design, and its 7244e6a build too. They reach it after their last pocket is forgotten, which for `main` is after the weekly mandate completes on 2026-11-17.
 
+**The exact trigger,** found by reproducing it offline (`crates/cadence-chain/src/wallet.rs` tests):
+- the wallet's only pocket was registered at tip + 1;
+- blocks below that birthday had been scanned for a deleted pocket;
+- a sync ran before the next block was mined.
+
+Ignored ranges alone don't cause it.
+
+**The fix, in this build** (c66dea7):
+- The runner doesn't sync until a pocket's birthday is reached (`wallet::born_by`).
+- A tick that panics now fails on its own. It is logged, reported as `scheduler.healthy: false`, and retried at the next tick, instead of stopping the scheduler.
+- The tests reproduce the panic on a copy of this run's wallet. They show that the guard skips it, and that the sync works once the tip passes the birthday.
+
 The funds of that run were swept back with `cadence sweep` (`0a9ed346283173d62aff43b062ecba1488e68c63ad5f46f3b7f51b228ed092db`). Run 2 used fresh databases.
