@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { PocketNoteInfo, PocketState, PocketWitness } from '../api/types';
-import { NothingToCancelError, RETRY_MS, runCancel, WAIT_LIMIT_MS, type CancelSteps } from './cancel';
+import { NothingToCancelError, POCKET_RETRIES, readPocket, RETRY_MS, runCancel, WAIT_LIMIT_MS, type CancelSteps } from './cancel';
 import type { KitNote } from './kit';
 import type { CancelStatus } from './types';
 
@@ -221,5 +221,49 @@ describe('runCancel', () => {
     const w = world({ pockets: [{ tip: 1000, notes: [[1, 990]] }] });
     w.steps.broadcast = async () => ({ txid: 'something-else' });
     await expect(runCancel(w.steps)).rejects.toThrow(/reported txid something-else/);
+  });
+});
+
+describe('readPocket', () => {
+  const STATE: PocketState = { pocket_id: 'pkt_t', tip: 1000, funding: null, notes: [] };
+  const noSleep = async () => {};
+  const scripted = (answers: Array<PocketState | ApiError>) => {
+    let calls = 0;
+    const get = async () => {
+      const a = answers[Math.min(calls++, answers.length - 1)]!;
+      if (a instanceof ApiError) throw a;
+      return a;
+    };
+    return { get, calls: () => calls };
+  };
+
+  it('asks again while the runner is unreachable, slow or failing', async () => {
+    const r = scripted([new ApiError(0, 'the runner did not answer in time'), new ApiError(502, 'HTTP 502'), STATE]);
+    await expect(readPocket(r.get, { retryMs: 5_000, sleep: noSleep })).resolves.toEqual(STATE);
+    expect(r.calls()).toBe(3);
+  });
+
+  it('gives up after POCKET_RETRIES more tries', async () => {
+    const down = new ApiError(0, 'could not reach the runner (fetch failed)');
+    const r = scripted([down]);
+    await expect(readPocket(r.get, { retryMs: 5_000, sleep: noSleep })).rejects.toBe(down);
+    expect(r.calls()).toBe(POCKET_RETRIES + 1);
+  });
+
+  it('throws a refusal or a malformed answer at once', async () => {
+    const gone = new ApiError(404, 'no such pocket');
+    const r = scripted([gone]);
+    await expect(readPocket(r.get, { retryMs: 5_000, sleep: noSleep })).rejects.toBe(gone);
+    expect(r.calls()).toBe(1);
+    const bad = scripted([{ ...STATE, tip: 0 }]);
+    await expect(readPocket(bad.get, { retryMs: 5_000, sleep: noSleep })).rejects.toThrow(/malformed pocket status/);
+  });
+
+  it('stops when the watch is aborted', async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    const r = scripted([new ApiError(0, 'could not reach the runner (aborted)'), STATE]);
+    await expect(readPocket(r.get, { retryMs: 5_000, signal: ctl.signal, sleep: noSleep })).rejects.toBeInstanceOf(ApiError);
+    expect(r.calls()).toBe(1);
   });
 });

@@ -277,7 +277,10 @@ function CreateForm() {
     <div className="stack" style={{ ['--gap' as string]: '16px' }}>
       <div className="stack" style={{ ['--gap' as string]: '4px' }}>
         <span className="h3">A standing order, sped up</span>
-        <span className="small muted">Real cadences are days or weeks. Here installments are seconds or minutes apart so you can watch them land.</span>
+        <span className="small muted">
+          Real cadences are days or weeks. Here installments are seconds or minutes apart so you can watch them land.
+          {!isMock && ' To have time to cancel before the last one, choose 4 installments every 300 seconds.'}
+        </span>
       </div>
       <div className="grid cols-3" style={{ ['--gap' as string]: '12px' }}>
         <div className="field">
@@ -293,7 +296,7 @@ function CreateForm() {
         <div className="field">
           <label htmlFor="sb-period">Every</label>
           <select id="sb-period" className="select" value={period} onChange={(e) => setPeriod(Number(e.target.value))}>
-            {(isMock ? [20, 30, 45] : [90, 120, 180]).map((n) => (
+            {(isMock ? [20, 30, 45] : [90, 120, 180, 300]).map((n) => (
               <option key={n} value={n}>
                 {n} seconds
               </option>

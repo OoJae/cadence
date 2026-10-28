@@ -90,6 +90,30 @@ export function checkPocketState(s: PocketState): PocketState {
   return s;
 }
 
+/** Times in a row the pocket is asked again after the runner could not answer: about a minute at 5 s. */
+export const POCKET_RETRIES = 12;
+
+/**
+ * The pocket's state, asked again while the runner is unreachable, slow or failing
+ * (status 0 or 5xx). The pocket's key exists only in the payer's tab, so one slow
+ * answer must not end the watch for its payment. Anything else is thrown at once.
+ */
+export async function readPocket(
+  get: (signal?: AbortSignal) => Promise<PocketState>,
+  opts: { retryMs: number; signal?: AbortSignal; sleep?: (ms: number, signal?: AbortSignal) => Promise<void> },
+): Promise<PocketState> {
+  const sleep = opts.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return checkPocketState(await get(opts.signal));
+    } catch (e) {
+      const transient = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      if (!transient || opts.signal?.aborted || attempt >= POCKET_RETRIES) throw e;
+      await sleep(opts.retryMs, opts.signal);
+    }
+  }
+}
+
 export function isNotAnchorDeep(e: unknown): boolean {
   return e instanceof ApiError && e.status === 400 && /anchor-deep/i.test(e.message);
 }

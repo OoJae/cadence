@@ -33,7 +33,7 @@ import { QUICKNET } from '../lib/drand';
 import { firstReleaseLead } from '../lib/schedule';
 import { nowSecs } from '../lib/time';
 import { totalPrepaidZat, type NetworkId } from '../lib/zat';
-import { checkPocketState, runCancel } from './cancel';
+import { checkPocketState, readPocket, runCancel } from './cancel';
 import { checkKit, isAgeKit, KIT_KIND, kitFileName, passphraseProblem, type KitCheck, type KitFields, type KitNote, type OpenedKit, type SealedKit } from './kit';
 import { SignerError, type CancelOptions, type CancelReceipt, type FundingTx, type KitContext, type PocketInfo, type PresignOptions, type Signer } from './types';
 import { presignSchedule, type InstallmentPlan } from './wasmEngine';
@@ -163,7 +163,7 @@ export class WasmSigner implements Signer {
     const { pocket, seed } = this.#key();
     for (;;) {
       await whenVisible(opts.signal);
-      const state = checkPocketState(await this.#api.getPocket(pocket.pocket_id!, opts.signal));
+      const state = await readPocket((signal) => this.#api.getPocket(pocket.pocket_id!, signal), { retryMs: POLL_MS, signal: opts.signal });
       if (state.funding) {
         const { txid, tx_hex, mined_height } = state.funding;
         if (!tx_hex) throw new SignerError('the runner no longer holds this pocket’s funding transaction: its subscription has ended');
