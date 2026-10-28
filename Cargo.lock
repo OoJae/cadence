@@ -924,10 +924,13 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "cadence-chain",
+ "cadence-core",
  "clap",
  "futures-util",
  "hex",
  "orchard",
+ "pczt",
+ "rand 0.10.3",
  "serde",
  "serde_json",
  "tokio",

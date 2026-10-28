@@ -4,7 +4,7 @@
 pub mod fingerprint;
 
 use orchard::{
-    bundle::Authorized,
+    bundle::Authorization,
     keys::{OutgoingViewingKey, Scope},
     Bundle,
 };
@@ -13,7 +13,7 @@ use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::{
     consensus::BlockHeight,
-    value::{BalanceError, ZatBalance, Zatoshis},
+    value::{BalanceError, Zatoshis},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,11 +145,24 @@ fn depths(mined: Option<BlockHeight>, range: Option<(BlockHeight, BlockHeight)>)
     }
 }
 
-fn zero_ovk_recoverable(bundle: &Bundle<Authorized, ZatBalance>) -> usize {
-    let zero = OutgoingViewingKey::from([0u8; 32]);
-    bundle
-        .recover_outputs_with_ovks(core::slice::from_ref(&zero))
-        .len()
+/// The outputs of `bundle` whose sender-side ciphertext opens with one of `ovks`.
+/// It reads only the actions, never the proof or signatures. An output built with
+/// Discard (spec P3) opens with no key, so this is how the shape shows Discard.
+fn ovk_recoverable<A: Authorization, V>(bundle: &Bundle<A, V>, ovks: &[OutgoingViewingKey]) -> usize {
+    bundle.recover_outputs_with_ovks(ovks).len()
+}
+
+fn zero_ovk_recoverable<A: Authorization, V>(bundle: &Bundle<A, V>) -> usize {
+    ovk_recoverable(bundle, &[OutgoingViewingKey::from([0u8; 32])])
+}
+
+/// Both OVKs, external and internal, of every UFVK with an Orchard component.
+fn supplied_ovks(ufvks: &[UnifiedFullViewingKey]) -> Vec<OutgoingViewingKey> {
+    ufvks
+        .iter()
+        .filter_map(|u| u.orchard())
+        .flat_map(|fvk| [fvk.to_ovk(Scope::External), fvk.to_ovk(Scope::Internal)])
+        .collect()
 }
 
 pub fn shape_with_ranges(
@@ -163,11 +176,7 @@ pub fn shape_with_ranges(
     let orchard = tx.orchard_bundle();
     let ironwood = tx.ironwood_bundle();
 
-    let supplied: Vec<OutgoingViewingKey> = ufvks
-        .iter()
-        .filter_map(|u| u.orchard())
-        .flat_map(|fvk| [fvk.to_ovk(Scope::External), fvk.to_ovk(Scope::Internal)])
-        .collect();
+    let supplied = supplied_ovks(ufvks);
     let range_u32 = |r: Option<(BlockHeight, BlockHeight)>| r.map(|(lo, hi)| (u32::from(lo), u32::from(hi)));
 
     Shape {
@@ -193,7 +202,7 @@ pub fn shape_with_ranges(
         zero_ovk_recoverable: ironwood.map(zero_ovk_recoverable).unwrap_or(0),
         supplied_ovk_recoverable: ironwood
             .filter(|_| !supplied.is_empty())
-            .map(|b| b.recover_outputs_with_ovks(&supplied).len())
+            .map(|b| ovk_recoverable(b, &supplied))
             .unwrap_or(0),
         orchard_flags: orchard.and_then(|b| b.flags().to_byte(b.bundle_version())),
         orchard_value_balance: orchard.map(|b| i64::from(*b.value_balance())),
@@ -236,4 +245,113 @@ pub fn matching_range(
         }
     }
     range
+}
+
+#[cfg(test)]
+mod tests {
+    use core::convert::Infallible;
+
+    use cadence_core::{build_rung, rung::fee_rule_at, Installment, Pocket};
+    use orchard::{
+        bundle::EffectsOnly,
+        note::{Note, NoteVersion, RandomSeed, Rho},
+        value::NoteValue,
+    };
+    use pczt::roles::verifier::Verifier;
+    use rand::{rngs::ChaCha20Rng, SeedableRng};
+    use zcash_primitives::transaction::builder::{BundlePadding, DeferredPcztBuilder};
+    use zcash_protocol::{
+        consensus::{MainNetwork, NetworkConstants, Parameters},
+        memo::MemoBytes,
+        value::ZatBalance,
+    };
+
+    use super::*;
+
+    const TARGET: u32 = 3_530_000;
+
+    /// A stand-in funding note, as in cadence-core's privacy tests.
+    fn funding_note(pocket: &Pocket, value: u64) -> Note {
+        let rho = Option::from(Rho::from_bytes(&[7u8; 32])).expect("canonical field element");
+        (0u8..=255)
+            .find_map(|i| {
+                let rseed = Option::from(RandomSeed::from_bytes([i; 32], &rho))?;
+                Option::from(Note::from_parts(pocket.funding_address(), NoteValue::from_raw(value), rho, rseed, NoteVersion::V3))
+            })
+            .expect("some rseed yields a valid note")
+    }
+
+    fn fixture() -> (MainNetwork, Pocket, Installment) {
+        let params = MainNetwork;
+        let pocket = Pocket::from_seed(&[42u8; 32], params.network_type().coin_type());
+        let merchant = Pocket::from_seed(&[9u8; 32], params.network_type().coin_type()).funding_address();
+        let inst = Installment {
+            input: funding_note(&pocket, 100_000),
+            amount: Zatoshis::const_from_u64(20_000),
+            merchant,
+            memo: MemoBytes::from_bytes(b"cadence:test:k=1").unwrap(),
+        };
+        (params, pocket, inst)
+    }
+
+    /// An installment's Ironwood bundle as its transaction carries it, less the proof
+    /// and signatures, which the OVK check does not read.
+    fn effects(bundle: &orchard::pczt::Bundle) -> Bundle<EffectsOnly, ZatBalance> {
+        bundle.extract_effects().unwrap().expect("two actions")
+    }
+
+    /// The installment `build_rung` builds, but with these OVKs on the payment and
+    /// the change instead of `None`.
+    fn built_with(
+        pocket: &Pocket,
+        inst: &Installment,
+        payment_ovk: Option<OutgoingViewingKey>,
+        change_ovk: Option<OutgoingViewingKey>,
+    ) -> Bundle<EffectsOnly, ZatBalance> {
+        let (params, target) = (MainNetwork, BlockHeight::from_u32(TARGET));
+        let fee_rule = fee_rule_at(&params, target);
+        let mut b = DeferredPcztBuilder::new::<Infallible>(params, target, BundlePadding::DEFAULT, BundlePadding::DEFAULT).unwrap();
+        b.add_ironwood_spend::<Infallible>(pocket.fvk().clone(), inst.input).unwrap();
+        b.add_ironwood_output::<Infallible>(payment_ovk, inst.merchant, inst.amount, inst.memo.clone()).unwrap();
+        let change = Zatoshis::const_from_u64(100_000 - 20_000 - 10_000);
+        b.add_ironwood_output::<Infallible>(change_ovk, pocket.change_address(), change, MemoBytes::empty()).unwrap();
+        let res = b.build_for_pczt(ChaCha20Rng::from_seed([1u8; 32]), &fee_rule).unwrap();
+        effects(res.pczt_parts.ironwood.as_ref().unwrap())
+    }
+
+    #[test]
+    fn the_ovk_check_counts_zero_for_discard_and_finds_what_an_ovk_encrypts() {
+        let (params, pocket, inst) = fixture();
+        let ufvk = [pocket.ufvk()];
+        let pocket_ovks = supplied_ovks(&ufvk);
+        assert_eq!(pocket_ovks.len(), 2);
+
+        // A real installment, as `build_rung` signs it: nothing opens with any key.
+        let rung = build_rung(&params, BlockHeight::from_u32(TARGET), &pocket, &inst, [5u8; 32]).unwrap();
+        let mut signed = None;
+        Verifier::new(rung.pczt)
+            .with_ironwood::<Infallible, _>(|b| {
+                signed = Some(effects(b));
+                Ok(())
+            })
+            .unwrap();
+        let signed = signed.unwrap();
+        assert_eq!(zero_ovk_recoverable(&signed), 0);
+        assert_eq!(ovk_recoverable(&signed, &pocket_ovks), 0);
+        assert_eq!(ovk_recoverable(&built_with(&pocket, &inst, None, None), &pocket_ovks), 0);
+
+        // A stock wallet's policy: both outputs open with the pocket's own OVKs.
+        let (external, internal) = (pocket.fvk().to_ovk(Scope::External), pocket.fvk().to_ovk(Scope::Internal));
+        let wallet = built_with(&pocket, &inst, Some(external.clone()), Some(internal));
+        assert_eq!(ovk_recoverable(&wallet, &pocket_ovks), 2);
+        assert_eq!(zero_ovk_recoverable(&wallet), 0);
+        // Another UFVK's OVKs open none of them.
+        let stranger = supplied_ovks(&[Pocket::from_seed(&[3u8; 32], 133).ufvk()]);
+        assert_eq!(ovk_recoverable(&wallet, &stranger), 0);
+
+        // An output built under the zero OVK opens with it; the payment alone here.
+        let zero = built_with(&pocket, &inst, Some(OutgoingViewingKey::from([0u8; 32])), None);
+        assert_eq!(zero_ovk_recoverable(&zero), 1);
+        assert_eq!(ovk_recoverable(&built_with(&pocket, &inst, Some(external), None), &pocket_ovks), 1);
+    }
 }

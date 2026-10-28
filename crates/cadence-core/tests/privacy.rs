@@ -1,14 +1,16 @@
 //! What a rung shows beyond its payment: `redact_for_runner` strips the wallet
-//! metadata a Constructor or Updater may attach, and no output of an installment or
-//! a cancel can be read back with an outgoing viewing key (spec P3, Discard).
+//! metadata a Constructor or Updater may attach, no output of an installment or
+//! a cancel can be read back with an outgoing viewing key (spec P3, Discard), and
+//! the rung seed is a PRF the runner cannot evaluate: nothing it holds is the key.
 
 use core::convert::Infallible;
+use std::collections::HashSet;
 
 use cadence_core::{
     build_rung, mandate::installment_fee_at, package::redact_for_runner, pocket::POCKET_ACCOUNT, rung::fee_rule_at, seed, Installment, Pocket,
 };
 use orchard::{
-    keys::{OutgoingViewingKey, Scope},
+    keys::{OutgoingViewingKey, Scope, SpendingKey},
     note::{Note, NoteVersion, RandomSeed, Rho},
     pczt::Zip32Derivation,
     value::NoteValue,
@@ -282,4 +284,103 @@ fn the_ovk_check_finds_outputs_that_were_built_with_an_ovk() {
 
     // The same builder with no OVK, as `build_rung` calls it, gives nothing back.
     assert!(recovered(&build_with_ovks(&params, target, &pocket, &inst, None, None), &all).is_empty());
+}
+
+#[test]
+fn the_rung_seed_is_deterministic_and_changes_with_every_input() {
+    let pocket = Pocket::from_seed(&POCKET_SEED, 133);
+    let secret = seed::app_secret(&pocket);
+    assert_eq!(secret, seed::app_secret(&Pocket::from_seed(&POCKET_SEED, 133)));
+    assert_eq!(seed::rung_seed(&secret, &[1u8; 16], 2, 1), seed::rung_seed(&secret, &[1u8; 16], 2, 1));
+
+    // Another pocket seed, or the same seed on the other network, is another secret.
+    let other = seed::app_secret(&Pocket::from_seed(&[43u8; 32], 133));
+    assert_ne!(secret, other);
+    assert_ne!(secret, seed::app_secret(&Pocket::from_seed(&POCKET_SEED, 1)));
+
+    let mut flipped = [1u8; 16];
+    flipped[15] ^= 1;
+    let mut seeds = HashSet::new();
+    let mut n = 0;
+    for s in [secret, other] {
+        for m in [[1u8; 16], flipped, [0u8; 16]] {
+            // k and attempt are fixed-width, so (1, 0), (0, 1) and (256, 0) are all apart.
+            for k in [0, 1, 2, 256, u32::MAX] {
+                for attempt in [0, 1, 256] {
+                    seeds.insert(seed::rung_seed(&s, &m, k, attempt));
+                    n += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(seeds.len(), n, "two inputs gave the same rung seed");
+    assert!(!seeds.contains(&secret) && !seeds.contains(&other));
+}
+
+/// `seed::app_secret`'s construction, keyed with `key` instead of the spending key.
+fn app_secret_keyed(key: &[u8]) -> [u8; 32] {
+    let h = blake2b_simd::Params::new().hash_length(32).key(key).personal(b"Cadence_AppSecrt").hash(b"rung-prf");
+    h.as_bytes().try_into().unwrap()
+}
+
+/// Everything the runner holds for one mandate, as bytes: the pocket UFVK, encoded
+/// and raw, every key and address it derives (both scopes' IVK, OVK and address),
+/// the mandate id, and the redacted rungs it is sent.
+fn runner_view(params: &MainNetwork, pocket: &Pocket, mandate_id: &[u8; 16], rungs: Vec<Pczt>) -> Vec<Vec<u8>> {
+    let fvk = pocket.fvk();
+    let mut view = vec![pocket.ufvk().encode(params).unwrap().into_bytes(), fvk.to_bytes().to_vec(), mandate_id.to_vec()];
+    for scope in [Scope::External, Scope::Internal] {
+        view.push(fvk.to_ivk(scope).to_bytes().to_vec());
+        view.push(fvk.to_ovk(scope).as_ref().to_vec());
+        view.push(fvk.address_at(0u32, scope).to_raw_address_bytes().to_vec());
+    }
+    view.extend(rungs.into_iter().map(|p| p.serialize().unwrap()));
+    view
+}
+
+#[test]
+fn no_key_the_runner_holds_reproduces_the_rung_seed() {
+    let (params, pocket, inst) = fixture();
+    let mandate_id = [1u8; 16];
+    let secret = seed::app_secret(&pocket);
+    let seeds: Vec<((u32, u32), [u8; 32])> =
+        [(1, 0), (2, 0), (1, 1)].into_iter().map(|(k, a)| ((k, a), seed::rung_seed(&secret, &mandate_id, k, a))).collect();
+
+    // The rungs the runner is sent, built with those seeds: their alpha, rcv, rseed and
+    // dummy notes are all ChaCha20 output of the seed.
+    let at = BlockHeight::from_u32(3_530_000);
+    let rungs: Vec<Pczt> = seeds
+        .iter()
+        .map(|(_, s)| redact_for_runner(build_rung(&params, at, &pocket, &inst, *s).unwrap().pczt))
+        .collect();
+    let view = runner_view(&params, &pocket, &mandate_id, rungs);
+
+    // The secret is keyed by the spending key; the helper matches it, so the
+    // candidates below go through the real construction.
+    let account = zip32::AccountId::try_from(POCKET_ACCOUNT).unwrap();
+    let sk = SpendingKey::from_zip32_seed(&POCKET_SEED, params.network_type().coin_type(), account).unwrap();
+    assert_eq!(app_secret_keyed(sk.to_bytes()), secret);
+
+    // 1. Neither the secret nor any seed appears anywhere in what the runner holds.
+    let windows = || view.iter().flat_map(|b| b.windows(32));
+    for w in windows() {
+        assert_ne!(w, secret, "the app secret is in the runner's view");
+        assert!(seeds.iter().all(|(_, s)| w != s), "a rung seed is in the runner's view");
+    }
+
+    // 2. Keying the PRF with any 32 bytes of it, or the app secret's derivation with
+    // those or with any whole key or address of 64 bytes or less, gives neither.
+    let mut candidates: Vec<&[u8]> = windows().collect();
+    candidates.extend(view.iter().filter(|b| b.len() <= 64).map(|b| b.as_slice()));
+    for c in candidates {
+        let derived = app_secret_keyed(c);
+        assert_ne!(derived, secret);
+        let direct: Option<[u8; 32]> = c.try_into().ok();
+        for ((k, a), s) in &seeds {
+            assert_ne!(seed::rung_seed(&derived, &mandate_id, *k, *a), *s);
+            if let Some(key) = &direct {
+                assert_ne!(seed::rung_seed(key, &mandate_id, *k, *a), *s);
+            }
+        }
+    }
 }
