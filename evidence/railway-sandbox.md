@@ -144,3 +144,27 @@ On the app host, the decoder at `/decode/75c1c91437e0…?nf=ea74a1722327…`:
 - confirms that the transaction reveals the certificate's nullifier.
 
 **Earlier attempts the same night.** These ran at 4 × 180 s, on blocks about 50 s apart. Three cancels in a row lost the note to the next installment: both wait for the same note to be 3 blocks deep, and the runner's installment was already signed. That is why the sandbox now offers a 300 s period.
+
+
+## `cadence sweep` without the runner, over Tor (2026-10-28)
+
+The CLI's recovery path returns everything left in a pocket with no runner involved. It finds the pocket's notes through lightwalletd, over Tor, and spends them to an address of the payer's own.
+
+1. `cadence pocket new --network test` made a fresh pocket.
+2. The pocket was registered with the sandbox runner as `pkt_0a384954ed2fbdb3c963`, so the faucet would fund it.
+3. The faucet sent 300,000 zats in `6c00c7e40bba3c68c73231f6ff5490d2684640a67e9642cb3ca3827f209949a9`, mined at 4,549,938.
+4. The sweep ran against that pocket:
+
+```
+$ cadence sweep --pocket pocket.json --to utest1p9haekg7…j3u4n2 --from 4549936
+scanning…
+returned 0.0029 ZEC in 54915bb6886789e91905211860a696031e38dd6c24b88249b71a52f832c30d96
+```
+
+It took 17 s, including Tor bootstrap. The transaction was mined at 4,549,943: v6, with no transparent inputs or outputs.
+
+**What the CLI connected to.**
+- **How it was measured:** the CLI's sockets were sampled with `lsof` every 0.2 s for the whole run.
+- **What it showed:** it opened exactly two remote endpoints, `96.9.98.65:443` and `137.226.34.45:9004`. Both appear in arti's `guards.json` and in its cached Tor consensus, so both are Tor guards.
+- **What it never touched:** the lightwalletd server `testnet.zec.rocks` (66.241.124.102 and 2a09:8280:1::32:da2a:0) was never contacted directly.
+- **Limit:** this is socket sampling, not a packet capture. A connection shorter than 0.2 s could be missed, and a capture (`sudo tcpdump`) needs root.
