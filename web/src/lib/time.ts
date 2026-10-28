@@ -27,16 +27,23 @@ export function formatRelative(deltaSecs: number): string {
   return future ? `in ${text}` : `${text} ago`;
 }
 
+const DATE_TIME: Intl.DateTimeFormatOptions = {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZoneName: 'short',
+};
+
 /** "3 Nov, 17:00:27 UTC": in the viewer's own time zone, named, since a payer may compare it with another device. */
 export function formatDateTime(unixSecs: number): string {
-  return new Date(unixSecs * 1000).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short',
-  });
+  return new Date(unixSecs * 1000).toLocaleString('en-GB', DATE_TIME);
+}
+
+/** "3 Nov, 17:00:27 UTC – 23:00:27 UTC": a span of time, like formatDateTime, with a shared date written once. `fromSecs` ≤ `toSecs`. */
+export function formatWindow(fromSecs: number, toSecs: number): string {
+  return new Intl.DateTimeFormat('en-GB', DATE_TIME).formatRange(new Date(fromSecs * 1000), new Date(toSecs * 1000));
 }
 
 export function formatDate(unixSecs: number): string {

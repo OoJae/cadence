@@ -40,6 +40,8 @@ export interface Offer {
   network: NetworkId;
   /** drand chain hash the installments are time-locked to (quicknet). */
   drand_chain: string;
+  /** How much later installment 1 falls due: the merchant's trial, 0 to 30 days. Older runners send none. */
+  trial_secs?: number;
 }
 
 // ---------------------------------------------------------------- subscriptions

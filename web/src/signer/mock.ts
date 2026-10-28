@@ -8,13 +8,15 @@
  *   UAs, but they carry no valid Bech32m checksum, so no real wallet will pay them.
  * - "Sealed" packages are fixed-size random bytes, the same size for every
  *   installment, like the real padded tlock(age(zstd(ladder))) blobs.
+ * - Release times carry no jitter: each installment falls due exactly one period
+ *   after the one before, so a mock build is deterministic.
  * - The cancel key is the real kit JSON (./kit.ts), encrypted with WebCrypto
  *   (PBKDF2 and AES-GCM) rather than age, so only this mock opens it.
  */
 import type { Offer, SealedInstallment } from '../api/types';
 import { BECH32_CHARS, isUnifiedAddress } from '../lib/addresses';
 import { bytesToBase64 } from '../lib/base64url';
-import { firstReleaseLead, planSchedule } from '../lib/schedule';
+import { firstReleaseLead, planSchedule, releaseAt } from '../lib/schedule';
 import { INSTALLMENT_FEE_ZAT, totalPrepaidZat, type NetworkId } from '../lib/zat';
 import { NothingToCancelError } from './cancel';
 import {
@@ -164,6 +166,8 @@ export class MockSigner implements Signer {
     }
 
     const now = opts.signedAt ?? this.#ledger.now();
+    // No jitter: a mock build plays the same schedule every run. The WASM signer draws
+    // each installment's (lib/schedule).
     const schedule = planSchedule(offer, now);
     const rungsTotal = offer.period_secs < 3600 ? 16 : 48;
     const out: SealedInstallment[] = [];
@@ -186,7 +190,6 @@ export class MockSigner implements Signer {
       out.push({ k: inst.k, release_round: inst.release_round, sealed });
       opts.onProgress?.({ ...base, phase: 'done', rungsDone: rungsTotal });
     }
-    const lead = firstReleaseLead(offer.period_secs);
     this.#schedule = {
       offer_id: offer.offer_id,
       mandate_id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))),
@@ -194,8 +197,8 @@ export class MockSigner implements Signer {
       amount_zat: offer.amount_zat,
       count: offer.count,
       period_secs: offer.period_secs,
-      first_release_at: Math.floor(now) + lead,
-      first_in_secs: lead,
+      first_release_at: releaseAt(offer, Math.floor(now), 1),
+      first_in_secs: firstReleaseLead(offer.period_secs),
       merchant_ua: offer.merchant_ua,
       funding_tx_hex: null,
       funding_height: fundingTx.mined_height ?? null,

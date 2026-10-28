@@ -660,8 +660,8 @@ pub(crate) mod tests {
         u64::from(o.count) * (o.amount_zat + u64::from(installment_fee()))
     }
 
-    /// What the CLI and the web app seal: installment k at the first drand round at or
-    /// after `signed + lead + (k - 1) * period`.
+    /// What the CLI and the web app sealed before jitter: installment k at the first
+    /// drand round at or after `signed + lead + (k - 1) * period`.
     pub fn signed_schedule(chain: &DrandChain, o: &Offer, signed: u64, lead: u64) -> Vec<(u32, u64)> {
         (1..=o.count)
             .map(|k| {
@@ -683,6 +683,59 @@ pub(crate) mod tests {
                     for signed in [NOW - 600, NOW, NOW + 300] {
                         let rounds = signed_schedule(&chain, &o, signed, lead);
                         assert_eq!(check_schedule(&chain, &o, Some(prepaid(&o)), &rounds, NOW), Ok(()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// What both payers seal since jitter (`cadence_core::mandate::release_times`): each
+    /// installment moved later at random by up to J = min(period / 4, 6 h), after any
+    /// trial. Every gap is within period ± J, inside the check's period ± period / 2, and
+    /// installment 1 is at most trial + 60 s + J after signing. A trial lets installment
+    /// 1 come that much later (`latest_first` gains `trial_secs`). No other rule of the
+    /// check involves `now`, so checking at `now + trial` applies exactly that bound.
+    #[test]
+    fn jittered_schedules_pass_from_a_minute_to_30_days_with_and_without_a_trial() {
+        let chain = DrandChain::quicknet();
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        let mut xorshift = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 32) as u32
+        };
+        let mut periods: Vec<u64> = (60..=200).collect();
+        periods.extend([299, 300, 301, 3_599, 3_600, 86_399, 86_400, 86_401, 7 * 86_400, 30 * 86_400]);
+        for period in periods {
+            let max = cadence_core::mandate::jitter_max(period) as u32;
+            for trial in [0, 3_600, 30 * 86_400] {
+                for count in [1, 2, 4, 12] {
+                    let o = offer(count, period);
+                    // No jitter, the most, the most and none in turn (the widest and the
+                    // narrowest gaps), and random draws.
+                    for pattern in 0..8 {
+                        // Both payers' lead is 60 s from a 60 s period up.
+                        for signed in [NOW - 600, NOW, NOW + 300] {
+                            let mut i = 0u32;
+                            let times = cadence_core::mandate::release_times(signed, trial, 60, period, count, || {
+                                i += 1;
+                                match pattern {
+                                    0 => 0,
+                                    1 => max,
+                                    2 => max * (i % 2),
+                                    3 => max * ((i + 1) % 2),
+                                    _ => xorshift(),
+                                }
+                            });
+                            let rounds: Vec<(u32, u64)> =
+                                (1..).zip(&times).map(|(k, at)| (k, cadence_seal::first_round_at_or_after(&chain, *at))).collect();
+                            assert_eq!(
+                                check_schedule(&chain, &o, Some(prepaid(&o)), &rounds, NOW + trial),
+                                Ok(()),
+                                "period {period}, trial {trial}, count {count}, pattern {pattern}, signed {signed}: {times:?}"
+                            );
+                        }
                     }
                 }
             }

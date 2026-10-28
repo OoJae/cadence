@@ -69,7 +69,9 @@ enum Command {
         /// Where to keep the subscription (needed to cancel).
         #[arg(long)]
         out: PathBuf,
-        /// Seconds from signing until installment 1 becomes releasable.
+        /// Seconds from signing until installment 1 becomes releasable, after any
+        /// trial the offer sets. Each installment then moves up to a quarter period
+        /// (at most 6 h) later at random.
         #[arg(long, default_value_t = 60)]
         first_in: u64,
         /// Testnet: ask the runner's sandbox wallet to fund the pocket.

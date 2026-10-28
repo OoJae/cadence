@@ -1,0 +1,40 @@
+{
+  "what": "Release times both payers sign: installment k at signed_at + trial_secs + lead_secs + (k - 1) * period_secs + jitter_k. Each jitter_k is drawn from the next random_u32 values, in order: r % (J + 1) for the first r below 2^32 - 2^32 % (J + 1), with J = min(floor(period_secs / 4), 21600). Checked by crates/cadence-core/src/mandate.rs and web/src/lib/schedule.test.ts.",
+  "cases": [
+    {
+      "about": "a weekly plan, no trial: 4294967295 is past the last whole multiple of J + 1, so it is drawn again",
+      "signed_at": 1793170000, "trial_secs": 0, "lead_secs": 60, "period_secs": 604800, "count": 4, "jitter_max": 21600,
+      "random_u32": [0, 4294967295, 21600, 123456789, 4000000000],
+      "jitter": [0, 21600, 7074, 13224],
+      "release_at": [1793170060, 1793796460, 1794386734, 1794997684]
+    },
+    {
+      "about": "the sandbox's 300 s period",
+      "signed_at": 1793170000, "trial_secs": 0, "lead_secs": 60, "period_secs": 300, "count": 4, "jitter_max": 75,
+      "random_u32": [7, 75, 76, 3000000000],
+      "jitter": [7, 75, 0, 16],
+      "release_at": [1793170067, 1793170435, 1793170660, 1793170976]
+    },
+    {
+      "about": "a 30-day plan after a 7-day trial",
+      "signed_at": 1793170000, "trial_secs": 604800, "lead_secs": 60, "period_secs": 2592000, "count": 2, "jitter_max": 21600,
+      "random_u32": [2718281828, 1414213562],
+      "jitter": [11988, 17693],
+      "release_at": [1793786848, 1796384553]
+    },
+    {
+      "about": "the shortest period, 10 s: J is 2, and 4294967295 is drawn again",
+      "signed_at": 1793170003, "trial_secs": 0, "lead_secs": 10, "period_secs": 10, "count": 3, "jitter_max": 2,
+      "random_u32": [2, 4294967295, 3, 4294967294],
+      "jitter": [2, 0, 2],
+      "release_at": [1793170015, 1793170023, 1793170035]
+    },
+    {
+      "about": "a daily plan after the longest trial, 30 days: 4294945695 is just below the limit, so it is kept",
+      "signed_at": 1793170000, "trial_secs": 2592000, "lead_secs": 60, "period_secs": 86400, "count": 3, "jitter_max": 21600,
+      "random_u32": [86399, 21601, 4294945695],
+      "jitter": [21596, 0, 18865],
+      "release_at": [1795783656, 1795848460, 1795953725]
+    }
+  ]
+}

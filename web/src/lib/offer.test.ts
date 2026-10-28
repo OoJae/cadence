@@ -98,17 +98,34 @@ describe('offer fragment', () => {
   it('refuses schedules that exceed the money supply', () => {
     expect(problemsOf(frag({ ...offer, amount_zat: 1_000_000 * 1e8, count: 60 }))).toEqual(['amount_zat']);
   });
+
+  it('reads a trial of up to 30 days, and no trial and a trial of 0 alike', () => {
+    const r = parseOfferFragment(frag({ ...offer, trial_secs: 7 * 86400 }));
+    expect(r.ok && r.offer.trial_secs).toBe(7 * 86400);
+    expect(parseOfferFragment(frag({ ...offer, trial_secs: 0 }))).toEqual({ ok: true, offer });
+    for (const bad of [-1, 30 * 86400 + 1, 1.5, '604800', null]) expect(problemsOf(frag({ ...offer, trial_secs: bad }))).toEqual(['trial_secs']);
+  });
+
+  it('carries a trial in the link, so the runner-copy check covers it', () => {
+    const trial = { ...offer, trial_secs: 7 * 86400 };
+    expect(parseOfferFragment(new URL(buildShareUrl('https://pay.example', trial)).hash)).toEqual({ ok: true, offer: trial });
+    expect(encodeOfferPayload(trial)).not.toBe(encodeOfferPayload(offer));
+    // A runner's copy always says trial_secs, 0 when there is none; an older runner's never does.
+    expect(encodeOfferPayload({ ...offer, trial_secs: 0 })).toBe(encodeOfferPayload(offer));
+  });
 });
 
 describe('offer horizon', () => {
   const DAY = 86400;
-  const plan = (period_secs: number, count: number) => ({ period_secs, count });
+  const J = 6 * 3600;
+  const plan = (period_secs: number, count: number, trial_secs?: number) => ({ period_secs, count, trial_secs });
 
-  it('measures from signing to the last release: the first lead, then count - 1 periods', () => {
-    expect(lastReleaseAfter(plan(30 * DAY, 1))).toBe(60);
-    expect(lastReleaseAfter(plan(30 * DAY, 2))).toBe(30 * DAY + 60);
-    // A period under a minute is also the first release's lead.
-    expect(lastReleaseAfter(plan(20, 8))).toBe(8 * 20);
+  it('measures from signing to the latest last release: any trial, the first lead, count - 1 periods, then the most jitter', () => {
+    expect(lastReleaseAfter(plan(30 * DAY, 1))).toBe(60 + J);
+    expect(lastReleaseAfter(plan(30 * DAY, 2))).toBe(30 * DAY + 60 + J);
+    // A period under a minute is also the first release's lead; its jitter is a quarter of it.
+    expect(lastReleaseAfter(plan(20, 8))).toBe(8 * 20 + 5);
+    expect(lastReleaseAfter(plan(30 * DAY, 1, 7 * DAY))).toBe(7 * DAY + 60 + J);
   });
 
   it(`refuses a plan whose last installment falls more than ${MAX_HORIZON_DAYS} days after signing`, () => {
@@ -116,24 +133,32 @@ describe('offer horizon', () => {
     expect(horizonProblem(plan(30 * DAY, 3))).toMatch(/cannot yet seal a payment due more than 45 days after signing.*about 60 days/);
     expect(horizonProblem(plan(7 * DAY, 7))).toBeNull();
     expect(horizonProblem(plan(7 * DAY, 8))).toMatch(/Ask the merchant for a shorter plan/);
-    // The edge: 44 days and a minute passes, 45 days and a minute does not.
+    // The edge: 44 days, 6 h and a minute passes, 45 days, 6 h and a minute does not.
     expect(horizonProblem(plan(DAY, 45))).toBeNull();
     expect(horizonProblem(plan(DAY, 46))).toMatch(/falls due just over 45 days after/);
-    // One installment releases a minute after signing, whatever its period.
+    // One installment releases within a minute and its jitter of signing, whatever its period.
     expect(horizonProblem(plan(366 * DAY, 1))).toBeNull();
     // The sandbox's plans are minutes long.
     expect(horizonProblem(plan(180, 4))).toBeNull();
+    // A trial counts: a week's trial pushes a 7-week plan past the horizon.
+    expect(horizonProblem(plan(7 * DAY, 6, 7 * DAY))).toBeNull();
+    expect(horizonProblem(plan(7 * DAY, 7, 7 * DAY))).toMatch(/about 49 days/);
+    expect(horizonProblem(plan(DAY, 1, 30 * DAY))).toBeNull();
   });
 
-  it('says how many installments a period allows', () => {
+  it('says how many installments a period allows, after any trial', () => {
     expect(maxCountWithinHorizon(30 * DAY)).toBe(2);
     expect(maxCountWithinHorizon(7 * DAY)).toBe(7);
     expect(maxCountWithinHorizon(DAY)).toBe(45);
     expect(maxCountWithinHorizon(366 * DAY)).toBe(1);
-    for (const period of [10, 90, 3600, DAY, 7 * DAY, 30 * DAY, 60 * DAY]) {
-      const n = maxCountWithinHorizon(period);
-      expect(horizonProblem(plan(period, n))).toBeNull();
-      expect(horizonProblem(plan(period, n + 1))).not.toBeNull();
+    expect(maxCountWithinHorizon(7 * DAY, 7 * DAY)).toBe(6);
+    expect(maxCountWithinHorizon(30 * DAY, 30 * DAY)).toBe(1);
+    for (const trial of [0, 3600, DAY, 7 * DAY, 30 * DAY]) {
+      for (const period of [10, 90, 300, 3600, DAY, 7 * DAY, 30 * DAY, 60 * DAY]) {
+        const n = maxCountWithinHorizon(period, trial);
+        expect(horizonProblem(plan(period, n, trial))).toBeNull();
+        expect(horizonProblem(plan(period, n + 1, trial))).not.toBeNull();
+      }
     }
   });
 

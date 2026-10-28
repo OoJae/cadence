@@ -146,12 +146,19 @@ The Runner publishes an Offer. The payer fetches it (`GET /api/offers/{id}`) and
 
 The payer chooses these values, which are not part of the Offer:
 
-- `first_release_at`, a unix time. The reference CLI sets it to the signing time plus `--first-in`, which defaults to 60 s; the web signer uses min(`period_secs`, 60 s). The reference Runner refuses an upload whose first release is more than `period_secs` + 600 s after it (§ Subscription).
+- `lead`, the time from signing to installment 1 before any trial or jitter. The reference CLI uses `--first-in`, which defaults to 60 s; the web signer uses min(`period_secs`, 60 s).
+- `jitter_k` for each installment *k*: a uniform random integer in [0, *J*] from a CSPRNG, drawn independently for each installment, where *J* = ⌊min(`period_secs` / 4, 21,600)⌋. Both reference payers draw it from 32-bit values: `r mod (J + 1)` for the first `r` below 2³² − (2³² mod (*J* + 1)), so every value is equally likely (`mandate.rs::draw_jitter`; `cadence-core/tests/schedule_vectors.json` holds vectors that both check).
 - `mandate_id`, 16 random bytes.
 - `label`, a string shown in the memo (§ Memo). The reference CLI and web signer set it to "`name` (`pocket_id`)".
 - *S*.
 
-Release times are `release_at(k) = first_release_at + (k − 1) · period_secs`.
+Release times are
+
+    release_at(k) = signed_at + trial_secs + lead + (k − 1) · period_secs + jitter_k
+
+where `signed_at` is the signing time and `trial_secs` is the Offer's trial, 0 if it has none. A trial delays installment 1, and so every later one. `first_release_at` is `release_at(1)`. [impl: `mandate.rs::release_times`; `web/src/lib/schedule.ts`]
+
+The jitter hides the exact interval. Installments released at exact intervals, to the second, mark a series of payments as a subscription to anyone who can see their times; with jitter, each consecutive gap varies by up to ±*J*. *J* ≤ `period_secs` / 4 keeps every gap within `period_secs` ± *J*, inside the `period_secs` ± ⌊`period_secs` / 2⌋ that the schedule check allows (§ Subscription), so Runners that predate jitter accept the schedule. Installment 1, at most `trial_secs` + `lead` + *J* after signing, stays within the check's first-release bound of `trial_secs` + `period_secs` + 600 s whenever `lead` ≤ 600 s. The cap of 6 hours bounds how late a long period's payment can be. A payer that limits how far out it signs (the web signer refuses a plan past 45 days, short of the cap in § Window) measures to the latest the last installment can fall: `trial_secs` + `lead` + (`count` − 1) · `period_secs` + *J*.
 
 
 ## Funding

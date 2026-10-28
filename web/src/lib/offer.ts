@@ -13,7 +13,7 @@ import type { Offer } from '../api/types';
 import { base64urlToBytes, bytesToBase64url, utf8Decode, utf8Encode } from './base64url';
 import { isAgeRecipient, isUnifiedAddress } from './addresses';
 import { QUICKNET } from './drand';
-import { firstReleaseLead } from './schedule';
+import { firstReleaseLead, jitterMax } from './schedule';
 import { MAX_MONEY_ZAT, totalPrepaidZat } from './zat';
 
 export const OFFER_PARAM = 'offer';
@@ -26,6 +26,7 @@ export const LIMITS = {
   countMax: 60,
   periodMin: 10,
   periodMax: 366 * 86400,
+  trialMax: 30 * 86400,
 } as const;
 
 // C0/C1 controls, zero-width and bidi override/isolate characters.
@@ -84,6 +85,7 @@ export function validateOffer(x: unknown): OfferParse {
   if (!isInt(o.amount_zat, 1, MAX_MONEY_ZAT)) problems.push({ field: 'amount_zat', message: 'must be a whole number of zatoshis above 0' });
   if (!isInt(o.period_secs, LIMITS.periodMin, LIMITS.periodMax)) problems.push({ field: 'period_secs', message: `must be between ${LIMITS.periodMin} s and 366 days` });
   if (!isInt(o.count, LIMITS.countMin, LIMITS.countMax)) problems.push({ field: 'count', message: `must be between ${LIMITS.countMin} and ${LIMITS.countMax}` });
+  if (o.trial_secs !== undefined && !isInt(o.trial_secs, 0, LIMITS.trialMax)) problems.push({ field: 'trial_secs', message: 'must be between 0 s and 30 days' });
 
   const network = o.network;
   if (network !== 'main' && network !== 'test') problems.push({ field: 'network', message: 'must be "main" or "test"' });
@@ -120,6 +122,8 @@ export function validateOffer(x: unknown): OfferParse {
       runner_endpoint: o.runner_endpoint as string,
       network: network as Offer['network'],
       drand_chain: o.drand_chain as string,
+      // No trial and a trial of 0 are the same offer, so they parse alike.
+      ...(o.trial_secs ? { trial_secs: o.trial_secs as number } : {}),
     },
   };
 }
@@ -134,18 +138,22 @@ export function validateOffer(x: unknown): OfferParse {
 export const MAX_HORIZON_DAYS = 45;
 const MAX_HORIZON_SECS = MAX_HORIZON_DAYS * 86400;
 
-/** Seconds from signing to the last installment's release: the first release's lead, then count - 1 periods. */
-export function lastReleaseAfter(offer: Pick<Offer, 'period_secs' | 'count'>): number {
-  return firstReleaseLead(offer.period_secs) + (offer.count - 1) * offer.period_secs;
+/**
+ * Seconds from signing to the latest the last installment can fall due: any trial, the
+ * first release's lead, count - 1 periods, and the most jitter the signer can draw.
+ */
+export function lastReleaseAfter(offer: Pick<Offer, 'period_secs' | 'count' | 'trial_secs'>): number {
+  return (offer.trial_secs ?? 0) + firstReleaseLead(offer.period_secs) + (offer.count - 1) * offer.period_secs + jitterMax(offer.period_secs);
 }
 
-/** The most installments a plan with this period can have and still end within the horizon (at least 1). */
-export function maxCountWithinHorizon(periodSecs: number): number {
-  return Math.max(1, Math.floor((MAX_HORIZON_SECS - firstReleaseLead(periodSecs)) / periodSecs) + 1);
+/** The most installments a plan with this period, after this trial, can have and still end within the horizon (at least 1). */
+export function maxCountWithinHorizon(periodSecs: number, trialSecs = 0): number {
+  const room = MAX_HORIZON_SECS - trialSecs - firstReleaseLead(periodSecs) - jitterMax(periodSecs);
+  return Math.max(1, Math.floor(room / periodSecs) + 1);
 }
 
 /** Why Cadence cannot sign this plan yet (its last installment is too far out), or null. */
-export function horizonProblem(offer: Pick<Offer, 'period_secs' | 'count'>): string | null {
+export function horizonProblem(offer: Pick<Offer, 'period_secs' | 'count' | 'trial_secs'>): string | null {
   const after = lastReleaseAfter(offer);
   if (after <= MAX_HORIZON_SECS) return null;
   const days = after / 86400;
@@ -166,6 +174,8 @@ export function encodeOfferPayload(offer: Offer): string {
     runner_endpoint: offer.runner_endpoint,
     network: offer.network,
     drand_chain: offer.drand_chain,
+    // Only a real trial: a link without one, and a runner's copy with a trial of 0, match.
+    ...(offer.trial_secs ? { trial_secs: offer.trial_secs } : {}),
   };
   return bytesToBase64url(utf8Encode(JSON.stringify(ordered)));
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { firstRoundAtOrAfter } from '../lib/drand';
+import { jitterMax, releaseAt } from '../lib/schedule';
 import type { PresignProgress } from './types';
-import { chunk, defaultChunkSize, presignSchedule, type InstallmentPlan, type SignerPool } from './wasmEngine';
+import { chunk, defaultChunkSize, planInstallments, presignSchedule, type InstallmentPlan, type SignerPool } from './wasmEngine';
 import { WorkerPool } from './wasmPool';
 import type { SignerOps, WasmNote, WorkerReply, WorkerRequest } from './wasmTypes';
 
@@ -131,6 +133,59 @@ describe('presignSchedule', () => {
     expect(defaultChunkSize(20, 7)).toBe(4);
     expect(defaultChunkSize(161, 7)).toBe(8);
     expect(defaultChunkSize(5000, 1)).toBe(32);
+  });
+});
+
+describe('planInstallments', () => {
+  /** Answers `round` and `window` as cadence-wasm would, and records the time each was asked about. */
+  function schedulePool() {
+    const asked: Array<{ op: string; at: number }> = [];
+    const pool: SignerPool = {
+      size: 2,
+      call: (async (op: string, args: never) => {
+        if (op === 'round') {
+          const { unixSecs } = args as SignerOps['round']['in'];
+          asked.push({ op, at: unixSecs });
+          return firstRoundAtOrAfter(unixSecs);
+        }
+        if (op === 'window') {
+          const a = args as SignerOps['window']['in'];
+          asked.push({ op, at: a.at });
+          const predicted = a.tip + Math.floor((a.at - a.now) / 25);
+          return Array.from({ length: 20 }, (_, i) => predicted - 5 + i);
+        }
+        throw new Error(`unexpected ${op}`);
+      }) as SignerPool['call'],
+    };
+    return { pool, asked };
+  }
+
+  it('seals each installment to, and predicts its window from, the same jittered time', async () => {
+    const { pool, asked } = schedulePool();
+    const offer = { period_secs: 600, count: 3, trial_secs: 3600 };
+    const signedAt = 1_800_000_000;
+    // J = 150, so these draw jitters of 0, 150 and 7.
+    const draws = [0, 150, 7];
+    const plans = await planInstallments({ pool, network: 'test', offer, signedAt, tip: 5_000_000, now: signedAt, random: () => draws.shift()! });
+    expect(draws).toEqual([]);
+    const at = [0, 150, 7].map((j, i) => releaseAt(offer, signedAt, i + 1, j));
+    expect(at).toEqual([signedAt + 3600 + 60, signedAt + 3600 + 60 + 600 + 150, signedAt + 3600 + 60 + 1200 + 7]);
+    expect(plans.map((p) => p.at)).toEqual(at);
+    expect(plans.map((p) => p.k)).toEqual([1, 2, 3]);
+    expect(plans.map((p) => p.release_round)).toEqual(at.map((t) => firstRoundAtOrAfter(t)));
+    expect(plans.map((p) => p.heights[5])).toEqual(at.map((t) => 5_000_000 + Math.floor((t - signedAt) / 25)));
+    for (const op of ['round', 'window']) expect(asked.filter((a) => a.op === op).map((a) => a.at).sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it('draws from the CSPRNG unless given a source', async () => {
+    const { pool } = schedulePool();
+    const offer = { period_secs: 86_400, count: 4 };
+    const plans = await planInstallments({ pool, network: 'test', offer, signedAt: 1_800_000_000, tip: 5_000_000, now: 1_800_000_000 });
+    plans.forEach((p, i) => {
+      const jitter = p.at - releaseAt(offer, 1_800_000_000, i + 1);
+      expect(jitter).toBeGreaterThanOrEqual(0);
+      expect(jitter).toBeLessThanOrEqual(jitterMax(86_400));
+    });
   });
 });
 
