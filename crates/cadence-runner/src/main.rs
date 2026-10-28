@@ -422,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn trust_forwarded_takes_the_flag_or_a_boolish_value() {
+    fn forwarded_hops_are_trusted_only_when_asked() {
         let parse = |extra: &[&str]| {
             let args = [&["cadence-runner", "serve", "--merchant-token", "a-merchant-token-for-tests"], extra].concat();
             match Cli::try_parse_from(args).unwrap().command {
@@ -430,7 +430,7 @@ mod tests {
                 Command::Init { .. } => unreachable!(),
             }
         };
-        // CADENCE_TRUST_FORWARDED is read the same way (`=1` on Railway).
+        // The same parser reads CADENCE_TRUST_FORWARDED, which Railway's entrypoint sets to 1.
         assert!(parse(&["--trust-forwarded"]));
         assert!(!parse(&[]));
     }
