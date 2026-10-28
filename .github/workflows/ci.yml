@@ -1,0 +1,116 @@
+# The Rust workspace's tests, the web app's checks (typecheck, unit tests, the mock
+# build and its browser privacy check), and the WebAssembly signer built from source
+# and driven end to end in headless Chromium. No secrets: nothing here talks to a
+# runner, a lightwalletd server or drand.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # web/package.json has no packageManager field, and lockfile v9 does not name a
+  # pnpm; this is the one the app is built and tested with.
+  PNPM_VERSION: 11.1.2
+
+jobs:
+  rust:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # rustup installs the toolchain rust-toolchain.toml pins. No protoc: the
+      # published zcash_client_backend ships its generated protobuf code. The C the
+      # build compiles (bundled SQLite, zstd, liblzma, secp256k1) needs only the
+      # runner's gcc.
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version && cargo --version
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: cargo test --workspace
+        run: cargo test --workspace --locked
+
+  web:
+    name: web checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # Node first, so pnpm (and its store cache) runs on it, not the image's Node.
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22.x
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          package_json_file: web/package.json
+          cache: true
+          cache_dependency_path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Mock build
+        run: env -u VITE_API -u VITE_SIGNER -u VITE_RUNNERS -u VITE_DEFAULT_RUNNER pnpm exec vite build --outDir "$RUNNER_TEMP/cadence-mock" --emptyOutDir
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Browser privacy check of the mock build
+        run: VERIFY_DIST="$RUNNER_TEMP/cadence-mock" pnpm verify
+
+  wasm:
+    name: wasm signer
+    runs-on: ubuntu-latest
+    env:
+      # secp256k1-sys compiles C for wasm32; Ubuntu's clang has the backend.
+      CC_wasm32_unknown_unknown: /usr/bin/clang
+      AR_wasm32_unknown_unknown: /usr/bin/llvm-ar
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - name: clang and llvm-ar
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: wasm-bindgen-cli 0.2.129 (must equal the crate's)
+        run: |
+          if ! wasm-bindgen --version 2>/dev/null | grep -q ' 0.2.129'; then
+            cargo install --locked wasm-bindgen-cli --version 0.2.129
+          fi
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22.x
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          package_json_file: web/package.json
+          cache: true
+          cache_dependency_path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: pnpm build:wasm
+        working-directory: web
+        run: |
+          command -v wasm-opt || echo "no wasm-opt: the modules are not optimised"
+          pnpm build:wasm
+          (cd src/wasm && sha256sum signer/* prover/*)
+      # verify:wasm also opens the browser's cancel key with the release CLI.
+      - name: Release CLI
+        run: cargo build --release --locked -p cadence-cli
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: web
+      - name: pnpm verify:wasm
+        working-directory: web
+        run: pnpm verify:wasm
