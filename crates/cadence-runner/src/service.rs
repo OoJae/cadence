@@ -2,6 +2,7 @@
 //! release it once its input is anchor-deep, and follow it until it is mined.
 
 use std::{
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex,
@@ -19,7 +20,7 @@ use cadence_core::package::{verify_rung, InstallmentLadder, RungPackage};
 use cadence_seal::{age::x25519, DrandChain};
 use orchard::note::Nullifier;
 use pczt::Pczt;
-use zcash_client_backend::data_api::{WalletRead, WalletWrite};
+use zcash_client_backend::data_api::WalletWrite;
 use zcash_client_sqlite::AccountUuid;
 use zcash_primitives::transaction::TxId;
 use zcash_protocol::consensus::BlockHeight;
@@ -102,12 +103,15 @@ pub struct Health {
     pub last_tick_at: AtomicU64,
     /// Whether the last tick failed to reach the chain tip or to sync the wallet.
     pub sync_failed: AtomicBool,
+    /// Whether the last tick panicked, and so never finished.
+    pub panicked: AtomicBool,
 }
 
 impl Health {
     pub fn healthy(&self, now: u64) -> bool {
         now.saturating_sub(self.last_tick_at.load(Ordering::Relaxed)) < STALE_TICK_SECS
             && !self.sync_failed.load(Ordering::Relaxed)
+            && !self.panicked.load(Ordering::Relaxed)
     }
 }
 
@@ -139,11 +143,33 @@ pub fn parse_nullifier(hex_str: &str) -> Result<Nullifier> {
 
 pub async fn run(app: Arc<App>) {
     loop {
-        if let Err(e) = tick(&app).await {
-            eprintln!("tick failed: {e:#}");
-        }
-        app.health.last_tick_at.store(now(), Ordering::Relaxed);
+        let ticking = app.clone();
+        guarded_tick(&app, async move { tick(&ticking).await }).await;
         tokio::time::sleep(app.cfg.tick).await;
+    }
+}
+
+/// Runs a tick in a task of its own, so that a panic in it (in the wallet library, say)
+/// fails that tick alone: the scheduler reports itself unhealthy and tries again at the
+/// next, instead of stopping for good while the API answers. Exiting for the platform
+/// to restart the runner would take the API down too, and over and over for a panic
+/// that recurs.
+async fn guarded_tick(app: &App, tick: impl Future<Output = Result<()>> + Send + 'static) {
+    match tokio::spawn(tick).await {
+        Ok(ticked) => {
+            if let Err(e) = ticked {
+                eprintln!("tick failed: {e:#}");
+            }
+            app.health.panicked.store(false, Ordering::Relaxed);
+            app.health.last_tick_at.store(now(), Ordering::Relaxed);
+        }
+        Err(e) => {
+            eprintln!("tick panicked: {e}");
+            app.health.panicked.store(true, Ordering::Relaxed);
+            // A panic while the store was locked would poison it for the API as well.
+            // Its SQLite transactions rolled back, as on an error, so it is sound.
+            app.store.clear_poison();
+        }
     }
 }
 
@@ -171,13 +197,15 @@ async fn tick(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// The chain tip, with the wallet scanned up to it. `None` while the wallet holds no
-/// pocket: there is no birthday to scan from, and nothing to find.
+/// The chain tip, with the wallet scanned up to it. `None` while no pocket is born by
+/// the tip: there is no birthday to scan from, and nothing to find. A pocket registered
+/// at this tip is born at the next block, and with no older account left, syncing
+/// before that block panics in the wallet library (`wallet::born_by`).
 async fn sync_chain(app: &App, client: &mut lwd::Client) -> Result<Option<BlockHeight>> {
     let tip = lwd::tip(client).await?;
     app.tip.store(u32::from(tip), Ordering::Relaxed);
     let mut db = app.wallet.lock().await;
-    if db.get_account_ids()?.is_empty() {
+    if !wallet::born_by(&db, tip)? {
         return Ok(None);
     }
     wallet::sync(client, &app.cfg.network, &mut db).await?;

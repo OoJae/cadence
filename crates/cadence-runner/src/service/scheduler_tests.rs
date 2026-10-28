@@ -1,7 +1,7 @@
 //! The scheduler's decisions, and what it does to the store and the wallet, without
 //! lightwalletd or drand: the test runner's clients never connect.
 
-use zcash_client_backend::data_api::{chain::ChainState, Account as _, AccountBirthday, AccountPurpose};
+use zcash_client_backend::data_api::{chain::ChainState, Account as _, AccountBirthday, AccountPurpose, WalletRead};
 use zcash_primitives::block::BlockHash;
 use zcash_protocol::consensus::{NetworkUpgrade, Parameters};
 
@@ -310,4 +310,26 @@ async fn pockets_never_funded_are_forgotten_after_two_hours() {
     assert!(!kept("pkt_week") && !holds_account(&app, &week));
     assert!(kept(&sub.pocket_id) && holds_account(&app, &subscribed_account));
     assert_eq!(app.store.lock().unwrap().count_pending_pockets().unwrap(), 1);
+}
+
+/// The wallet library's panic, raised while the store is locked.
+async fn split(app: Arc<App>) -> Result<()> {
+    let _store = app.store.lock().unwrap();
+    panic!("Split point is within the range of to_insert");
+}
+
+#[tokio::test]
+async fn a_tick_that_panics_fails_alone() {
+    let app = test_app(false, None);
+    for _ in 0..2 {
+        guarded_tick(&app, split(app.clone())).await;
+        assert!(!app.health.healthy(now()));
+        assert_eq!(app.health.last_tick_at.load(Ordering::Relaxed), 0, "no tick finished");
+        // The API still reads the store.
+        assert!(app.store.lock().unwrap().subscriptions(true).unwrap().is_empty());
+    }
+    // The next tick that finishes, even with an error, is healthy again.
+    guarded_tick(&app, async { Err(anyhow!("lightwalletd is unreachable")) }).await;
+    assert!(app.health.healthy(now()));
+    assert!(app.health.last_tick_at.load(Ordering::Relaxed) > 0);
 }
