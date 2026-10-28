@@ -18,6 +18,7 @@ import type {
   PassKey,
   PassResponse,
   PassVerifyResponse,
+  RunnerFeature,
   RunnerStatus,
   SandboxCheatResponse,
   Shape,
@@ -31,6 +32,7 @@ import { buildShareUrl, LIMITS } from '../lib/offer';
 import { parsePass, passValidUntil, verifyPassSignature } from '../lib/pass';
 import { ed25519FromSeed, fromHex, PAYER_SIGNATURE_HEADER, PAYER_TIMESTAMP_HEADER, toHex, verifyPayerSignature } from '../lib/payerAuth';
 import { seededBech32, seededHex, seededInt } from '../lib/prng';
+import { isCurrency, QUOTE_LIMITS, TRIAL_MAX_SECS } from '../lib/terms';
 import { INSTALLMENT_FEE_ZAT, MAX_MONEY_ZAT, totalPrepaidZat } from '../lib/zat';
 import { findS2Shape } from '../data/s2';
 import type { MockChain, MockTx } from './chain';
@@ -66,7 +68,12 @@ export function scheduleProblem(offer: Pick<Offer, 'count' | 'period_secs'>, ins
 }
 
 /** The sandbox cheats, under their current names. `replay_after_cancel` is the old name of `rebroadcast`. */
-const CHEAT_KINDS: readonly CheatKind[] = ['open_early', 'tamper_amount', 'rebroadcast', 'stretch_schedule'];
+const CHEAT_KINDS: readonly CheatKind[] = ['open_early', 'tamper_amount', 'rebroadcast', 'stretch_schedule', 'charge_after_cancel'];
+
+/** The v2 features this mock implements (contract v2), so mock builds show them. */
+export const MOCK_FEATURES: readonly RunnerFeature[] = ['trial', 'quote', 'payer_auth', 'pass', 'charge_after_cancel', 'fund_offer'];
+
+const isInt = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= min && n <= max;
 
 const YEAR_SECS = 365 * 86_400;
 
@@ -315,7 +322,7 @@ export class MockRunner {
 
   status(): RunnerStatus {
     const now = this.clock();
-    return { network: 'test', tip: this.chain.tipAt(now), drand_round: roundAt(now), subscriptions: this.subs.size, features: ['payer_auth', 'pass'] };
+    return { network: 'test', tip: this.chain.tipAt(now), drand_round: roundAt(now), subscriptions: this.subs.size, features: [...MOCK_FEATURES] };
   }
 
   createOffer(body: unknown, token: string | undefined): { offer_id: string; share_url: string } {
@@ -327,6 +334,16 @@ export class MockRunner {
     if (!Number.isSafeInteger(b.period_secs) || (b.period_secs as number) < LIMITS.periodMin || (b.period_secs as number) > LIMITS.periodMax) throw new HttpError(422, 'period_secs is out of range');
     if (!Number.isSafeInteger(b.count) || (b.count as number) < LIMITS.countMin || (b.count as number) > LIMITS.countMax) throw new HttpError(422, `count must be ${LIMITS.countMin}–${LIMITS.countMax}`);
     if (typeof b.merchant_ua !== 'string' || !isUnifiedAddress(b.merchant_ua, 'test')) throw new HttpError(422, 'merchant_ua must be a testnet unified address (utest1…) with an Orchard receiver');
+    // Like a v2 runner: both optional, checked, and the quote stored as the merchant states it.
+    const trial = b.trial_secs ?? 0;
+    if (!isInt(trial, 0, TRIAL_MAX_SECS)) throw new HttpError(422, 'trial_secs must be between 0 and 2592000');
+    const q = b.quote;
+    if (
+      q !== undefined &&
+      (!q || typeof q !== 'object' || typeof q.currency !== 'string' || !isCurrency(q.currency) || !isInt(q.amount_minor, 1, QUOTE_LIMITS.amountMinorMax) || !isInt(q.zec_rate_minor, 1, QUOTE_LIMITS.rateMinorMax) || !isInt(q.set_at, 0, Number.MAX_SAFE_INTEGER))
+    ) {
+      throw new HttpError(422, 'quote must be {currency, amount_minor, zec_rate_minor, set_at}');
+    }
     const offer: Offer = {
       offer_id: this.newOfferId(),
       name: b.name.trim(),
@@ -338,6 +355,8 @@ export class MockRunner {
       runner_endpoint: this.appOrigin,
       network: 'test',
       drand_chain: QUICKNET.hash,
+      trial_secs: trial,
+      ...(q ? { quote: { currency: q.currency, amount_minor: q.amount_minor, zec_rate_minor: q.zec_rate_minor, set_at: q.set_at } } : {}),
     };
     this.offers.set(offer.offer_id, offer);
     return { offer_id: offer.offer_id, share_url: buildShareUrl(this.appOrigin, offer) };
@@ -479,9 +498,16 @@ export class MockRunner {
   // ------------------------------------------------ sandbox extension
 
   fund(body: unknown): { txid: string; mined_height: number } {
-    const b = body as { ua?: unknown; amount_zat?: unknown } | null;
+    const b = body as { ua?: unknown; amount_zat?: unknown; offer_id?: unknown } | null;
     if (!b || typeof b.ua !== 'string' || !isUnifiedAddress(b.ua, 'test')) throw new HttpError(422, 'ua must be a testnet unified address');
     if (!Number.isSafeInteger(b.amount_zat) || (b.amount_zat as number) < 1 || (b.amount_zat as number) > 10 * 1e8) throw new HttpError(422, 'the sandbox faucet pays at most 10 TAZ');
+    if (b.offer_id !== undefined) {
+      // fund_offer: the faucet pays exactly the offer's prepay.
+      const offer = typeof b.offer_id === 'string' ? this.offers.get(b.offer_id) : undefined;
+      if (!offer) throw new HttpError(404, 'no such offer');
+      const need = totalPrepaidZat(offer.amount_zat, offer.count);
+      if (b.amount_zat !== need) throw new HttpError(422, `amount_zat must be this offer's prepay, ${need} zats`);
+    }
     const tx = this.chain.send({ kind: 'faucet', to: b.ua, value_zat: b.amount_zat as number }, this.clock());
     return { txid: tx.txid, mined_height: tx.mined_height };
   }
@@ -556,6 +582,28 @@ export class MockRunner {
           `payer: installment ${k} sealed to drand round ${moved} (${new Date(roundTime(moved) * 1000).toISOString().slice(0, 10)}) instead of round ${inst.release_round}, a year late`,
           `runner: checking the schedule against offer ${rec.offer.offer_id}: ${rec.offer.count} installments, one every ${rec.offer.period_secs} s`,
           `runner: subscription refused: ${problem}`,
+        ],
+      };
+    }
+
+    if (kind === 'charge_after_cancel') {
+      // Like the sandbox runner: it kept the packages the cancel voided, and once one's round
+      // has passed it opens it and broadcasts it. Installment k spends the note the cancel spent.
+      const cancel = this.chain.pocketSpend(rec.pocket_ufvk);
+      if (!cancel || inst.state !== 'cancelled') throw new HttpError(409, `installment ${k} was not voided by a cancel`);
+      const wait = Math.ceil(inst.release_at - now);
+      if (wait > 0) throw new HttpError(409, `installment ${k} opens in ${wait} s`);
+      const nf = seededHex(`${rec.subscription_id}:nf:${k}`);
+      return {
+        kind: asked,
+        k,
+        outcome: 'rejected',
+        stage: 'node',
+        log: [
+          `runner: installment ${k} was voided by the cancel ${shorten(cancel.txid, 12, 8)}; its sealed package was kept for this sandbox only`,
+          `tlock: drand round ${inst.release_round} is published; the package opens`,
+          `runner: broadcasting installment ${k}'s rung for target height ${this.chain.tipAt(now) + 1}`,
+          `node: transaction rejected: Ironwood double-spend: nullifier ${shorten(nf, 12, 8)} was already revealed by the cancel ${shorten(cancel.txid, 12, 8)} at height ${cancel.mined_height}`,
         ],
       };
     }

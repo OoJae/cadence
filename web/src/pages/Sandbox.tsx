@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ApiError } from '../api/client';
 import type { CheatKind, Installment, Offer, RunnerStatus, SandboxCheatResponse, Subscription } from '../api/types';
 import { cancelKeySettled, NO_CANCEL_KEY, SaveCancelKey, type CancelKeyState } from '../components/CancelKey';
 import { CancelCertificate } from '../components/CancelCertificate';
@@ -7,18 +8,21 @@ import { BanIcon, BoltIcon, ClockIcon, KeyIcon, LockIcon, PenIcon, ServerIcon, T
 import { LogView, useRunnerLog } from '../components/RunnerLog';
 import { ShapeTable } from '../components/ShapeTable';
 import { Timeline } from '../components/Timeline';
-import { Badge, Callout, ErrorNote, PageHead, Spinner, StatusBadge } from '../components/ui';
+import { Badge, Callout, Countdown, ErrorNote, PageHead, Spinner, StatusBadge } from '../components/ui';
+import { LAST_SANDBOX_RUN } from '../data/sandboxRun';
 import { STOCK_SEND_REFERENCE } from '../data/stockReference';
 import { runMandate, type FlowState } from '../flow';
 import { createStore, useDocumentTitle, useNow, usePoll, useStore } from '../hooks';
 import { roundAt } from '../lib/drand';
+import { hasFeature } from '../lib/features';
 import type { LogLine } from '../lib/runnerLog';
 import { formatZec, totalPrepaidZat } from '../lib/zat';
 import { Link } from '../router';
 import { api, createSigner, isMock, mockHooks } from '../runtime';
 import type { CancelReceipt, Signer } from '../signer/types';
 
-type CheatResult = SandboxCheatResponse | { error: string };
+/** A cheat's answer, its error, or (charge after cancel) the runner's word that the package is not open yet. */
+type CheatResult = SandboxCheatResponse | { error: string } | { k: number; opensAt: number };
 
 interface SandboxState extends FlowState {
   offer: Offer | null;
@@ -60,7 +64,23 @@ const SANDBOX_TOKEN = 'sandbox-judge';
 /** Only the WASM signer's pocket can be cancelled after the tab closes, so only it asks for a cancel key. */
 const needsCancelKey = (s: SandboxState) => s.signer?.implementation === 'wasm';
 
-async function createMandate(cfg: { count: number; period: number; amount: number }) {
+/** How many runs of the chosen plan the faucet must hold before this page starts one. */
+export const FAUCET_RUNS = 3;
+
+/** Whether the runner's faucet holds less than FAUCET_RUNS prepayments of the chosen plan. A runner that reports no faucet is not low. */
+export function faucetLow(status: Pick<RunnerStatus, 'faucet'> | undefined, prepayZat: number): boolean {
+  const balance = status?.faucet?.balance_zat;
+  return typeof balance === 'number' && balance < prepayZat * FAUCET_RUNS;
+}
+
+/** Seconds until a voided installment's drand round, from the runner's 409 "installment k opens in n s", or null. */
+export function opensIn(e: unknown): number | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const m = /opens in (\d+) s/.exec(e.message);
+  return m ? Number(m[1]) : null;
+}
+
+async function createMandate(cfg: { count: number; period: number; amount: number; fundOffer: boolean }) {
   const s = store.get();
   if (s.creating || s.offer) return;
   store.set({ creating: true, createError: undefined });
@@ -91,7 +111,8 @@ async function createMandate(cfg: { count: number; period: number; amount: numbe
       signal: abort.signal,
       onPocket: async (pocket, total) => {
         note(`payer: fresh pocket ${pocket.ua.slice(0, 16)}…; requesting ${formatZec(total)}`);
-        const fund = await api.sandboxFund({ ua: pocket.ua, amount_zat: total }, abort.signal);
+        // A v2 faucet pays a sandbox offer's exact prepay, and each pocket once.
+        const fund = await api.sandboxFund({ ua: pocket.ua, amount_zat: total, ...(cfg.fundOffer ? { offer_id: offer.offer_id } : {}) }, abort.signal);
         store.set({ events: [...store.get().events, { at: Date.now() / 1000, text: `faucet: paid ${formatZec(total)} to the pocket in ${fund.txid.slice(0, 16)}…${fund.mined_height ? ` (mined at ${fund.mined_height})` : ' (in the mempool)'}` }] });
       },
     });
@@ -132,7 +153,8 @@ function steps(s: SandboxState, sub: Subscription | undefined): StepDef[] {
   ];
 }
 
-function pick(sub: Subscription | undefined, kind: CheatKind): Installment | undefined {
+/** The installment a cheat card tries, or undefined while there is none to try. */
+export function pick(sub: Subscription | undefined, kind: CheatKind): Installment | undefined {
   if (!sub) return undefined;
   const list = sub.installments;
   switch (kind) {
@@ -145,6 +167,9 @@ function pick(sub: Subscription | undefined, kind: CheatKind): Installment | und
       return [...list].reverse().find((i) => i.state === 'mined' && i.txid);
     case 'stretch_schedule':
       return list.find((i) => i.k === 2);
+    case 'charge_after_cancel':
+      // The first installment the cancel voided: it would spend the very note the cancel spent.
+      return sub.status === 'cancelled' ? list.find((i) => i.state === 'cancelled') : undefined;
   }
 }
 
@@ -153,9 +178,10 @@ const UNAVAILABLE: Record<CheatKind, string> = {
   tamper_amount: 'Wait for installment 1 to open.',
   rebroadcast: 'Wait for installment 1 to be mined.',
   stretch_schedule: 'This plan has no installment 2.',
+  charge_after_cancel: 'Cancel first: this opens once your cancel is mined.',
 };
 
-// The verify script finds the first three cards by position: keep this order.
+// The verify and judge scripts find the cards by position: keep this order, and add new ones last.
 const CHEATS: Array<{ kind: CheatKind; title: (k?: number) => string; expect: string; why: string; icon: ReactNode }> = [
   {
     kind: 'open_early',
@@ -185,9 +211,16 @@ const CHEATS: Array<{ kind: CheatKind; title: (k?: number) => string; expect: st
     why: "The runner checks every installment's drand round against the offer's period before it accepts a schedule, so one sealed a year late is refused.",
     icon: <ClockIcon size={16} />,
   },
+  {
+    kind: 'charge_after_cancel',
+    title: () => 'Charge me after I cancel',
+    expect: 'fails: node',
+    why: "This sandbox runner keeps the packages your cancel voided, for an hour. Once one's drand round passes, it opens it and broadcasts it, but your cancel already spent the note it spends, so the node refuses it.",
+    icon: <ServerIcon size={16} />,
+  },
 ];
 
-function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState }) {
+function CheatPanel({ sub, s, runner }: { sub: Subscription | undefined; s: SandboxState; runner: RunnerStatus | undefined }) {
   const [busy, setBusy] = useState<CheatKind | null>(null);
   const run = async (kind: CheatKind, k: number) => {
     if (!sub) return;
@@ -197,11 +230,25 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
       store.set((st) => ({ cheats: { ...st.cheats, [kind]: res } }));
       if (res.outcome === 'rejected') note(`cheat: ${kind.replace(/_/g, ' ')} on installment ${res.k} rejected by ${res.stage}`, 'err');
     } catch (e) {
-      store.set((st) => ({ cheats: { ...st.cheats, [kind]: { error: (e as Error).message } } }));
+      const wait = opensIn(e);
+      store.set((st) => ({ cheats: { ...st.cheats, [kind]: wait === null ? { error: (e as Error).message } : { k, opensAt: Date.now() / 1000 + wait } } }));
+      if (wait !== null) note(`cheat: installment ${k}'s drand round is ${wait} s away; trying again then`);
     } finally {
       setBusy(null);
     }
   };
+
+  // Not open yet: ask again a moment after its round, once drand has published it.
+  const waiting = s.cheats.charge_after_cancel;
+  const subId = sub?.subscription_id;
+  useEffect(() => {
+    if (!waiting || !('opensAt' in waiting) || !subId) return;
+    const t = setTimeout(() => void run('charge_after_cancel', waiting.k), Math.max(0, waiting.opensAt * 1000 - Date.now()) + 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, subId]);
+
+  const cheats = hasFeature(runner, 'charge_after_cancel') ? CHEATS : CHEATS.filter((c) => c.kind !== 'charge_after_cancel');
 
   return (
     <section className="card" aria-labelledby="cheats">
@@ -216,10 +263,11 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
         {isMock && <span className="tag">mock runner · reproduces the real failure path</span>}
       </div>
       <div className="grid cols-2" style={{ ['--gap' as string]: '12px', alignItems: 'start' }}>
-        {CHEATS.map((c) => {
+        {cheats.map((c) => {
           const target = pick(sub, c.kind);
           const result = s.cheats[c.kind];
           const disabled = !sub ? 'Sign a mandate first.' : !target ? UNAVAILABLE[c.kind] : null;
+          const pending = !!result && 'opensAt' in result;
           return (
             <div className="cheat" key={c.kind}>
               <div className="row between">
@@ -229,7 +277,7 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
               </div>
               <Badge tone="red">{c.expect}</Badge>
               <p className="tiny muted">{c.why}</p>
-              <button type="button" className="btn sm" disabled={!!disabled || busy === c.kind} onClick={() => target && run(c.kind, target.k)}>
+              <button type="button" className="btn sm" disabled={!!disabled || busy === c.kind || pending} onClick={() => target && run(c.kind, target.k)}>
                 <BoltIcon size={14} /> {busy === c.kind ? 'Trying…' : 'Try it'}
               </button>
               {disabled && <span className="tiny faint">{disabled}</span>}
@@ -237,6 +285,13 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
                 <div className="result stack" style={{ ['--gap' as string]: '6px' }}>
                   {'error' in result ? (
                     <ErrorNote error={new Error(result.error)} />
+                  ) : 'opensAt' in result ? (
+                    <div className="row" style={{ ['--gap' as string]: '6px' }}>
+                      <Badge tone="muted">Not open yet</Badge>
+                      <span className="tiny muted">
+                        installment {result.k} opens <Countdown at={result.opensAt} />; this card asks the runner again then
+                      </span>
+                    </div>
                   ) : (
                     <>
                       <div className="row" style={{ ['--gap' as string]: '6px' }}>
@@ -268,11 +323,13 @@ function CheatPanel({ sub, s }: { sub: Subscription | undefined; s: SandboxState
   );
 }
 
-function CreateForm() {
+function CreateForm({ runner }: { runner: RunnerStatus | undefined }) {
   const s = useStore(store);
   const [count, setCount] = useState(isMock ? 6 : 3);
   const [period, setPeriod] = useState(isMock ? 20 : 90);
   const amount = 100_000;
+  const prepay = totalPrepaidZat(amount, count);
+  const low = faucetLow(runner, prepay);
   return (
     <div className="stack" style={{ ['--gap' as string]: '16px' }}>
       <div className="stack" style={{ ['--gap' as string]: '4px' }}>
@@ -311,12 +368,32 @@ function CreateForm() {
         </div>
       </div>
       <div className="panel small text-2">
-        Prepaid in one payment: <span className="mono">{formatZec(totalPrepaidZat(amount, count))}</span>, every installment plus its fee.
+        Prepaid in one payment: <span className="mono">{formatZec(prepay)}</span>, every installment plus its fee.
       </div>
+      {low && runner?.faucet && (
+        <Callout kind="plain">
+          <span className="small">
+            The sandbox faucet is low: it holds {formatZec(runner.faucet.balance_zat)}, and this page starts a run only while it holds {FAUCET_RUNS} times this plan's{' '}
+            {formatZec(prepay)}. Until it is topped up, read <a href={LAST_SANDBOX_RUN.evidenceUrl}>the last public run's evidence</a>, and check that run's cancel in{' '}
+            <Link to={`/decode/${LAST_SANDBOX_RUN.cancelTxid}?nf=${LAST_SANDBOX_RUN.spentNullifier}`}>the decoder</Link>.
+          </span>
+        </Callout>
+      )}
       {s.createError && <ErrorNote error={new Error(s.createError)} />}
-      <button type="button" className="btn primary lg" onClick={() => createMandate({ count, period, amount })} disabled={s.creating}>
+      <button
+        type="button"
+        className="btn primary lg"
+        onClick={() => createMandate({ count, period, amount, fundOffer: hasFeature(runner, 'fund_offer') })}
+        disabled={s.creating || low}
+        aria-describedby={low ? 'sb-faucet-low' : undefined}
+      >
         {s.creating ? 'Creating…' : 'Create mandate and auto-fund'}
       </button>
+      {low && (
+        <span id="sb-faucet-low" className="tiny faint">
+          Unavailable while the sandbox faucet is low, so a run cannot stall waiting for its funding.
+        </span>
+      )}
     </div>
   );
 }
@@ -396,7 +473,7 @@ function PayerPane({ s, sub, runner }: { s: SandboxState; sub: Subscription | un
             )}
           </div>
         ) : !s.offer ? (
-          <CreateForm />
+          <CreateForm runner={runner} />
         ) : s.phase === 'pocket' || s.phase === 'funding' ? (
           <div className="stack" style={{ ['--gap' as string]: '14px' }}>
             <span className="h3">Fund the pocket</span>
@@ -525,7 +602,8 @@ export function Sandbox() {
   const current = sub.data && sub.data.subscription_id === s.subscriptionId ? sub.data : undefined;
   const list = steps(s, current);
   const currentIdx = list.findIndex((st) => !st.done);
-  const status = usePoll((signal) => (isMock ? Promise.resolve(undefined) : api.status(signal)), 30000, []);
+  // Also in the mock: its features decide which cheat cards show.
+  const status = usePoll((signal) => api.status(signal), 30000, []);
 
   if (!isMock && status.data && !status.data.sandbox) {
     return (
@@ -594,7 +672,7 @@ export function Sandbox() {
           <RunnerPane s={s} sub={current} />
         </div>
         {s.decodeTxid && <InlineDecode key={s.decodeTxid} txid={s.decodeTxid} />}
-        <CheatPanel sub={current} s={s} />
+        <CheatPanel sub={current} s={s} runner={status.data} />
       </div>
     </div>
   );

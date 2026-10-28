@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { isBusy } from '../api/client';
 import type { InstallmentState, SubscriptionStatus } from '../api/types';
 import { useNow } from '../hooks';
 import { shorten } from '../lib/addresses';
@@ -209,9 +210,10 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+/** An error, in red; a busy runner (429) is a calm warning instead, since it is not a failure. */
 export function ErrorNote({ error, retry }: { error: Error; retry?: () => void }) {
   return (
-    <Callout kind="danger">
+    <Callout kind={isBusy(error) ? 'warn' : 'danger'}>
       <div className="row between">
         <span>{error.message}</span>
         {retry && (

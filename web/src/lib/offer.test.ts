@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Offer } from '../api/types';
-import { bytesToBase64url, utf8Encode } from './base64url';
+import { base64urlToBytes, bytesToBase64url, utf8Decode, utf8Encode } from './base64url';
 import { QUICKNET } from './drand';
 import { buildShareUrl, encodeOfferPayload, horizonProblem, lastReleaseAfter, maxCountWithinHorizon, MAX_HORIZON_DAYS, parseOfferFragment } from './offer';
 import { seededBech32 } from './prng';
@@ -139,5 +139,71 @@ describe('offer horizon', () => {
 
   it('parses an offer past the horizon (the plan step refuses it, saying why)', () => {
     expect(parseOfferFragment(frag({ ...offer, count: 3 })).ok).toBe(true);
+  });
+});
+
+describe('offer terms: trial and quote (contract v2)', () => {
+  const DAY = 86400;
+  const quote = { currency: 'USD', amount_minor: 500, zec_rate_minor: 4210, set_at: 1_793_170_000 };
+  const termed: Offer = { ...offer, trial_secs: 7 * DAY, quote };
+  const keysOf = (payload: string) => Object.keys(JSON.parse(utf8Decode(base64urlToBytes(payload))));
+
+  it('round-trip through a share URL', () => {
+    expect(parseOfferFragment(new URL(buildShareUrl('https://pay.example', termed)).hash)).toEqual({ ok: true, offer: termed });
+  });
+
+  it("leave an offer without them encoded as an older runner's, so the runner-copy check still matches", () => {
+    expect(keysOf(encodeOfferPayload(offer))).toEqual(Object.keys(offer));
+    // A v2 runner's copy says trial_secs: 0; an older runner's link says nothing.
+    expect(encodeOfferPayload({ ...offer, trial_secs: 0 })).toBe(encodeOfferPayload(offer));
+    const v2Link = parseOfferFragment(frag({ ...offer, trial_secs: 0 }));
+    expect(v2Link.ok && encodeOfferPayload(v2Link.offer)).toBe(encodeOfferPayload(offer));
+    expect(parseOfferFragment(frag({ ...offer, quote: null })).ok).toBe(true);
+  });
+
+  it('compare in a fixed order, and tell a different trial or price apart', () => {
+    const shuffled = { set_at: quote.set_at, zec_rate_minor: quote.zec_rate_minor, amount_minor: quote.amount_minor, currency: quote.currency };
+    expect(encodeOfferPayload({ ...termed, quote: shuffled })).toBe(encodeOfferPayload(termed));
+    expect(encodeOfferPayload({ ...termed, trial_secs: 8 * DAY })).not.toBe(encodeOfferPayload(termed));
+    expect(encodeOfferPayload({ ...termed, quote: { ...quote, amount_minor: 50 } })).not.toBe(encodeOfferPayload(termed));
+    expect(encodeOfferPayload({ ...offer, quote })).not.toBe(encodeOfferPayload(offer));
+  });
+
+  it('are type- and range-checked, and a quote keeps only its own fields', () => {
+    for (const trial_secs of [-1, 30 * DAY + 1, '7', 1.5]) expect(problemsOf(frag({ ...offer, trial_secs }))).toEqual(['trial_secs']);
+    expect(problemsOf(frag({ ...offer, trial_secs: 30 * DAY }))).toEqual([]);
+    for (const bad of [
+      { ...quote, currency: 'usd' },
+      { ...quote, currency: 'USDT' },
+      { ...quote, amount_minor: 0 },
+      { ...quote, amount_minor: 1e9 + 1 },
+      { ...quote, zec_rate_minor: 1e12 + 1 },
+      { ...quote, zec_rate_minor: 42.1 },
+      { currency: 'USD', amount_minor: 500, zec_rate_minor: 4210 },
+      [quote],
+      'US$5',
+    ]) {
+      expect(problemsOf(frag({ ...offer, quote: bad }))).toEqual(['quote']);
+    }
+    const r = parseOfferFragment(frag({ ...offer, quote: { ...quote, note: '<script>' } }));
+    expect(r.ok && r.offer.quote).toEqual(quote);
+  });
+
+  it('count the trial towards the horizon', () => {
+    expect(maxCountWithinHorizon(30 * DAY, 0)).toBe(2);
+    expect(maxCountWithinHorizon(30 * DAY, 7 * DAY)).toBe(2);
+    expect(maxCountWithinHorizon(30 * DAY, 15 * DAY)).toBe(1);
+    expect(maxCountWithinHorizon(7 * DAY, 7 * DAY)).toBe(6);
+    expect(maxCountWithinHorizon(DAY, 30 * DAY)).toBe(15);
+    for (const [period, trial] of [
+      [DAY, 3 * DAY],
+      [7 * DAY, 2 * DAY],
+      [3600, 30 * DAY],
+      [90, 12 * 3600],
+    ] as const) {
+      const n = maxCountWithinHorizon(period, trial);
+      expect(trial + lastReleaseAfter({ period_secs: period, count: n })).toBeLessThanOrEqual(MAX_HORIZON_DAYS * DAY);
+      expect(trial + lastReleaseAfter({ period_secs: period, count: n + 1 })).toBeGreaterThan(MAX_HORIZON_DAYS * DAY);
+    }
   });
 });

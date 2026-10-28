@@ -7,6 +7,7 @@ import { CancelPanel, CancelReceiptView, DoneMoment, FundingView, SigningView, S
 import { KeyIcon, ShieldCheckIcon, TabIcon } from '../components/Icons';
 import { MerchantLearns } from '../components/MerchantLearns';
 import { CalendarReminders } from '../components/PlanActions';
+import { OfferTerms } from '../components/OfferTerms';
 import { Timeline } from '../components/Timeline';
 import { Badge, Callout, CopyButton, ErrorNote, Round, Spinner, StatusBadge } from '../components/ui';
 import { canRetrySigning, canRetryUpload, canWatchAgain, retrySigning, retryUpload, runMandate, watchAgain, type FlowState } from '../flow';
@@ -272,6 +273,7 @@ function PlanStep({ offer, verified, held }: { offer: Offer; verified: ReturnTyp
           {formatZec(INSTALLMENT_FEE_ZAT * offer.count, offer.network)} in network fees
         </div>
       </div>
+      <OfferTerms offer={offer} />
 
       <dl className="kv">
         <dt>Pays to</dt>

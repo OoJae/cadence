@@ -47,11 +47,24 @@ export interface Transport {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** A 429's `Retry-After`, in seconds, when the runner sent one the page could read. */
+  readonly retryAfterSecs?: number;
+  constructor(status: number, message: string, retryAfterSecs?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    if (retryAfterSecs !== undefined) this.retryAfterSecs = retryAfterSecs;
   }
+}
+
+/** The runner answered 429: it is up and rate limiting this client, so ask again later rather than fail. */
+export function isBusy(e: unknown): e is ApiError {
+  return e instanceof ApiError && e.status === 429;
+}
+
+/** How long a busy runner asked to be left alone, in ms, or `fallbackMs` when it did not say. */
+export function busyWaitMs(e: ApiError, fallbackMs = 5_000): number {
+  return e.retryAfterSecs !== undefined ? e.retryAfterSecs * 1000 : fallbackMs;
 }
 
 const TXID = /^[0-9a-f]{64}$/;

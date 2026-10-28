@@ -197,6 +197,11 @@ async function shot(page, name, fullPage = true) {
   // Cheat 3: rebroadcast a paid installment.
   await cheats.nth(2).getByRole('button', { name: /Try it/ }).click();
   await cheats.nth(2).getByText(/Rejected · double-spend/).waitFor();
+
+  // Cheat 5 (the mock lists charge_after_cancel): charge a voided installment once its round
+  // passes. The card counts down to the round, asks again, and the node refuses it.
+  await cheats.nth(4).getByRole('button', { name: /Try it/ }).click();
+  await cheats.nth(4).getByText(/Rejected · node/).waitFor({ timeout: 90000 });
   await page.waitForTimeout(800);
   await shot(page, '24-sandbox-cancelled-and-cheats');
   await page.locator('.cheat').first().locator('..').screenshot({ path: join(outDir, '25-sandbox-cheats.png') });

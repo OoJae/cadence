@@ -17,6 +17,10 @@ export interface CreateOfferRequest {
   count: number;
   /** The merchant's Orchard-only unified address. */
   merchant_ua: string;
+  /** Seconds of free trial before installment 1 (runner feature `trial`). */
+  trial_secs?: number;
+  /** The merchant's own fiat label (runner feature `quote`). Display only: `amount_zat` is what is signed. */
+  quote?: Offer['quote'];
 }
 
 /** `201` response of `POST /api/offers`. `share_url` carries the offer in its fragment. */
@@ -40,6 +44,13 @@ export interface Offer {
   network: NetworkId;
   /** drand chain hash the installments are time-locked to (quicknet). */
   drand_chain: string;
+  /** Seconds of free trial: installment 1 releases this much later. A v2 runner always sends it (0 for none). */
+  trial_secs?: number;
+  /**
+   * The merchant's own price label: `amount_minor` minor units of `currency` per installment, at
+   * `zec_rate_minor` minor units per 1 ZEC, stated at `set_at`. Display only; `amount_zat` is authoritative.
+   */
+  quote?: { currency: string; amount_minor: number; zec_rate_minor: number; set_at: number };
 }
 
 // ---------------------------------------------------------------- subscriptions
@@ -207,6 +218,10 @@ export interface RunnerStatus {
   sandbox?: boolean;
   /** The v2 features this runner implements. An older runner sends none: read that as []. */
   features?: RunnerFeature[];
+  /** `healthy` is false once no scheduler tick has finished for 180 s, or the last chain sync failed. */
+  scheduler?: { last_tick_at: number; healthy: boolean };
+  /** The sandbox faucet's spendable balance (sandbox runners only). */
+  faucet?: { balance_zat: number; notes: number };
 }
 
 // ---------------------------------------------------------------- access passes
@@ -275,6 +290,8 @@ export interface WebhookEvent {
 export interface SandboxFundRequest {
   ua: string;
   amount_zat: number;
+  /** The sandbox offer this pocket pays for (runner feature `fund_offer`): `amount_zat` must be its prepay. */
+  offer_id?: string;
 }
 export interface SandboxFundResponse {
   txid: string;
@@ -288,8 +305,11 @@ export interface SandboxOfferRequest {
   amount_zat: number;
 }
 
-/** `rebroadcast` was named `replay_after_cancel`; the runner still accepts the old name. */
-export type CheatKind = 'open_early' | 'tamper_amount' | 'rebroadcast' | 'stretch_schedule';
+/**
+ * `rebroadcast` was named `replay_after_cancel`; the runner still accepts the old name.
+ * `charge_after_cancel` needs runner feature `charge_after_cancel`.
+ */
+export type CheatKind = 'open_early' | 'tamper_amount' | 'rebroadcast' | 'stretch_schedule' | 'charge_after_cancel';
 
 export interface SandboxCheatRequest {
   subscription_id: string;
@@ -303,7 +323,7 @@ export interface SandboxCheatResponse {
   /** `rejected` is the expected outcome. `not_applicable` means the precondition is not met yet. */
   outcome: 'rejected' | 'not_applicable';
   /** Which defence stopped it. */
-  stage: 'tlock' | 'signature' | 'double-spend' | 'schedule' | null;
+  stage: 'tlock' | 'signature' | 'double-spend' | 'schedule' | 'node' | null;
   /** Error lines, in the order the components print them. */
   log: string[];
 }

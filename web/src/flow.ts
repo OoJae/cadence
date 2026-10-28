@@ -2,7 +2,7 @@
  * The payer's mandate flow, shared by /subscribe and the sandbox:
  * pocket → ZIP 321 funding → pre-sign once the signer sees the funding → upload sealed packages.
  */
-import { ApiError, hasFeature, type CadenceClient } from './api/client';
+import { ApiError, busyWaitMs, hasFeature, isBusy, type CadenceClient } from './api/client';
 import type { Offer, RunnerFeature, SealedInstallment } from './api/types';
 import { horizonProblem } from './lib/offer';
 import { unitFor, totalPrepaidZat, zatToZecString } from './lib/zat';
@@ -122,9 +122,10 @@ async function runnerLists(client: CadenceClient, feature: RunnerFeature, signal
 const UPLOAD_RETRY_MS = [3_000, 10_000];
 
 /**
- * Uploads the sealed packages. A timeout or a 5xx is retried: the runner accepts the
- * same packages again for the same pocket and answers with the same subscription, so
- * an upload that landed after the page gave up costs nothing.
+ * Uploads the sealed packages. A timeout, a 5xx or a busy runner (429, after the wait it
+ * asks for) is retried: the runner accepts the same packages again for the same pocket
+ * and answers with the same subscription, so an upload that landed after the page gave
+ * up costs nothing.
  *
  * The payer auth key goes only to a runner whose status lists `payer_auth`; any other
  * runner gets the body it always got. A status that does not answer counts as not
@@ -152,9 +153,9 @@ async function uploadSealed(
       const key = opts.payerAuthKey && (await runnerLists(client, 'payer_auth', opts.signal)) ? opts.payerAuthKey : undefined;
       return (await client.createSubscription(key ? { ...body, payer_auth_key: key } : body, opts.signal)).subscription_id;
     } catch (e) {
-      const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      const retriable = e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 429);
       if (!retriable || attempt >= UPLOAD_RETRY_MS.length || opts.signal?.aborted) throw e;
-      await sleep(UPLOAD_RETRY_MS[attempt]!);
+      await sleep(isBusy(e) ? Math.max(UPLOAD_RETRY_MS[attempt]!, busyWaitMs(e)) : UPLOAD_RETRY_MS[attempt]!);
     }
   }
 }

@@ -164,6 +164,59 @@ describe('mock runner state derivation', () => {
   });
 });
 
+describe('mock runner v2 features', () => {
+  it('lists the features it implements, so mock builds show them', () => {
+    expect(setup().runner.status().features).toEqual(['trial', 'quote', 'payer_auth', 'pass', 'charge_after_cancel', 'fund_offer']);
+  });
+
+  it('charges after a cancel only once the voided package opens, and the node refuses it', () => {
+    const { runner, setNow, rec, chain } = setup(4, 60);
+    const cheat = () => runner.cheat({ subscription_id: 'sub_t', kind: 'charge_after_cancel', k: 3 });
+    expect(cheat).toThrow(/installment 3 was not voided by a cancel/);
+    const tCancel = roundTime(rec.installments[1]!.release_round) + 30;
+    const cancel = chain.send({ kind: 'cancel', to: 'refund', value_zat: 1, spends_pocket: rec.pocket_ufvk }, tCancel);
+    setNow(tCancel + 2 * MOCK_BLOCK_SECS);
+    expect(runner.getSubscription('sub_t').installments[2]!.state).toBe('cancelled');
+    const r3 = roundTime(rec.installments[2]!.release_round);
+    const early = (() => {
+      try {
+        cheat();
+      } catch (e) {
+        return e as Error & { status: number };
+      }
+    })();
+    expect(early).toMatchObject({ status: 409, message: `installment 3 opens in ${Math.ceil(r3 - (tCancel + 2 * MOCK_BLOCK_SECS))} s` });
+    setNow(r3 + 1);
+    const res = cheat();
+    expect(res).toMatchObject({ kind: 'charge_after_cancel', k: 3, outcome: 'rejected', stage: 'node' });
+    expect(res.log.at(-1)).toMatch(new RegExp(`^node: transaction rejected: Ironwood double-spend: .* by the cancel ${cancel.txid.slice(0, 12)}.* at height ${cancel.mined_height}$`));
+  });
+
+  it('stores a trial and a quote with an offer, and checks both', () => {
+    const { runner } = setup();
+    const base = { name: 'Plan', amount_zat: 11_876_485, period_secs: 86400, count: 2, merchant_ua: `utest1${seededBech32('m', 104)}` };
+    const quote = { currency: 'USD', amount_minor: 500, zec_rate_minor: 4210, set_at: T0 };
+    const termed = runner.getOffer(runner.createOffer({ ...base, trial_secs: 7 * 86400, quote }, 'token').offer_id);
+    expect(termed).toMatchObject({ trial_secs: 604_800, quote });
+    const plain = runner.getOffer(runner.createOffer(base, 'token').offer_id);
+    expect(plain.trial_secs).toBe(0);
+    expect(plain).not.toHaveProperty('quote');
+    expect(() => runner.createOffer({ ...base, trial_secs: 30 * 86400 + 1 }, 'token')).toThrow(/trial_secs/);
+    expect(() => runner.createOffer({ ...base, quote: { ...quote, currency: 'usd' } }, 'token')).toThrow(/quote/);
+    expect(() => runner.createOffer({ ...base, quote: { ...quote, zec_rate_minor: 0 } }, 'token')).toThrow(/quote/);
+  });
+
+  it("funds a pocket with exactly an offer's prepay when told which offer", () => {
+    const { runner, rec } = setup(4, 60);
+    const ua = `utest1${seededBech32('p', 104)}`;
+    expect(() => runner.fund({ ua, amount_zat: 440_001, offer_id: rec.offer.offer_id })).toThrow(/this offer's prepay, 440000 zats/);
+    expect(() => runner.fund({ ua, amount_zat: 440_000, offer_id: 'off_nope' })).toThrow(/no such offer/);
+    expect(runner.fund({ ua, amount_zat: 440_000, offer_id: rec.offer.offer_id }).txid).toMatch(/^[0-9a-f]{64}$/);
+    // Without an offer, as an older page asks.
+    expect(runner.fund({ ua, amount_zat: 123 }).txid).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
 describe('mock runner schedule check', () => {
   const offer = { count: 3, period_secs: 30 };
   const plan = (gaps: number[], first = firstRoundAtOrAfter(T0)) => {
@@ -306,6 +359,6 @@ describe('mock runner access passes', () => {
     expect(runner.subs.get(id)!.payer_auth_key).toBe('ab'.repeat(32));
     const old = runner.createSubscription(body('p5')).subscription_id;
     expect(runner.subs.get(old)!.payer_auth_key).toBeUndefined();
-    expect(runner.status().features).toEqual(['payer_auth', 'pass']);
+    expect(runner.status().features).toEqual(expect.arrayContaining(['payer_auth', 'pass']));
   });
 });

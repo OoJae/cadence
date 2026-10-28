@@ -14,7 +14,7 @@
  *   cancel that instead, once. If it was the last installment, there is nothing left
  *   to cancel, which is an outcome, not an error.
  */
-import { ApiError } from '../api/client';
+import { ApiError, busyWaitMs, isBusy } from '../api/client';
 import type { PocketNoteInfo, PocketState, PocketWitness } from '../api/types';
 import { INSTALLMENT_FEE_ZAT } from '../lib/zat';
 import { SignerError, type CancelReceipt, type CancelStatus } from './types';
@@ -96,20 +96,43 @@ export const POCKET_RETRIES = 12;
 /**
  * The pocket's state, asked again while the runner is unreachable, slow or failing
  * (status 0 or 5xx). The pocket's key exists only in the payer's tab, so one slow
- * answer must not end the watch for its payment. Anything else is thrown at once.
+ * answer must not end the watch for its payment. A busy runner (429) is up and pacing
+ * this client: it is asked again as late as it says, for as long as it stays busy,
+ * without using up a retry. Anything else is thrown at once.
  */
 export async function readPocket(
   get: (signal?: AbortSignal) => Promise<PocketState>,
   opts: { retryMs: number; signal?: AbortSignal; sleep?: (ms: number, signal?: AbortSignal) => Promise<void> },
 ): Promise<PocketState> {
   const sleep = opts.sleep ?? defaultSleep;
-  for (let attempt = 0; ; attempt++) {
+  for (let attempt = 0; ; ) {
     try {
       return checkPocketState(await get(opts.signal));
     } catch (e) {
+      if (isBusy(e) && !opts.signal?.aborted) {
+        await sleep(Math.max(opts.retryMs, busyWaitMs(e)), opts.signal);
+        continue;
+      }
       const transient = e instanceof ApiError && (e.status === 0 || e.status >= 500);
       if (!transient || opts.signal?.aborted || attempt >= POCKET_RETRIES) throw e;
+      attempt++;
       await sleep(opts.retryMs, opts.signal);
+    }
+  }
+}
+
+/**
+ * Calls `send` again while the runner answers 429, waiting as long as it asks, until
+ * `giveUp()`; then the 429 is thrown. A busy runner did nothing with the request, so
+ * sending it again (even a broadcast) cannot do anything twice.
+ */
+async function paced<T>(send: () => Promise<T>, sleep: (ms: number, signal?: AbortSignal) => Promise<void>, giveUp: () => boolean, signal?: AbortSignal): Promise<T> {
+  for (;;) {
+    try {
+      return await send();
+    } catch (e) {
+      if (!isBusy(e) || giveUp() || signal?.aborted) throw e;
+      await sleep(busyWaitMs(e), signal);
     }
   }
 }
@@ -146,7 +169,7 @@ export async function runCancel(steps: CancelSteps, opts: CancelLoopOptions = {}
   for (;;) {
     live();
     status({ step: 'finding' });
-    const state = await steps.pocket(opts.signal);
+    const state = await paced(() => steps.pocket(opts.signal), sleep, expired, opts.signal);
     live();
     const listed = state.notes.map((n) => ({ info: n, note: steps.known(String(n.nullifier).toLowerCase()) }));
     if (listed.length && listed.every((n) => !n.note)) throw new SignerError('the runner reports pocket notes this signer did not create');
@@ -188,7 +211,7 @@ export async function runCancel(steps: CancelSteps, opts: CancelLoopOptions = {}
 
     let witness: PocketWitness;
     try {
-      witness = await steps.witness(note.nullifier, opts.signal);
+      witness = await paced(() => steps.witness(note.nullifier, opts.signal), sleep, expired, opts.signal);
     } catch (e) {
       if (!isNotAnchorDeep(e)) throw e;
       if (expired()) {
@@ -209,7 +232,7 @@ export async function runCancel(steps: CancelSteps, opts: CancelLoopOptions = {}
     status({ step: 'broadcasting', k: note.k });
     let res: { txid: string };
     try {
-      res = await steps.broadcast(tx.tx_hex);
+      res = await paced(() => steps.broadcast(tx.tx_hex), sleep, expired, opts.signal);
     } catch (e) {
       // Unreachable, or timed out: the cancel may or may not have been relayed.
       if (!(e instanceof ApiError) || e.status === 0) throw e;

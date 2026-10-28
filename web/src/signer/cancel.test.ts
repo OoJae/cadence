@@ -217,6 +217,18 @@ describe('runCancel', () => {
     await expect(runCancel(w.steps)).rejects.toThrow(/did not create/);
   });
 
+  it('sends the same proved cancel again after a busy runner, as late as it asks, without proving twice', async () => {
+    const busy = new ApiError(429, 'The runner is busy; try again in 20 s', 20);
+    const w = world({ pockets: [{ tip: 1000, notes: [[1, 990]] }], broadcasts: [busy, 'ok'] });
+    const done = runCancel(w.steps);
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(w.calls.broadcast).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(done).resolves.toMatchObject({ txid: 'txid-1' });
+    expect(w.calls.prove).toEqual([1]);
+    expect(w.calls.broadcast).toBe(2);
+  });
+
   it('checks the txid the runner reports', async () => {
     const w = world({ pockets: [{ tip: 1000, notes: [[1, 990]] }] });
     w.steps.broadcast = async () => ({ txid: 'something-else' });
@@ -257,6 +269,20 @@ describe('readPocket', () => {
     expect(r.calls()).toBe(1);
     const bad = scripted([{ ...STATE, tip: 0 }]);
     await expect(readPocket(bad.get, { retryMs: 5_000, sleep: noSleep })).rejects.toThrow(/malformed pocket status/);
+  });
+
+  it('waits out a busy runner as long as it asks, for as long as it stays busy, without using up a retry', async () => {
+    const busy = new ApiError(429, 'The runner is busy; try again in 20 s', 20);
+    const r = scripted([...Array<ApiError>(POCKET_RETRIES + 5).fill(busy), STATE]);
+    const waits: number[] = [];
+    await expect(readPocket(r.get, { retryMs: 5_000, sleep: async (ms) => void waits.push(ms) })).resolves.toEqual(STATE);
+    expect(r.calls()).toBe(POCKET_RETRIES + 6);
+    expect(new Set(waits)).toEqual(new Set([20_000]));
+    // A busy answer that names no wait is asked again at the usual pace.
+    const quiet = scripted([new ApiError(429, 'The runner is busy; try again in a few seconds'), STATE]);
+    const paced: number[] = [];
+    await expect(readPocket(quiet.get, { retryMs: 5_000, sleep: async (ms) => void paced.push(ms) })).resolves.toEqual(STATE);
+    expect(paced).toEqual([5_000]);
   });
 
   it('stops when the watch is aborted', async () => {
