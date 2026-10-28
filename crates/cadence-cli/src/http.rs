@@ -74,10 +74,18 @@ impl Http {
     }
 
     pub fn post_json(&self, url: &str, body: &Value) -> Result<Value> {
-        let bytes = serde_json::to_vec(body)?;
+        self.post_bytes(url, serde_json::to_vec(body)?, &[])
+    }
+
+    /// POSTs exactly `bytes` as JSON, with `headers` besides, as a signed request needs.
+    pub fn post_bytes(&self, url: &str, bytes: Vec<u8>, headers: &[(&str, String)]) -> Result<Value> {
         match self {
             Http::Direct(agent) => {
-                let mut response = agent.post(url).header("Content-Type", "application/json").send(&bytes[..])?;
+                let mut request = agent.post(url).header("Content-Type", "application/json");
+                for (name, value) in headers {
+                    request = request.header(*name, value);
+                }
+                let mut response = request.send(&bytes[..])?;
                 decode(response.status().as_u16(), &response.body_mut().read_to_vec()?)
             }
             Http::Tor { client, rt } => {
@@ -85,7 +93,10 @@ impl Http {
                 let response = rt
                     .block_on(client.http_post(
                         url.parse()?,
-                        |b| b.header("Content-Type", "application/json").header("Accept", "application/json"),
+                        |b| {
+                            let b = b.header("Content-Type", "application/json").header("Accept", "application/json");
+                            headers.iter().fold(b, |b, (name, value)| b.header(*name, value))
+                        },
                         Full::new(Bytes::from(bytes)),
                         |body| async { Ok(body.collect().await.map_err(HttpError::Hyper)?.to_bytes()) },
                         0,

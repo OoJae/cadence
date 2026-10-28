@@ -94,7 +94,7 @@ pub fn runner_of(path: &Path) -> Result<String> {
     Ok(serde_json::from_slice::<Runner>(&read_kit(path)?)?.runner)
 }
 
-fn network(name: &str) -> Result<Network> {
+pub(crate) fn network(name: &str) -> Result<Network> {
     match name {
         "main" => Ok(Network::MainNetwork),
         "test" => Ok(Network::TestNetwork),
@@ -102,14 +102,14 @@ fn network(name: &str) -> Result<Network> {
     }
 }
 
-fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
+pub(crate) fn orchard_receiver(params: &Network, ua: &str) -> Result<orchard::Address> {
     match Address::decode(params, ua) {
         Some(Address::Unified(ua)) => ua.orchard().copied().context("address has no Orchard receiver"),
         _ => bail!("expected a unified address with an Orchard receiver"),
     }
 }
 
-fn parse_txid(display_hex: &str) -> Result<zcash_primitives::transaction::TxId> {
+pub(crate) fn parse_txid(display_hex: &str) -> Result<zcash_primitives::transaction::TxId> {
     let mut bytes: [u8; 32] = hex::decode(display_hex)?
         .try_into()
         .map_err(|_| anyhow!("txid must be 32 bytes"))?;
@@ -117,19 +117,19 @@ fn parse_txid(display_hex: &str) -> Result<zcash_primitives::transaction::TxId> 
     Ok(zcash_primitives::transaction::TxId::from_bytes(bytes))
 }
 
-fn unix_now() -> u64 {
+pub(crate) fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
 
-fn zec(zats: u64) -> String {
+pub(crate) fn zec(zats: u64) -> String {
     let s = format!("{}.{:08}", zats / 100_000_000, zats % 100_000_000);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-fn hex16(s: &str) -> Result<[u8; 16]> {
+pub(crate) fn hex16(s: &str) -> Result<[u8; 16]> {
     hex::decode(s)?.try_into().map_err(|_| anyhow!("expected 16 bytes"))
 }
 
@@ -287,9 +287,16 @@ pub fn resume(http: &Http, out: &Path) -> Result<()> {
         println!("installment {}: sealed to drand round {round} ({} bytes)", p.k, sealed.len());
         installments.push(json!({ "k": p.k, "release_round": round, "sealed": STANDARD.encode(sealed) }));
     }
+    // The key that lets this payer, and only them, re-sign later. A runner from before
+    // payer keys ignores it.
     let sub = http.post_json(
         &format!("{runner}/api/subscriptions"),
-        &json!({ "offer_id": offer.offer_id, "pocket_id": pocket_id, "installments": installments }),
+        &json!({
+            "offer_id": offer.offer_id,
+            "pocket_id": pocket_id,
+            "installments": installments,
+            "payer_auth_key": crate::payer_auth::public_hex(&seed),
+        }),
     )?;
     file.subscription_id = sub["subscription_id"].as_str().map(String::from);
     save(out, &file)?;

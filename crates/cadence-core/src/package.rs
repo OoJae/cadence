@@ -117,3 +117,24 @@ pub fn verify_rung<P: zcash_protocol::consensus::Parameters>(
     }
     Ok(())
 }
+
+/// The note a rung returns to the pocket's `change_address`, rebuilt from its PCZT
+/// and checked against the commitment the action carries: what the next installment
+/// spends. `None` if no output pays it, as for a final installment that leaves none.
+pub fn change_of(pczt: &Pczt, change_address: &orchard::Address) -> Option<orchard::Note> {
+    use orchard::note::{ExtractedNoteCommitment, Note, NoteVersion, RandomSeed, Rho};
+
+    let to = change_address.to_raw_address_bytes();
+    pczt.ironwood().actions().iter().find_map(|action| {
+        let out = action.output();
+        if out.recipient().as_ref() != Some(&to) {
+            return None;
+        }
+        // An output's `rho` is the nullifier of the spend in the same action.
+        let rho = Option::from(Rho::from_bytes(action.spend().nullifier()))?;
+        let rseed = Option::from(RandomSeed::from_bytes((*out.rseed())?, &rho))?;
+        let value = orchard::value::NoteValue::from_raw((*out.value())?);
+        let note: Note = Option::from(Note::from_parts(*change_address, value, rho, rseed, NoteVersion::V3))?;
+        (ExtractedNoteCommitment::from(note.commitment()).to_bytes() == (*out.cmx())?).then_some(note)
+    })
+}

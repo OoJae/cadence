@@ -1,4 +1,6 @@
 mod http;
+mod payer_auth;
+mod resign;
 mod subscribe;
 
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -106,6 +108,18 @@ enum Command {
         /// Your unified address (Orchard receiver) to refund to.
         #[arg(long)]
         to: String,
+        #[command(flatten)]
+        chain: ChainArgs,
+    },
+    /// Sign the installments still to pay again, under today's rules and for the same
+    /// release rounds, and replace their packages on the runner.
+    Resign {
+        /// The cancel key the web app saved, or a subscription file from `subscribe`.
+        #[arg(long)]
+        subscription: PathBuf,
+        /// Build, seal and check everything, print what would be replaced, and upload nothing.
+        #[arg(long)]
+        dry_run: bool,
         #[command(flatten)]
         chain: ChainArgs,
     },
@@ -411,6 +425,12 @@ async fn main() -> Result<()> {
             let client = chain.lightwalletd(load_pocket(&subscription)?.1, tor.as_ref()).await?;
             let http = chain.runner(&subscribe::runner_of(&subscription)?, tor.as_ref()).await?;
             subscribe::cancel(&http, &subscription, &to, client).await?
+        }
+        Command::Resign { subscription, dry_run, chain } => {
+            let tor = chain.tor().await?;
+            let client = chain.lightwalletd(load_pocket(&subscription)?.1, tor.as_ref()).await?;
+            let http = chain.runner(&subscribe::runner_of(&subscription)?, tor.as_ref()).await?;
+            resign::resign(&http, &subscription, dry_run, client).await?
         }
         Command::Sweep { pocket, to, from, wallet_dir, chain } => {
             let tor = chain.tor().await?;

@@ -32,3 +32,6 @@ ureq = { workspace = true, features = ["rustls"] }
 bytes = "1"
 http-body-util = "0.1"
 rpassword = "7"
+hkdf = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
