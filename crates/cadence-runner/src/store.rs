@@ -485,6 +485,45 @@ impl Store {
         Ok(())
     }
 
+    /// A payer's re-sign: replaces the packages of an active subscription's sealed
+    /// installments, given as `(k, release_round, sealed)`, all of them or none. The
+    /// error says what changed since the request was checked: the subscription ended,
+    /// or an installment opened. The packages replaced are scrubbed from the file.
+    pub fn replace_sealed(&mut self, subscription_id: &str, packages: &[(u32, u64, Vec<u8>)]) -> Result<Result<(), String>> {
+        let tx = self.conn.transaction()?;
+        let status: String = tx.query_row(
+            "SELECT status FROM subscriptions WHERE subscription_id = ?1",
+            [subscription_id],
+            |r| r.get(0),
+        )?;
+        if status != "active" {
+            return Ok(Err(format!("the subscription is {status} now, so its packages were left as they were")));
+        }
+        for (k, round, sealed) in packages {
+            let replaced = tx.execute(
+                "UPDATE installments SET sealed = ?4
+                 WHERE subscription_id = ?1 AND k = ?2 AND release_round = ?3 AND state = 'sealed'",
+                params![subscription_id, k, round, sealed],
+            )?;
+            if replaced != 1 {
+                return Ok(Err(format!(
+                    "installment {k} opened while the re-sign was checked; nothing was replaced. Re-sign what is still sealed"
+                )));
+            }
+        }
+        let sealed: usize = tx.query_row(
+            "SELECT COUNT(*) FROM installments WHERE subscription_id = ?1 AND state = 'sealed'",
+            [subscription_id],
+            |r| r.get(0),
+        )?;
+        if sealed != packages.len() {
+            return Ok(Err(format!("{sealed} installments are sealed, but {} packages were given", packages.len())));
+        }
+        tx.commit()?;
+        self.checkpoint()?;
+        Ok(Ok(()))
+    }
+
     pub fn set_beacon(&self, subscription_id: &str, k: u32, beacon: &[u8]) -> Result<()> {
         self.conn.execute(
             "UPDATE installments SET beacon = ?3, state = 'due' WHERE subscription_id = ?1 AND k = ?2",
