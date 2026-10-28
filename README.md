@@ -2,7 +2,7 @@
 
 **Subscribe once. Close the tab.** Pre-authorized shielded payments on Zcash's Ironwood pool.
 
-**Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is a separate app host, which shows its commit and bundle hash in the footer. Each runner also serves an earlier build of the app (7244e6a, before the redesign), for example at [sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox).
+**Live on Zcash testnet:** [judge sandbox](https://app-production-be97.up.railway.app/sandbox) · [decoder](https://app-production-be97.up.railway.app/decode) · [cancel with a saved key](https://app-production-be97.up.railway.app/manage). This is a separate app host, which shows its commit and bundle hash in the footer. The sandbox runner also serves the app on its own origin ([sandbox-production-1e16.up.railway.app](https://sandbox-production-1e16.up.railway.app/sandbox)), and the mainnet runner serves an earlier build of it (7244e6a, before the redesign).
 
 **Live on Zcash mainnet:** a weekly mandate, subscribed from Zodl on Oct 27 with the tab then closed, pays a separate wallet through judging. See its [status](https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234) (also on the [app host](https://app-production-be97.up.railway.app/status#sub=sub_747f99039ba4f43c5234)) and the [evidence](evidence/mainnet.md). Its third payment (Nov 10), already signed on Oct 27, will be the first after NU7, which is expected around Nov 5. That crossing was rehearsed on a local regtest chain on Oct 28 ([evidence](evidence/nu7-regtest.md)); the mainnet crossing itself is still ahead. The status page shows times in your browser's time zone, and the app host's names it; the evidence gives them in UTC.
 
@@ -96,7 +96,7 @@ The mainnet runner's build 7244e6a lists no `refund_after_stop`: it deletes the 
 | Web app on an app host of its own, separate from the runners, with its build identity in the footer | Live at https://app-production-be97.up.railway.app (`VITE_API=runners`, `deploy/railway-app/`) |
 | Mainnet run funded from Zodl | ✅ [`evidence/mainnet.md`](evidence/mainnet.md): a 3-payment short run, each payment mined in its target block, and a weekly mandate paying through judging |
 | NU7 rehearsal: a mandate signed with NU7 pending, released across activation | ✅ on a local regtest chain, not a public network: [`evidence/nu7-regtest.md`](evidence/nu7-regtest.md). The mainnet crossing is Nov 10. |
-| Free trials, fiat price labels, release jitter, payer-signed requests, access passes, refunds after a stop, re-signing, rate and body limits | In the code at this commit, with tests; not deployed. The mainnet runner stays on 7244e6a and will not get them (`docs/api.md`). |
+| Free trials, fiat price labels, release jitter, payer-signed requests, access passes, refunds after a stop, re-signing, rate and body limits | Live on the testnet sandbox (runner 173b42e) and the app host (541edb2) since Oct 28, with tests. The judge path passed on them. The mainnet runner stays on 7244e6a and will not get them (`docs/api.md`). |
 | CI (`.github/workflows/ci.yml`): Rust tests, web checks and the WebAssembly signer built from source | Runs on every push to `main`; all three jobs passed from its first run on Oct 28 (e232541) |
 
 ## Evidence
