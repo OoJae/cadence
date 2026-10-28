@@ -47,6 +47,26 @@ pub async fn connect(server: &str, transport: Transport<'_>) -> Result<Client> {
     }
 }
 
+/// Two connections to `server` for two kinds of traffic, so that a burst on one never
+/// queues the other: separate channels, over Tor on isolated circuits of one bootstrap.
+pub async fn connect_pair(server: &str, transport: Transport<'_>) -> Result<(Client, Client)> {
+    let tor = match transport {
+        Transport::Direct => {
+            return Ok((connect(server, Transport::Direct).await?, connect(server, Transport::Direct).await?))
+        }
+        Transport::Tor { dir } => {
+            std::fs::create_dir_all(dir)?;
+            zcash_client_backend::tor::Client::create(dir, |_| {})
+                .await
+                .map_err(|e| anyhow!("bootstrapping Tor: {e:?}"))?
+        }
+        Transport::TorClient(tor) => tor.clone(),
+    };
+    let first = connect(server, Transport::TorClient(&tor)).await?;
+    let second = connect(server, Transport::TorClient(&tor.isolated_client())).await?;
+    Ok((first, second))
+}
+
 pub async fn tip(client: &mut Client) -> Result<BlockHeight> {
     let block = client.get_latest_block(ChainSpec {}).await?.into_inner();
     Ok(BlockHeight::from_u32(u32::try_from(block.height)?))
@@ -68,11 +88,16 @@ pub async fn raw_transaction(client: &mut Client, txid: &TxId) -> Result<(Vec<u8
         hash: txid.as_ref().to_vec(),
     };
     let raw = client.get_transaction(filter).await?.into_inner();
-    let mined = u32::try_from(raw.height)
+    Ok((raw.data, mined_height(raw.height)))
+}
+
+/// The mined height lightwalletd reports for a transaction: `None` for one in the
+/// mempool, which it reports with height 0 (or u64::MAX on some servers).
+pub fn mined_height(reported: u64) -> Option<BlockHeight> {
+    u32::try_from(reported)
         .ok()
         .filter(|h| *h != 0)
-        .map(BlockHeight::from_u32);
-    Ok((raw.data, mined))
+        .map(BlockHeight::from_u32)
 }
 
 /// Fetches and parses a transaction, returning it with its mined height
@@ -88,11 +113,7 @@ pub async fn transaction<P: Parameters>(
         hash: txid.as_ref().to_vec(),
     };
     let raw = client.get_transaction(filter).await?.into_inner();
-    // lightwalletd reports a mempool transaction with height 0 (or u64::MAX on some servers).
-    let mined = u32::try_from(raw.height)
-        .ok()
-        .filter(|h| *h != 0)
-        .map(BlockHeight::from_u32);
+    let mined = mined_height(raw.height);
     let branch_height = match mined {
         Some(h) => h,
         None => tip(client).await? + 1,
@@ -120,4 +141,25 @@ pub async fn send(client: &mut Client, tx_bytes: Vec<u8>) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mempool_transactions_have_no_mined_height() {
+        assert_eq!(mined_height(0), None);
+        assert_eq!(mined_height(u64::MAX), None);
+        assert_eq!(mined_height(u64::from(u32::MAX) + 1), None);
+        assert_eq!(mined_height(4_549_865), Some(BlockHeight::from_u32(4_549_865)));
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_server_is_an_error() {
+        // Nothing listens on the discard port, so the refusal comes back at once.
+        assert!(connect("http://127.0.0.1:9", Transport::Direct).await.is_err());
+        assert!(connect_pair("http://127.0.0.1:9", Transport::Direct).await.is_err());
+        assert!(connect_pair("not a url", Transport::Direct).await.is_err());
+    }
 }

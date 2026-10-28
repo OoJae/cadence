@@ -262,3 +262,97 @@ pub async fn pay(
     let tx = tokio::task::spawn_blocking(move || complete(rung.pczt, anchor, witness)).await??;
     Ok((broadcast(broadcaster, &tx).await?, nf))
 }
+
+#[cfg(test)]
+mod tests {
+    use zcash_client_backend::{
+        data_api::chain::ChainState,
+        proto::service::compact_tx_streamer_client::CompactTxStreamerClient,
+    };
+    use zcash_keys::keys::UnifiedSpendingKey;
+    use zcash_primitives::block::BlockHash;
+    use zcash_protocol::consensus::{NetworkConstants, Parameters};
+
+    use super::*;
+
+    const NETWORK: Network = Network::TestNetwork;
+
+    fn memory_wallet() -> Db {
+        let mut db = open(Path::new(":memory:"), NETWORK).unwrap();
+        init(&mut db).unwrap();
+        db
+    }
+
+    fn pocket(byte: u8) -> cadence_core::Pocket {
+        cadence_core::Pocket::from_seed(&[byte; 32], NETWORK.network_type().coin_type())
+    }
+
+    /// A pocket account imported without lightwalletd, from an empty tree.
+    fn import_offline(db: &mut Db, pocket: &cadence_core::Pocket, birthday: u32) -> AccountUuid {
+        let prior = ChainState::empty(BlockHeight::from_u32(birthday - 1), BlockHash([0; 32]));
+        let birthday = AccountBirthday::from_parts(prior, None);
+        db.import_account_ufvk("test", &pocket.ufvk(), &birthday, AccountPurpose::Spending { derivation: None }, None)
+            .unwrap()
+            .id()
+    }
+
+    #[tokio::test]
+    async fn pockets_must_be_orchard_only() {
+        let mut db = memory_wallet();
+        // Nothing listens on the discard port.
+        let channel = tonic::transport::Endpoint::from_static("http://127.0.0.1:9").connect_lazy();
+        let mut client = CompactTxStreamerClient::new(channel);
+        let birthday = BlockHeight::from_u32(3_000_000);
+
+        let usk = UnifiedSpendingKey::from_seed(&NETWORK, &[1; 32], zip32::AccountId::ZERO).unwrap();
+        let wide = usk.to_unified_full_viewing_key().encode(&NETWORK).unwrap();
+        let err = import_pocket(&mut client, &mut db, &NETWORK, &wide, birthday, "wide").await.unwrap_err();
+        assert_eq!(err.to_string(), "a pocket UFVK must contain only an Orchard key");
+        assert!(import_pocket(&mut client, &mut db, &NETWORK, "uview1nope", birthday, "bad").await.is_err());
+
+        // An Orchard-only key passes, and goes on to ask for the tree before its birthday.
+        let narrow = pocket(2).ufvk().encode(&NETWORK).unwrap();
+        let err = import_pocket(&mut client, &mut db, &NETWORK, &narrow, birthday, "narrow").await.unwrap_err();
+        assert!(!format!("{err:#}").contains("pocket UFVK"), "{err:#}");
+        assert!(db.get_account_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_new_pocket_has_its_key_and_no_notes() {
+        let mut db = memory_wallet();
+        let pocket = pocket(3);
+        let account = import_offline(&mut db, &pocket, 3_000_000);
+        assert_eq!(pocket_fvk(&db, account).unwrap().to_bytes(), pocket.fvk().to_bytes());
+        let target = BlockHeight::from_u32(3_000_100);
+        assert!(unspent_notes(&db, account, target).unwrap().is_empty());
+        let nf = Nullifier::from_bytes(&[0; 32]).unwrap();
+        assert!(find_unspent(&db, account, pocket.fvk(), &nf, target).unwrap().is_none());
+        // No block is scanned, so there is no root to anchor to.
+        assert!(anchor_and_witness(&mut db, Position::from(0), BlockHeight::from_u32(3_000_050)).is_err());
+
+        db.delete_account(account).unwrap();
+        let err = pocket_fvk(&db, account).unwrap_err();
+        assert_eq!(err.to_string(), "unknown pocket account");
+    }
+
+    #[test]
+    fn compacting_keeps_the_wallet_and_skips_a_missing_one() {
+        let dir = std::env::temp_dir().join(format!("cadence-chain-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wallet.sqlite");
+        let _ = std::fs::remove_file(&path);
+        compact(&path).unwrap();
+        assert!(!path.exists());
+
+        let account = {
+            let mut db = open(&path, NETWORK).unwrap();
+            init(&mut db).unwrap();
+            import_offline(&mut db, &pocket(4), 3_000_000)
+        };
+        compact(&path).unwrap();
+        let db = open(&path, NETWORK).unwrap();
+        assert_eq!(db.get_account_ids().unwrap(), [account]);
+        drop(db);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

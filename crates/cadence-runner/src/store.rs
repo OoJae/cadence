@@ -299,6 +299,15 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Pockets registered but neither funded nor subscribed yet.
+    pub fn count_pending_pockets(&self) -> Result<u64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM pockets WHERE funding_txid IS NULL AND subscription_id IS NULL",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     pub fn set_funding(&self, pocket_id: &str, f: &Funding) -> Result<()> {
         self.conn.execute(
             "UPDATE pockets SET funding_txid = ?2, funding_tx_hex = ?3, funding_height = ?4, funding_value = ?5

@@ -102,3 +102,82 @@ impl BlockCache for MemBlockCache {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use zcash_client_backend::data_api::scanning::ScanPriority;
+
+    use super::*;
+
+    fn block(height: u32) -> CompactBlock {
+        CompactBlock { height: u64::from(height), ..Default::default() }
+    }
+
+    fn at(height: u32) -> BlockHeight {
+        BlockHeight::from_u32(height)
+    }
+
+    fn range(start: u32, end: u32) -> ScanRange {
+        ScanRange::from_parts(at(start)..at(end), ScanPriority::Historic)
+    }
+
+    fn heights(blocks: &[CompactBlock]) -> Vec<u64> {
+        blocks.iter().map(|b| b.height).collect()
+    }
+
+    #[tokio::test]
+    async fn blocks_come_back_by_height_within_a_range() {
+        let cache = MemBlockCache::default();
+        assert_eq!(cache.get_tip_height(None).unwrap(), None);
+        cache.insert(vec![block(12), block(10), block(11), block(14)]).await.unwrap();
+        assert_eq!(cache.get_tip_height(None).unwrap(), Some(at(14)));
+        // Ranges are half-open, as scan ranges are.
+        assert_eq!(cache.get_tip_height(Some(&range(10, 14))).unwrap(), Some(at(12)));
+        assert_eq!(cache.get_tip_height(Some(&range(15, 20))).unwrap(), None);
+        assert_eq!(heights(&cache.read(&range(11, 14)).await.unwrap()), [11, 12]);
+
+        // A clone is the same cache.
+        let shared = cache.clone();
+        shared.delete(range(11, 13)).await.unwrap();
+        assert_eq!(heights(&cache.read(&range(0, 100)).await.unwrap()), [10, 14]);
+        // A block at a height already held replaces it.
+        let mut again = block(10);
+        again.hash = vec![1];
+        cache.insert(vec![again]).await.unwrap();
+        let blocks = cache.read(&range(10, 11)).await.unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].hash, [1]);
+    }
+
+    #[tokio::test]
+    async fn the_block_source_starts_at_a_height_and_stops_at_a_limit() {
+        let cache = MemBlockCache::default();
+        cache.insert((10..20).map(block).collect()).await.unwrap();
+        let walk = |from: Option<u32>, limit: Option<usize>| {
+            let mut seen = vec![];
+            cache
+                .with_blocks::<_, ()>(from.map(at), limit, |b| {
+                    seen.push(b.height);
+                    Ok(())
+                })
+                .unwrap();
+            seen
+        };
+        assert_eq!(walk(None, None), (10..20).collect::<Vec<u64>>());
+        assert_eq!(walk(Some(17), None), [17, 18, 19]);
+        assert_eq!(walk(Some(12), Some(2)), [12, 13]);
+        assert!(walk(Some(25), None).is_empty());
+
+        // An error from the callback ends the walk.
+        let mut seen = vec![];
+        let result = cache.with_blocks::<_, &str>(None, None, |b| {
+            seen.push(b.height);
+            if b.height == 11 {
+                return Err(error::Error::Wallet("stop"));
+            }
+            Ok(())
+        });
+        assert!(matches!(result, Err(error::Error::Wallet("stop"))));
+        assert_eq!(seen, [10, 11]);
+    }
+}

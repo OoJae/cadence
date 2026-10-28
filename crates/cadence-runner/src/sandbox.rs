@@ -2,12 +2,17 @@
 //! a funded pocket, and the runner *genuinely attempting* things that must not
 //! work. Each cheat returns the real error from the component that stops it.
 
-use std::{convert::Infallible, sync::Arc};
+use std::{collections::VecDeque, convert::Infallible, net::IpAddr, sync::Arc};
 
 use anyhow::{anyhow, bail, Context, Result};
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Extension, Json,
+};
 use cadence_chain::{lwd, wallet};
-use cadence_core::package::InstallmentLadder;
+use cadence_core::{mandate::installment_fee, package::InstallmentLadder};
 use orchard::{
     keys::{FullViewingKey, Scope},
     note::{NoteVersion, RandomSeed, Rho},
@@ -36,6 +41,7 @@ use zcash_protocol::{
 
 use crate::{
     api::{bad, check_extras, check_schedule, insert_offer, not_found, ApiError, ApiResult, NewOffer},
+    limits::{too_many, ClientIp},
     refund,
     service::{fetch_beacon, now, parse_account, parse_nullifier, parse_txid, App, Funder},
     store::{Installment, Quote, Subscription},
@@ -93,13 +99,85 @@ pub struct SandboxFund {
     pocket_id: Option<String>,
     ua: Option<String>,
     amount_zat: u64,
+    /// The sandbox offer the pocket is for, whose prepay is then the only amount paid.
+    offer_id: Option<String>,
 }
 
-/// Pays a registered pocket once from the sandbox wallet (custodial, disclosed).
-pub async fn fund(State(app): State<Arc<App>>, Json(req): Json<SandboxFund>) -> ApiResult<Json<Value>> {
-    let funder = funder(&app)?;
-    if req.amount_zat == 0 || req.amount_zat > 2_000_000 {
-        return Err(bad("amount_zat must be between 1 and 2,000,000"));
+/// The most a pocket is paid without naming its offer: what the shipped app asks for.
+pub const FUND_CAP_ZAT: u64 = 440_000;
+/// Fundings in any rolling hour, in all and to one client.
+pub const FUNDINGS_PER_HOUR: usize = 30;
+pub const FUNDINGS_PER_CLIENT_PER_HOUR: usize = 6;
+const HOUR: u64 = 60 * 60;
+
+/// The faucet's fundings in the last hour, oldest first, so that no one drains it.
+#[derive(Default)]
+pub struct Budget {
+    recent: VecDeque<(u64, IpAddr)>,
+}
+
+impl Budget {
+    /// Takes a slot for one funding to `client` at `now`, or says in how many seconds
+    /// one frees up.
+    pub fn reserve(&mut self, client: IpAddr, now: u64) -> Result<(u64, IpAddr), u64> {
+        while self.recent.front().is_some_and(|(at, _)| at + HOUR <= now) {
+            self.recent.pop_front();
+        }
+        let frees = |at: u64| (at + HOUR).saturating_sub(now);
+        if self.recent.len() >= FUNDINGS_PER_HOUR {
+            return Err(frees(self.recent[0].0));
+        }
+        let theirs: Vec<u64> = self.recent.iter().filter(|(_, c)| *c == client).map(|(at, _)| *at).collect();
+        if theirs.len() >= FUNDINGS_PER_CLIENT_PER_HOUR {
+            return Err(frees(theirs[0]));
+        }
+        self.recent.push_back((now, client));
+        Ok((now, client))
+    }
+
+    /// Gives back a slot whose funding was never sent.
+    pub fn release(&mut self, slot: (u64, IpAddr)) {
+        if let Some(i) = self.recent.iter().position(|s| *s == slot) {
+            self.recent.remove(i);
+        }
+    }
+}
+
+/// Pays a registered pocket once from the sandbox wallet (custodial, disclosed),
+/// within the faucet's hourly limits.
+pub async fn fund(
+    State(app): State<Arc<App>>,
+    Extension(ClientIp(client)): Extension<ClientIp>,
+    Json(req): Json<SandboxFund>,
+) -> Result<Json<Value>, Response> {
+    let funder = funder(&app).map_err(IntoResponse::into_response)?;
+    let slot = funder.budget.lock().unwrap().reserve(client, now()).map_err(|secs| {
+        let mins = secs.div_ceil(60).max(1);
+        too_many(secs.max(1), format!("the sandbox faucet is rate limited; try again in {mins} min"))
+    })?;
+    let paid = fund_pocket(&app, funder, &req).await;
+    if paid.is_err() {
+        funder.budget.lock().unwrap().release(slot);
+    }
+    paid.map_err(IntoResponse::into_response)
+}
+
+async fn fund_pocket(app: &App, funder: &Funder, req: &SandboxFund) -> ApiResult<Json<Value>> {
+    match &req.offer_id {
+        Some(id) => {
+            let offer = app.store.lock().unwrap().offer(id)?.ok_or_else(|| bad("unknown offer"))?;
+            if offer.merchant_ua != funder.pocket.funding_ua(&app.cfg.network) {
+                return Err(bad("the faucet funds only the sandbox's own offers"));
+            }
+            let prepay = u64::from(offer.count) * (offer.amount_zat + u64::from(installment_fee()));
+            if req.amount_zat != prepay {
+                return Err(bad(format!("this offer's prepay is {prepay} zats; amount_zat must be exactly that")));
+            }
+        }
+        None if req.amount_zat == 0 || req.amount_zat > FUND_CAP_ZAT => {
+            return Err(bad("amount_zat must be between 1 and 440,000"));
+        }
+        None => {}
     }
     let pocket = {
         let store = app.store.lock().unwrap();
@@ -109,7 +187,7 @@ pub async fn fund(State(app): State<Arc<App>>, Json(req): Json<SandboxFund>) -> 
                 UnifiedFullViewingKey::decode(&app.cfg.network, &p.ufvk)
                     .ok()
                     .and_then(|u| u.orchard().cloned())
-                    .map(|fvk| funding_ua(&app, &fvk) == *ua)
+                    .map(|fvk| funding_ua(app, &fvk) == *ua)
                     .unwrap_or(false)
             }),
             (None, None) => return Err(bad("give pocket_id or ua")),
@@ -119,7 +197,7 @@ pub async fn fund(State(app): State<Arc<App>>, Json(req): Json<SandboxFund>) -> 
     if pocket.funding.is_some() || !funder.funded.lock().unwrap().insert(pocket.pocket_id.clone()) {
         return Err(bad("this pocket has already been funded"));
     }
-    let fvk = pocket_fvk(&app, &pocket.ufvk)?;
+    let fvk = pocket_fvk(app, &pocket.ufvk)?;
     let to = fvk.address_at(0u32, Scope::External);
     let amount = Zatoshis::from_u64(req.amount_zat).map_err(|_| bad("bad amount"))?;
 
@@ -536,20 +614,24 @@ fn utc(unix: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, SocketAddr};
+
     use axum::{
         body::Body,
+        extract::ConnectInfo,
         http::{header, Request, StatusCode},
     };
     use serde_json::{json, Value};
 
-    use super::utc;
+    use super::{utc, Budget, FUNDINGS_PER_CLIENT_PER_HOUR, FUNDINGS_PER_HOUR, FUND_CAP_ZAT, HOUR};
     use crate::{
         api::{
-            router,
+            insert_offer, router,
             tests::{offer, prepaid, send, signed_schedule, subscribable, subscribed, test_app, upload},
         },
         refund::{expire, VOIDED_KEEP_SECS},
         service::{finish, now},
+        store::Funding,
     };
 
     fn cheat(subscription_id: &Value, kind: &str) -> Request<Body> {
@@ -660,6 +742,118 @@ mod tests {
             let last = log.last().unwrap();
             assert!(last.starts_with(&format!("schedule check: installment {k} releases ")), "{log:?}");
         }
+    }
+
+    #[test]
+    fn the_faucet_budget_is_hourly_in_all_and_per_client() {
+        let mut budget = Budget::default();
+        let a: IpAddr = "203.0.113.7".parse().unwrap();
+        let t = 1_800_000_000;
+        let mut slots = vec![];
+        for n in 0..FUNDINGS_PER_CLIENT_PER_HOUR as u64 {
+            slots.push(budget.reserve(a, t + n).unwrap());
+        }
+        // The client's first funding frees a slot an hour after it was made.
+        assert_eq!(budget.reserve(a, t + 10), Err(HOUR - 10));
+        budget.release(slots.pop().unwrap());
+        assert!(budget.reserve(a, t + 10).is_ok());
+        assert!(budget.reserve(a, t + HOUR - 1).is_err());
+        assert!(budget.reserve(a, t + HOUR).is_ok());
+
+        let mut budget = Budget::default();
+        for n in 0..FUNDINGS_PER_HOUR as u32 {
+            budget.reserve(IpAddr::from((n + 1).to_be_bytes()), t + u64::from(n)).unwrap();
+        }
+        assert_eq!(budget.reserve(a, t + 100), Err(HOUR - 100));
+        assert!(budget.reserve(a, t + HOUR).is_ok(), "the oldest has aged out");
+        assert!(budget.reserve(a, t + HOUR).is_err());
+    }
+
+    fn fund(body: Value, peer: Option<&str>) -> Request<Body> {
+        let mut req = Request::post("/api/sandbox/fund")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        if let Some(peer) = peer {
+            req.extensions_mut().insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+        }
+        req
+    }
+
+    #[tokio::test]
+    async fn the_faucet_pays_a_sandbox_offer_its_prepay_and_little_else() {
+        let app = test_app(true, None);
+        let api = router(app.clone(), None, vec![]);
+        let made = Request::post("/api/sandbox/offer")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "count": 3, "period_secs": 90, "amount_zat": 20_000 }).to_string()))
+            .unwrap();
+        let (_, _, made) = send(&api, made).await;
+        let offer_id = made["offer_id"].as_str().unwrap();
+        let prepay = prepaid(&offer(3, 90));
+        let ufvk = cadence_core::Pocket::from_seed(&[9; 32], 1).ufvk().encode(&app.cfg.network).unwrap();
+        app.store.lock().unwrap().insert_pocket("pkt_faucet", "00000000-0000-0000-0000-000000000003", &ufvk, 1, now()).unwrap();
+        let ask = |amount_zat: u64, offer_id: Option<&str>| {
+            fund(json!({ "pocket_id": "pkt_faucet", "amount_zat": amount_zat, "offer_id": offer_id }), None)
+        };
+
+        let (status, _, body) = send(&api, ask(prepay + 1, Some(offer_id))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], format!("this offer's prepay is {prepay} zats; amount_zat must be exactly that"));
+        let (_, _, body) = send(&api, ask(prepay, Some("off_nope"))).await;
+        assert_eq!(body["error"], "unknown offer");
+        let merchants = insert_offer(&app, crate::api::NewOffer { merchant_ua: "u1merchant".into(), ..crate::api::tests::plan(3, 90, 0) }).unwrap();
+        let (_, _, body) = send(&api, ask(prepay, merchants["offer_id"].as_str())).await;
+        assert_eq!(body["error"], "the faucet funds only the sandbox's own offers");
+        // Without an offer, no more than the shipped app asks for.
+        for amount in [0, FUND_CAP_ZAT + 1] {
+            let (status, _, body) = send(&api, ask(amount, None)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["error"], "amount_zat must be between 1 and 440,000");
+        }
+
+        // The exact prepay goes on to the wallet, which cannot reach lightwalletd here.
+        let (status, _, body) = send(&api, ask(prepay, Some(offer_id))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        let (status, _, body) = send(&api, ask(FUND_CAP_ZAT, None)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        // None of these paid, so none counts against the hour.
+        let funder = app.funder.as_ref().unwrap();
+        assert!(funder.budget.lock().unwrap().recent.is_empty());
+
+        // A pocket the runner has seen funded is never paid again.
+        let funding = Funding { txid: "00".repeat(32), tx_hex: String::new(), mined_height: 1, value_zat: prepay };
+        app.store.lock().unwrap().set_funding("pkt_faucet", &funding).unwrap();
+        let (status, _, body) = send(&api, ask(prepay, Some(offer_id))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "this pocket has already been funded");
+    }
+
+    #[tokio::test]
+    async fn the_faucet_answers_429_past_its_hourly_limits() {
+        let app = test_app(true, None);
+        let api = router(app.clone(), None, vec![]);
+        let body = json!({ "ua": "u1nope", "amount_zat": 1 });
+        let budget = &app.funder.as_ref().unwrap().budget;
+        let client: IpAddr = "203.0.113.7".parse().unwrap();
+        for _ in 0..FUNDINGS_PER_CLIENT_PER_HOUR {
+            budget.lock().unwrap().reserve(client, now()).unwrap();
+        }
+        let (status, headers, refused) = send(&api, fund(body.clone(), Some("203.0.113.7:4000"))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        let wait: u64 = headers.get(header::RETRY_AFTER).unwrap().to_str().unwrap().parse().unwrap();
+        assert!((HOUR - 5..=HOUR).contains(&wait), "{wait}");
+        assert_eq!(refused["error"], "the sandbox faucet is rate limited; try again in 60 min");
+        // Another client is still served (and told its pocket is unknown).
+        let (status, _, other) = send(&api, fund(body.clone(), Some("203.0.113.8:4000"))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{other}");
+
+        for n in 0..FUNDINGS_PER_HOUR as u32 {
+            let _ = budget.lock().unwrap().reserve(IpAddr::from((n + 1).to_be_bytes()), now());
+        }
+        let (status, _, refused) = send(&api, fund(body, Some("203.0.113.8:4000"))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(refused["error"].as_str().unwrap().starts_with("the sandbox faucet is rate limited"));
     }
 
     #[tokio::test]
