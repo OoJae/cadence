@@ -23,9 +23,11 @@ Subscription `sub_747f99039ba4f43c5234` (offer `off_27dee6ad856ca8d853aa`, pocke
 |---|---|---|---|---|---|---|
 | Funding (Zodl → pocket) | `120bd07611128e3c3801a9f457885089647f0ca25ad800c2df02a85a2a9da1cf` | | | 3,532,624 | 34 | 9 |
 | Installment 1 | `f5531143d2f15b7f46d9492fdb54aaa91583548249e9c712a4941fc6da970a91` | 2026-10-27 17:00:27 UTC (33,439,021) | 3,532,627 | 3,532,628 | 39 | 4 |
-| Installment 2 | sealed | 2026-11-03 17:00:27 UTC (33,640,621) | | | | |
+| Installment 2 | `ace55d77dd416ebaffb46bec1659e897561299dd2fb87438438f6b3c78ba2285` | 2026-11-03 17:00:27 UTC (33,640,621) | 3,540,825 | 3,540,825 | 40 | 3 |
 | Installment 3 | sealed | 2026-11-10 17:00:27 UTC (33,842,221) | | | | |
 | Installment 4 | sealed | 2026-11-17 17:00:27 UTC (34,043,821) | | | | |
+
+**Installment 2 went out 3 h 36 min late.** Its round passed at 17:00:27 UTC, but the runner couldn't fetch it: its embedded Tor client held an expired directory and failed every new circuit with `DirExpired`. Chain sync kept working over the connection it already had. A restart of the runner at 20:34:57 UTC (same build, same volume, no code or setting changed) loaded a fresh directory. The runner then fetched the round, opened the package and broadcast the rung for tip+1. That rung mined at 20:36:13 UTC in its target block, 531 blocks below the ladder's last rung (3,541,356). This is the margin the ladder is for: a release that comes late still lands, as long as it comes before the window ends.
 
 Live status, polled from the mainnet runner: https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234 (it shows times in your browser's time zone; this page gives them in UTC).
 
