@@ -22,7 +22,7 @@ env:
 jobs:
   rust:
     name: cargo test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -39,7 +39,7 @@ jobs:
 
   web:
     name: web checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
@@ -69,7 +69,7 @@ jobs:
 
   wasm:
     name: wasm signer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # secp256k1-sys compiles C for wasm32; Ubuntu's clang has the backend.
       CC_wasm32_unknown_unknown: /usr/bin/clang
