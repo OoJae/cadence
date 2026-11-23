@@ -24,14 +24,16 @@ Subscription `sub_747f99039ba4f43c5234` (offer `off_27dee6ad856ca8d853aa`, pocke
 | Funding (Zodl → pocket) | `120bd07611128e3c3801a9f457885089647f0ca25ad800c2df02a85a2a9da1cf` | | | 3,532,624 | 34 | 9 |
 | Installment 1 | `f5531143d2f15b7f46d9492fdb54aaa91583548249e9c712a4941fc6da970a91` | 2026-10-27 17:00:27 UTC (33,439,021) | 3,532,627 | 3,532,628 | 39 | 4 |
 | Installment 2 | `ace55d77dd416ebaffb46bec1659e897561299dd2fb87438438f6b3c78ba2285` | 2026-11-03 17:00:27 UTC (33,640,621) | 3,540,825 | 3,540,825 | 40 | 3 |
-| Installment 3 | sealed | 2026-11-10 17:00:27 UTC (33,842,221) | | | | |
-| Installment 4 | sealed | 2026-11-17 17:00:27 UTC (34,043,821) | | | | |
+| Installment 3 | `245f3ed73addb187b0245576b075d478512efc2487109d650852b828da7a9ab0` | 2026-11-10 17:00:27 UTC (33,842,221) | 3,559,113 | 3,559,114 | 119 | — |
+| Installment 4 | `be649cd2cb07afc5d6bdfa04b93eb4f17bf7118207305de86598a24af3a18590` | 2026-11-17 17:00:27 UTC (34,043,821) | 3,583,306 | 3,583,306 | 120 | 3 |
+
+The mandate is `completed`: four of four installments mined, each in its target block or the one after. Installments 3 and 4 mined 32 s and 44 s after their rounds (blocks at 17:00:59 and 17:01:11 UTC). Installment 3's anchor depth is missing because the runner's log for that release has aged out of the host's retention.
 
 **Installment 2 went out 3 h 36 min late.** Its round passed at 17:00:27 UTC, but the runner couldn't fetch it: its embedded Tor client held an expired directory and failed every new circuit with `DirExpired`. Chain sync kept working over the connection it already had. A restart of the runner at 20:34:57 UTC (same build, same volume, no code or setting changed) loaded a fresh directory. The runner then fetched the round, opened the package and broadcast the rung for tip+1. That rung mined at 20:36:13 UTC in its target block, 531 blocks below the ladder's last rung (3,541,356). This is the margin the ladder is for: a release that comes late still lands, as long as it comes before the window ends.
 
 Live status, polled from the mainnet runner: https://main-production-d975.up.railway.app/status#sub=sub_747f99039ba4f43c5234 (it shows times in your browser's time zone; this page gives them in UTC).
 
-**Across NU7.** Mainnet NU7 activates at height 3,543,405 (`crates/cadence-core/src/mandate.rs`). At 75-second blocks from the tip when this was written (3,532,640), that is around 5 November: after installment 2 and before installment 3. Each rung is signed for the consensus branch and expiry at its own height. So installment 3, signed on October 27, already carries the NU7 branch and its 120-block expiry, and will be the first Cadence installment after the upgrade. The status page marks it when it lands.
+**Across NU7.** Mainnet NU7 activates at height 3,543,405 (`crates/cadence-core/src/mandate.rs`), between installments 2 and 3. Each rung is signed for the consensus branch and expiry at its own height, so installment 3, signed on October 27 before the upgrade, already carried the NU7 branch and its 120-block expiry. It mined at 3,559,114, 15,709 blocks after activation and 1,667 blocks below its ladder's last rung (3,560,781): the first Cadence installment after the upgrade, released from a package sealed before it. Its expiry − mined of 119 (against 39–40 before NU7) is the new expiry rule showing on chain.
 
 ## Shape: a Cadence installment next to the payer's own Zodl send
 
