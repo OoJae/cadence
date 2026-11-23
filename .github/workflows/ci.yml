@@ -33,7 +33,11 @@ jobs:
       # runner's gcc.
       - name: Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustc --version && cargo --version
+      # The cache key names the image: a build cached on another Ubuntu links that
+      # image's system liblzma, which this one may not have.
       - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: ubuntu-24.04
       - name: cargo test --workspace
         run: cargo test --workspace --locked
 
@@ -83,6 +87,8 @@ jobs:
       - name: clang and llvm-ar
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm
       - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: ubuntu-24.04
       - name: wasm-bindgen-cli 0.2.129 (must equal the crate's)
         run: |
           if ! wasm-bindgen --version 2>/dev/null | grep -q ' 0.2.129'; then
